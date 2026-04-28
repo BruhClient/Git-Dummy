@@ -1,0 +1,88 @@
+import sys
+import os
+
+sys.path.insert(0, os.path.dirname(__file__))
+
+from PyQt5.QtCore import Qt
+from PyQt5.QtWidgets import QApplication, QStackedWidget
+
+from auth.github_auth import GitHubAuth
+from ui.auth_page import AuthPage
+from ui.main_window import MainWindow
+from ui.repo_page import RepoPage
+from ui.commit_view import CommitViewPage
+from styles.theme import make_global_style
+
+
+class App(QStackedWidget):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("Git Dummy")
+        self.setMinimumSize(1100, 700)
+
+        self._auth = GitHubAuth(self)
+
+        self.setStyleSheet(make_global_style())
+
+        self._auth_page = AuthPage(self._auth)
+        self._main_window = MainWindow(self._auth)
+
+        self._repo_page = RepoPage()
+        self._commit_page = CommitViewPage()
+
+        self._main_window.add_page(MainWindow.PAGE_REPOS, self._repo_page)
+        self._main_window.add_page(MainWindow.PAGE_COMMITS, self._commit_page)
+
+        self.addWidget(self._auth_page)
+        self.addWidget(self._main_window)
+
+        self._auth.auth_success.connect(self._on_auth_success)
+        self._auth.auth_failed.connect(self._on_auth_failed)
+        self._repo_page.repo_selected.connect(self._on_repo_selected)
+        self._main_window.logout_requested.connect(self._on_logout)
+
+        if self._auth.has_saved_token():
+            self._auth.load_saved_token()
+        else:
+            self.setCurrentWidget(self._auth_page)
+
+    def _on_auth_success(self, user: dict):
+        self._main_window.set_user(user)
+        self._repo_page.set_user(user)
+        self._commit_page.set_user(user)
+        self._main_window.show_page(MainWindow.PAGE_REPOS)
+        self.setCurrentWidget(self._main_window)
+
+    def _on_auth_failed(self, message: str):
+        self.setCurrentWidget(self._auth_page)
+        self._auth_page.show_error(message)
+
+    def _on_logout(self):
+        self._commit_page.reset()
+        self._main_window.show_page(MainWindow.PAGE_REPOS)
+        self._auth_page.reset()
+        self.setCurrentWidget(self._auth_page)
+
+    def _on_repo_selected(self, repo_path: str):
+        import os
+        repo_name = os.path.basename(repo_path)
+        self._main_window.set_repo_name(repo_name)
+        self._commit_page.load_repo(repo_path)
+        self._main_window.show_page(MainWindow.PAGE_COMMITS, repo_name)
+
+
+def main():
+    QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
+    QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
+
+    app = QApplication(sys.argv)
+    app.setApplicationName("Git Dummy")
+    app.setOrganizationName("GitDummy")
+
+    window = App()
+    window.show()
+    sys.exit(app.exec_())
+
+
+if __name__ == "__main__":
+    main()
