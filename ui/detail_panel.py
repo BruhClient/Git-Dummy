@@ -1307,7 +1307,7 @@ class DetailPanel(QWidget):
         saved_at = f"{d.day} {d.strftime('%b')} {d.year}  {d.strftime('%H:%M')}"
         self._sha.set(saved_at, color=COLORS["text_secondary"])
         self._branch.set(commit.branch)
-        self._author.set(commit.author, color=COLORS["text_secondary"])
+        self._author.set(shown_name or "—", color=COLORS["text_secondary"])
         self._date.set(commit.date_str, color=COLORS["text_secondary"])
         self._message.setText(detail.get("message", commit.message))
         self._populate_files(files or [])

@@ -44,8 +44,11 @@ class _Loader(QObject):
 
     @pyqtSlot()
     def run(self):
-        commits, branch_tip_map, local_only = self._tracker.graph_commits()
-        unpushed = self._tracker.get_unpushed_shas()
+        try:
+            commits, branch_tip_map, local_only = self._tracker.graph_commits()
+            unpushed = self._tracker.get_unpushed_shas()
+        except Exception:
+            commits, branch_tip_map, local_only, unpushed = [], {}, set(), set()
         self.finished.emit(commits, branch_tip_map, local_only, unpushed)
 
 
@@ -113,13 +116,16 @@ class _FirstCommitWorker(QObject):
 class _CreateRepoWorker(QObject):
     finished = pyqtSignal(bool, str, str)   # success, error, clone_url
 
-    def __init__(self, repo_path: str, repo_name: str, token: str, username: str, private: bool = True):
+    def __init__(self, repo_path: str, repo_name: str, token: str, username: str,
+                 private: bool = True, user_name: str = "", user_email: str = ""):
         super().__init__()
-        self._path     = repo_path
-        self._name     = repo_name
-        self._token    = token
-        self._username = username
-        self._private  = private
+        self._path       = repo_path
+        self._name       = repo_name
+        self._token      = token
+        self._username   = username
+        self._private    = private
+        self._user_name  = user_name
+        self._user_email = user_email
 
     @pyqtSlot()
     def run(self):
@@ -128,7 +134,8 @@ class _CreateRepoWorker(QObject):
         if not ok:
             self.finished.emit(False, err, "")
             return
-        ok, err = push_to_github(self._path, clone_url, self._username, self._token)
+        ok, err = push_to_github(self._path, clone_url, self._username, self._token,
+                                 self._user_name, self._user_email)
         self.finished.emit(ok, err, clone_url)
 
 
@@ -1166,29 +1173,38 @@ class CommitViewPage(QWidget):
             self._fs_watcher.removePaths(dirs)
 
     def _on_git_file_changed(self, path: str):
-        # Git atomically replaces ref files — re-add so we keep watching
+        if not self._tracker:
+            return
+        if not os.path.isdir(self._tracker._path):
+            self._teardown_fs_watcher()
+            return
         if os.path.exists(path) and path not in self._fs_watcher.files():
             self._fs_watcher.addPath(path)
-        if self._tracker:
-            self._header.set_operation(self._tracker.operation_in_progress())
+        self._header.set_operation(self._tracker.operation_in_progress())
         self._reload_debounce.start()
 
     def _on_git_dir_changed(self, path: str):
-        if self._tracker:
-            self._header.set_operation(self._tracker.operation_in_progress())
+        if not self._tracker:
+            return
+        if not os.path.isdir(self._tracker._path):
+            self._teardown_fs_watcher()
+            return
+        self._header.set_operation(self._tracker.operation_in_progress())
         self._reload_debounce.start()
 
     def _start_create_repo(self, name: str, private: bool):
         if not self._tracker:
             return
-        token    = self._user.get("access_token", "")
-        username = self._user.get("login", "")
+        token      = self._user.get("access_token", "")
+        username   = self._user.get("login", "")
+        user_name  = self._user.get("name") or username
+        user_email = self._user.get("email", "")
         if not token or not username:
             return
         self._no_remote_banner.set_creating(True)
         self._create_thread  = QThread()
         self._create_worker  = _CreateRepoWorker(
-            self._tracker._path, name, token, username, private,
+            self._tracker._path, name, token, username, private, user_name, user_email,
         )
         self._create_worker.moveToThread(self._create_thread)
         self._create_thread.started.connect(self._create_worker.run)
@@ -1377,7 +1393,11 @@ class CommitViewPage(QWidget):
         detail = self._tracker.commit_detail(commit.sha) if self._tracker else {}
         files  = self._tracker.commit_files(commit.sha) if self._tracker else []
         is_you = commit.sha in self._you_shas
-        self._panel.show_commit(commit, detail, collab.get("avatar_url", ""), "You" if is_you else None, files)
+        if is_you:
+            display_author = "You"
+        else:
+            display_author = collab.get("gh_name") or collab.get("login", "")
+        self._panel.show_commit(commit, detail, collab.get("avatar_url", ""), display_author, files)
 
     def _on_commit_clicked(self, commit: CommitInfo):
         self._changes_panel.hide_panel()
@@ -1407,7 +1427,12 @@ class CommitViewPage(QWidget):
               (c.get("gh_name") and self._alpha(c.get("gh_name", "")) in self._alpha(commit.author)))),
             {}
         )
-        display_author = "You" if is_you else None
+        if is_you:
+            display_author = "You"
+        elif collab:
+            display_author = collab.get("gh_name") or collab.get("login", "")
+        else:
+            display_author = ""   # not a known collaborator — show "—"
         self._panel.show_commit(commit, detail, collab.get("avatar_url", ""), display_author, files)
 
     # ── Resize ────────────────────────────────────────────────────────────

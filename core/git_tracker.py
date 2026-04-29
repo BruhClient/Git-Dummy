@@ -196,17 +196,20 @@ class GitTracker:
 
         commits: list[CommitInfo] = []
         for c in raw:
-            commits.append(CommitInfo(
-                sha=c.hexsha,
-                short_sha=c.hexsha[:7],
-                message=c.message.strip().splitlines()[0],
-                author=c.author.name or "",
-                author_email=c.author.email or "",
-                date=datetime.fromtimestamp(c.committed_date),
-                branch="",          # set later by the lane algorithm
-                tags=tag_map.get(c.hexsha, []),
-                parents=[p.hexsha for p in c.parents],
-            ))
+            try:
+                commits.append(CommitInfo(
+                    sha=c.hexsha,
+                    short_sha=c.hexsha[:7],
+                    message=c.message.strip().splitlines()[0],
+                    author=c.author.name or "",
+                    author_email=c.author.email or "",
+                    date=datetime.fromtimestamp(c.committed_date),
+                    branch="",
+                    tags=tag_map.get(c.hexsha, []),
+                    parents=[p.hexsha for p in c.parents],
+                ))
+            except Exception:
+                continue
 
         return commits, branch_tip_map, local_only
 
