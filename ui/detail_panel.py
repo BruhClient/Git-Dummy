@@ -88,7 +88,7 @@ class _HeaderAvatar(QWidget):
         p.end()
 
 PANEL_W   = 320
-CHANGES_W = 380
+CHANGES_W = 460
 
 SWIPE_THRESHOLD = 70   # px rightward drag to dismiss a panel
 
@@ -96,6 +96,9 @@ def _filter_unchanged(removed: list, added: list) -> tuple[list, list]:
     """Drop lines that are positionally paired and content-identical — they only moved."""
     from difflib import SequenceMatcher
     if not removed or not added:
+        return removed, added
+    # Skip O(n²) filtering for large diffs — would freeze the UI
+    if len(removed) > 300 or len(added) > 300:
         return removed, added
     sm = SequenceMatcher(None, [t for _, t in removed], [t for _, t in added], autojunk=False)
     keep_r = set(range(len(removed)))
@@ -1187,7 +1190,7 @@ class DetailPanel(QWidget):
         content_layout.setContentsMargins(20, 20, 20, 20)
         content_layout.setSpacing(16)
 
-        self._sha    = _Row("Saved on")
+        self._sha    = _Row("Committed on")
         self._branch = _Row("Branch")
         self._author = _Row("Made by")
         self._date   = _Row("When")

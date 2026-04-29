@@ -1,15 +1,106 @@
 from __future__ import annotations
 
+import configparser
 import os
+import re
+import threading
 
-from PyQt5.QtCore import Qt, pyqtSignal
-from PyQt5.QtGui import QPainter, QColor, QPen, QBrush
+from PyQt5.QtCore import Qt, pyqtSignal, QObject
+from PyQt5.QtGui import QPainter, QColor, QPen, QBrush, QPainterPath, QPixmap, QFont
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QFileDialog, QScrollArea, QFrame, QSizePolicy, QMessageBox,
 )
 from styles.theme import COLORS, BTN_PRIMARY
 from core import repo_store
+
+
+def _remote_owner(repo_path: str) -> str:
+    """Get the GitHub owner login from the origin remote URL."""
+    import subprocess
+    try:
+        r = subprocess.run(
+            ["git", "remote", "get-url", "origin"],
+            cwd=repo_path, capture_output=True, text=True, timeout=3,
+        )
+        if r.returncode == 0:
+            url = r.stdout.strip()
+            m = re.search(r"github\.com[:/]([^/]+)/", url)
+            return m.group(1) if m else ""
+    except Exception:
+        pass
+    return ""
+
+
+class _OwnerAvatar(QWidget):
+    """Small circular avatar showing the repo owner."""
+
+    _pixmap_ready = pyqtSignal()
+    SIZE = 28
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setFixedSize(self.SIZE, self.SIZE)
+        self._pixmap: QPixmap | None = None
+        self._initials = ""
+        self._pixmap_ready.connect(self.update)
+
+    def set_owner(self, login: str, token: str):
+        self._initials = login[:2].upper() if login else ""
+        self.update()
+        if login and token:
+            threading.Thread(target=self._fetch, args=(login, token), daemon=True).start()
+
+    def _fetch(self, login: str, token: str):
+        try:
+            import requests
+            r = requests.get(
+                f"https://api.github.com/users/{login}",
+                headers={"Authorization": f"Bearer {token}",
+                         "Accept": "application/vnd.github+json"},
+                timeout=8,
+            )
+            if r.status_code == 200:
+                avatar_url = r.json().get("avatar_url", "")
+                if avatar_url:
+                    img = requests.get(avatar_url, timeout=8)
+                    if img.status_code == 200:
+                        pm = QPixmap()
+                        pm.loadFromData(img.content)
+                        if not pm.isNull():
+                            s = self.SIZE
+                            self._pixmap = pm.scaled(s, s, Qt.KeepAspectRatioByExpanding,
+                                                     Qt.SmoothTransformation)
+                            self._pixmap_ready.emit()
+        except Exception:
+            pass
+
+    def paintEvent(self, _):
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing)
+        s = self.SIZE
+        clip = QPainterPath()
+        clip.addEllipse(0, 0, s, s)
+        p.setClipPath(clip)
+        if self._pixmap:
+            src = self._pixmap
+            x = (src.width() - s) // 2
+            y = (src.height() - s) // 2
+            p.drawPixmap(0, 0, src, x, y, s, s)
+        else:
+            p.setBrush(QBrush(QColor(COLORS["accent_dim"])))
+            p.setPen(Qt.NoPen)
+            p.drawEllipse(0, 0, s, s)
+            if self._initials:
+                p.setClipping(False)
+                p.setPen(QPen(QColor(COLORS["accent"])))
+                p.setFont(QFont("Inter", s // 4, QFont.Bold))
+                p.drawText(self.rect(), Qt.AlignCenter, self._initials)
+        p.setClipping(False)
+        p.setBrush(Qt.NoBrush)
+        p.setPen(QPen(QColor(COLORS["border"]), 1))
+        p.drawEllipse(0, 0, s, s)
+        p.end()
 
 
 # ── Drop zone ─────────────────────────────────────────────────────────────────
@@ -89,76 +180,87 @@ class DropZone(QWidget):
 # ── Cards ─────────────────────────────────────────────────────────────────────
 
 class RepoCard(QWidget):
-    open_requested = pyqtSignal(str)
+    open_requested   = pyqtSignal(str)
     remove_requested = pyqtSignal(str)
 
-    def __init__(self, repo_path: str, parent=None):
+    def __init__(self, repo_path: str, user: dict = None, parent=None):
         super().__init__(parent)
         self._path = repo_path
-        self.setObjectName("repoCard")
-        self.setStyleSheet(f"""
-            #repoCard {{
-                background-color: {COLORS['bg_card']};
-                border: 1px solid {COLORS['border']};
-                border-radius: 8px;
-            }}
-            #repoCard:hover {{ border-color: {COLORS['border_focus']}; }}
-        """)
+        self.setAttribute(Qt.WA_StyledBackground, True)
+        self.setCursor(Qt.PointingHandCursor)
+        self.setFixedHeight(56)
+        self._apply_style(False)
 
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(20, 14, 16, 14)
-        layout.setSpacing(14)
-
-        icon = QLabel("◫")
-        icon.setFixedWidth(28)
-        icon.setStyleSheet(f"background: transparent; font-size: 20px; color: {COLORS['accent']};")
-        layout.addWidget(icon)
+        layout.setContentsMargins(16, 0, 12, 0)
+        layout.setSpacing(12)
 
         info = QVBoxLayout()
         info.setSpacing(2)
+        info.setAlignment(Qt.AlignVCenter)
+
         name_label = QLabel(os.path.basename(self._path))
         name_label.setStyleSheet(
             f"background: transparent; font-size: 14px; font-weight: 600; color: {COLORS['text_primary']};"
         )
-        path_label = QLabel(self._path)
-        path_label.setStyleSheet(f"background: transparent; font-size: 12px; color: {COLORS['text_muted']};")
-        path_label.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        name_label.setAttribute(Qt.WA_TransparentForMouseEvents, True)
         info.addWidget(name_label)
-        info.addWidget(path_label)
         layout.addLayout(info)
         layout.addStretch()
 
-        git_badge = QLabel(" tracked ")
-        git_badge.setStyleSheet(f"""
-            font-size: 11px; font-weight: 600;
-            color: {COLORS['tag_text']}; background: {COLORS['tag_bg']};
-            border-radius: 4px; padding: 2px 8px;
-        """)
-        layout.addWidget(git_badge)
+        # Owner avatar + name (right side, always visible when remote exists)
+        self._avatar = _OwnerAvatar()
+        self._avatar.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        self._avatar.hide()
 
-        open_btn = QPushButton("Explore →")
-        open_btn.setStyleSheet(BTN_PRIMARY)
-        open_btn.setFixedSize(100, 34)
-        open_btn.setCursor(Qt.PointingHandCursor)
-        open_btn.clicked.connect(lambda: self.open_requested.emit(self._path))
-        layout.addWidget(open_btn)
+        self._owner_label = QLabel("")
+        self._owner_label.setStyleSheet(
+            f"background: transparent; font-size: 12px; color: {COLORS['text_muted']};"
+        )
+        self._owner_label.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        self._owner_label.hide()
 
-        rm_btn = QPushButton("✕")
-        rm_btn.setToolTip("Remove from tracking")
-        rm_btn.setFixedSize(34, 34)
-        rm_btn.setCursor(Qt.PointingHandCursor)
-        rm_btn.setStyleSheet(f"""
+        layout.addWidget(self._avatar)
+        layout.addWidget(self._owner_label)
+
+        owner = _remote_owner(repo_path)
+        if owner:
+            token = (user or {}).get("access_token", "")
+            self._owner_label.setText(owner)
+            self._owner_label.show()
+            self._avatar.show()
+            self._avatar.set_owner(owner, token)
+
+        self._rm_btn = QPushButton("✕")
+        self._rm_btn.setFixedSize(28, 28)
+        self._rm_btn.setCursor(Qt.PointingHandCursor)
+        self._rm_btn.hide()
+        self._rm_btn.setStyleSheet(f"""
             QPushButton {{
-                background: transparent; border: 1px solid {COLORS['border']};
-                border-radius: 6px; color: {COLORS['text_muted']}; font-size: 13px;
+                background: transparent; border: none;
+                color: {COLORS['text_muted']}; font-size: 12px;
             }}
-            QPushButton:hover {{
-                background: #2d1515; border-color: {COLORS['danger']};
-                color: {COLORS['danger']};
-            }}
+            QPushButton:hover {{ color: {COLORS['danger']}; }}
         """)
-        rm_btn.clicked.connect(lambda: self.remove_requested.emit(self._path))
-        layout.addWidget(rm_btn)
+        self._rm_btn.clicked.connect(lambda: self.remove_requested.emit(self._path))
+        layout.addWidget(self._rm_btn)
+
+    def _apply_style(self, hovered: bool):
+        bg = COLORS['bg_hover'] if hovered else "transparent"
+        self.setStyleSheet(f"background: {bg}; border-radius: 8px;")
+
+    def enterEvent(self, _):
+        self._apply_style(True)
+        self._rm_btn.show()
+
+    def leaveEvent(self, _):
+        self._apply_style(False)
+        self._rm_btn.hide()
+
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton:
+            self.open_requested.emit(self._path)
+        super().mousePressEvent(event)
 
 
 class MissingRepoCard(QWidget):
@@ -259,6 +361,7 @@ class RepoPage(QWidget):
 
     def set_user(self, user: dict):
         self._user = user
+        self._refresh_cards()
 
     # ── UI ────────────────────────────────────────────────────────────────────
 
@@ -302,7 +405,7 @@ class RepoPage(QWidget):
         self._cards_container.setStyleSheet("background: transparent;")
         self._cards_layout = QVBoxLayout(self._cards_container)
         self._cards_layout.setContentsMargins(0, 0, 0, 0)
-        self._cards_layout.setSpacing(10)
+        self._cards_layout.setSpacing(2)
         self._cards_layout.addStretch()
 
         scroll.setWidget(self._cards_container)
@@ -320,6 +423,28 @@ class RepoPage(QWidget):
             elif path not in self._missing:
                 self._missing.append(path)
         self._refresh_cards()
+
+    def _validate_paths(self):
+        changed = False
+        for path in list(self._repos):
+            if not os.path.isdir(os.path.join(path, ".git")):
+                self._repos.remove(path)
+                if path not in self._missing:
+                    self._missing.append(path)
+                changed = True
+        for path in list(self._missing):
+            if os.path.isdir(os.path.join(path, ".git")):
+                self._missing.remove(path)
+                if path not in self._repos:
+                    self._repos.append(path)
+                changed = True
+        if changed:
+            self._persist()
+            self._refresh_cards()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._validate_paths()
 
     def _persist(self):
         repo_store.save(self._repos + self._missing)
@@ -445,7 +570,7 @@ class RepoPage(QWidget):
 
         # Valid cards
         for path in self._repos:
-            card = RepoCard(path)
+            card = RepoCard(path, user=self._user)
             card.open_requested.connect(self.repo_selected.emit)
             card.remove_requested.connect(self.remove_repo)
             self._cards_layout.insertWidget(insert_pos, card)

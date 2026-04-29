@@ -144,21 +144,31 @@ class GitTracker:
 
         local_only: set[str] = set()
 
-        # Fall back to local branches if no remote exists
+        # Fall back to local branches if no remote refs are available
         if not ref_list:
             for b in self._repo.branches:
                 try:
                     ref_list.append((b.name, b.name, b.commit.hexsha))
+                    # Only mark as local_only if there is genuinely no remote.
+                    # If a remote exists but has no cached refs (not yet fetched),
+                    # we don't know whether the branch is on remote or not.
+                    if not chosen:
+                        local_only.add(b.name)
                 except Exception:
                     pass
         else:
-            # Also include local branches whose tip isn't on any remote ref
-            remote_tip_shas = {sha for _, _, sha in ref_list}
+            # Include local branches whose tip isn't on any remote ref.
+            # Only mark as local_only if the branch name itself doesn't exist
+            # on the remote — branches that are merely "ahead" of remote are
+            # handled commit-by-commit via get_unpushed_shas().
+            remote_tip_shas     = {sha     for _, _,       sha  in ref_list}
+            remote_branch_names = {display for _, display, _    in ref_list}
             for b in self._repo.branches:
                 try:
                     if b.commit.hexsha not in remote_tip_shas:
                         ref_list.append((b.name, b.name, b.commit.hexsha))
-                        local_only.add(b.name)
+                        if b.name not in remote_branch_names:
+                            local_only.add(b.name)
                 except Exception:
                     pass
 
@@ -196,6 +206,19 @@ class GitTracker:
 
         return commits, branch_tip_map, local_only
 
+    def fetch(self) -> bool:
+        """Fetch from origin. Returns True if refs changed."""
+        if not self._repo or not self.has_remote():
+            return False
+        try:
+            remote = next(iter(self._repo.remotes))
+            old = {ref.name: ref.commit.hexsha for ref in remote.refs}
+            remote.fetch()
+            new = {ref.name: ref.commit.hexsha for ref in remote.refs}
+            return old != new
+        except Exception:
+            return False
+
     def get_unpushed_shas(self) -> set[str]:
         """Return commit SHAs reachable from local branches but not from any remote ref."""
         if not self._repo or not self.has_remote():
@@ -212,6 +235,56 @@ class GitTracker:
         except Exception:
             pass
         return set()
+
+    def repo_visibility(self, token: str) -> str:
+        """Return 'private', 'public', or '' if unknown."""
+        import re, requests as req
+        if not self._repo or not self.has_remote():
+            return ""
+        try:
+            url = self._repo.remote("origin").url
+            m = re.search(r"github\.com[:/]([^/]+)/([^/]+?)(?:\.git)?$", url)
+            if not m:
+                return ""
+            owner, repo = m.group(1), m.group(2)
+            r = req.get(
+                f"https://api.github.com/repos/{owner}/{repo}",
+                headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"},
+                timeout=8,
+            )
+            if r.status_code == 200:
+                return "private" if r.json().get("private") else "public"
+            if r.status_code == 404:
+                return "not_found"
+        except Exception:
+            pass
+        return ""
+
+    def repo_owner(self) -> str:
+        """Return the GitHub username that owns the remote repo, or ''."""
+        import re
+        if not self._repo or not self.has_remote():
+            return ""
+        try:
+            url = self._repo.remote("origin").url
+            m = re.search(r"github\.com[:/]([^/]+)/", url)
+            return m.group(1) if m else ""
+        except Exception:
+            return ""
+
+    def remote_url(self) -> str:
+        """Return the GitHub HTTPS URL for origin, or empty string."""
+        if not self._repo or not self.has_remote():
+            return ""
+        try:
+            url = self._repo.remote("origin").url
+            if url.startswith("git@github.com:"):
+                url = "https://github.com/" + url[len("git@github.com:"):].removesuffix(".git")
+            elif url.endswith(".git"):
+                url = url.removesuffix(".git")
+            return url
+        except Exception:
+            return ""
 
     def has_remote(self) -> bool:
         return bool(self._repo and self._repo.remotes)
@@ -302,12 +375,11 @@ class GitTracker:
         except Exception:
             return []
 
-        # Enrich each contributor with their GitHub display name so the UI can
-        # match them to git commit author names (which differ from logins).
-        enriched = []
-        for collab in contributors:
+        # Enrich each contributor with their GitHub display name (parallel fetches)
+        import concurrent.futures
+
+        def _fetch_gh_name(collab):
             login = collab.get("login", "")
-            gh_name = ""
             try:
                 r = req.get(
                     f"https://api.github.com/users/{login}",
@@ -315,10 +387,13 @@ class GitTracker:
                     timeout=5,
                 )
                 if r.status_code == 200:
-                    gh_name = r.json().get("name") or ""
+                    return {**collab, "gh_name": r.json().get("name") or ""}
             except Exception:
                 pass
-            enriched.append({**collab, "gh_name": gh_name})
+            return {**collab, "gh_name": ""}
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as pool:
+            enriched = list(pool.map(_fetch_gh_name, contributors))
         return enriched
 
     def commit_files(self, sha: str) -> list[dict]:

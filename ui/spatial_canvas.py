@@ -237,14 +237,15 @@ class CommitNode(QGraphicsObject):
 
     clicked = pyqtSignal(object)   # CommitInfo
 
-    def __init__(self, commit: CommitInfo, color: str, is_start: bool = False):
+    def __init__(self, commit: CommitInfo, color: str, is_start: bool = False, is_local_only: bool = False):
         super().__init__()
-        self._commit   = commit
-        self._color    = QColor(color)
-        self._is_start = is_start
-        self._r        = START_R if is_start else NODE_R
-        self._hovered  = False
-        self._selected = False
+        self._commit        = commit
+        self._color         = QColor(color)
+        self._is_start      = is_start
+        self._is_local_only = is_local_only
+        self._r             = START_R if is_start else NODE_R
+        self._hovered       = False
+        self._selected      = False
 
         self.setAcceptHoverEvents(True)
         self.setCursor(Qt.PointingHandCursor)
@@ -270,9 +271,16 @@ class CommitNode(QGraphicsObject):
             painter.setBrush(QBrush(grad))
             painter.drawEllipse(QPointF(0, 0), r + 10, r + 10)
 
-        # Coloured fill, darker border
-        painter.setBrush(QBrush(c))
-        painter.setPen(QPen(QColor(c).darker(150), 2))
+        if self._is_local_only:
+            # Hollow — colored border, no fill
+            painter.setBrush(Qt.NoBrush)
+            painter.setPen(QPen(c, 2.5))
+        else:
+            # Solid — colored fill, soft white border
+            border = QColor("white")
+            border.setAlpha(120)
+            painter.setBrush(QBrush(c))
+            painter.setPen(QPen(border, 1.5))
         painter.drawEllipse(QPointF(0, 0), r, r)
 
         # Selection ring
@@ -600,6 +608,7 @@ class SpatialCanvas(QGraphicsView):
         branch_tip_map: dict[str, list[str]],
         you_shas: set = None,
         local_only_branches: set = None,
+        unpushed_shas: set = None,
     ):
         self._scene.clear()
         self._nodes.clear()
@@ -610,8 +619,9 @@ class SpatialCanvas(QGraphicsView):
         self._content_rect = QRectF()
         self._selected_sha = None
         self._commits = commits
-        self._you_shas         = you_shas            or set()
+        self._you_shas            = you_shas            or set()
         self._local_only_branches = local_only_branches or set()
+        self._unpushed_shas       = unpushed_shas       or set()
 
         if not commits:
             return
@@ -660,9 +670,10 @@ class SpatialCanvas(QGraphicsView):
             spine = QGraphicsPathItem(path)
             white = QColor("white")
             white.setAlpha(120)
-            branch_name = lane_branch.get(lane, "")
-            raw_color   = "#6b7280" if branch_name in self._local_only_branches else _lane_color(lane)
-            lane_color  = QColor(raw_color)
+            branch_name  = lane_branch.get(lane, "")
+            is_local     = branch_name in self._local_only_branches
+            raw_color    = _lane_color(lane) if is_local else "#6b7280"
+            lane_color   = QColor(raw_color)
             lane_color.setAlpha(160)
             spine.setPen(QPen(lane_color, 2, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
             spine.setBrush(QBrush(Qt.NoBrush))
@@ -756,20 +767,17 @@ class SpatialCanvas(QGraphicsView):
         start_shas = {c.sha for c in lane_bottom.values()}
 
         # ── 3. Nodes ───────────────────────────────────────────────────────
-        LOCAL_GREY = "#6b7280"
-
-        def _commit_color(lane: int) -> str:
-            branch = lane_branch.get(lane, "")
-            if branch in self._local_only_branches:
-                return LOCAL_GREY
-            return _lane_color(lane)
-
         for commit in commits:
-            cx, cy = positions[commit.sha]
-            lane  = lane_map.get(commit.sha, 0)
-            color = _commit_color(lane)
+            cx, cy        = positions[commit.sha]
+            lane          = lane_map.get(commit.sha, 0)
+            branch_name   = lane_branch.get(lane, "")
+            is_local      = (branch_name in self._local_only_branches
+                             or commit.sha in self._unpushed_shas)
+            color         = _lane_color(lane)
             self._node_colors[commit.sha] = color
-            node  = CommitNode(commit, color, is_start=commit.sha in start_shas)
+            node  = CommitNode(commit, color,
+                               is_start=commit.sha in start_shas,
+                               is_local_only=is_local)
             node.setPos(cx, cy)
             node.clicked.connect(self._on_node_clicked)
             self._scene.addItem(node)
@@ -825,6 +833,7 @@ class SpatialCanvas(QGraphicsView):
             auth_item.setZValue(2)
             self._scene.addItem(auth_item)
             self._author_items[commit.sha] = auth_item
+
 
         # ── Scene rect ─────────────────────────────────────────────────────
         max_lane = max(lane_map.values(), default=0)

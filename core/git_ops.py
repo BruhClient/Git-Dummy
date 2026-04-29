@@ -9,7 +9,7 @@ import requests
 
 def init_repo(path: str) -> tuple[bool, str]:
     try:
-        r = subprocess.run(["git", "init"], cwd=path, capture_output=True, text=True)
+        r = subprocess.run(["git", "init", "-b", "main"], cwd=path, capture_output=True, text=True)
         if r.returncode != 0:
             return False, r.stderr.strip()
 

@@ -138,7 +138,7 @@ class _StepGitHub(QWidget):
         skip.clicked.connect(self.skipped.emit)
         row.addWidget(skip)
 
-        push_btn = QPushButton("Save to GitHub")
+        push_btn = QPushButton("Push to GitHub")
         push_btn.setStyleSheet(BTN_PRIMARY)
         push_btn.setFixedHeight(38)
         push_btn.setCursor(Qt.PointingHandCursor)

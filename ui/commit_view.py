@@ -6,11 +6,11 @@ import hashlib
 import re
 import threading
 
-from PyQt5.QtCore import Qt, QThread, QObject, pyqtSlot, pyqtSignal
+from PyQt5.QtCore import Qt, QThread, QObject, QTimer, pyqtSlot, pyqtSignal
 from PyQt5.QtGui import QPainter, QColor, QBrush, QPen, QPixmap, QPainterPath, QFont
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QScrollArea, QFrame,
+    QScrollArea, QFrame, QLineEdit,
 )
 from styles.theme import COLORS
 from core.git_tracker import GitTracker, CommitInfo
@@ -35,7 +35,7 @@ class _CollabLoader(QObject):
 
 
 class _Loader(QObject):
-    finished = pyqtSignal(list, dict, set)
+    finished = pyqtSignal(list, dict, set, set)   # commits, branch_tip_map, local_only, unpushed
 
     def __init__(self, tracker: GitTracker):
         super().__init__()
@@ -44,7 +44,51 @@ class _Loader(QObject):
     @pyqtSlot()
     def run(self):
         commits, branch_tip_map, local_only = self._tracker.graph_commits()
-        self.finished.emit(commits, branch_tip_map, local_only)
+        unpushed = self._tracker.get_unpushed_shas()
+        self.finished.emit(commits, branch_tip_map, local_only, unpushed)
+
+
+class _CommitDetailWorker(QObject):
+    finished = pyqtSignal(object, dict, list)   # commit, detail, files
+
+    def __init__(self, tracker: GitTracker, commit):
+        super().__init__()
+        self._tracker = tracker
+        self._commit  = commit
+
+    @pyqtSlot()
+    def run(self):
+        detail = self._tracker.commit_detail(self._commit.sha)
+        files  = self._tracker.commit_files(self._commit.sha)
+        self.finished.emit(self._commit, detail, files)
+
+
+class _VisibilityWorker(QObject):
+    finished = pyqtSignal(str, str)   # url, visibility
+
+    def __init__(self, tracker: GitTracker, token: str):
+        super().__init__()
+        self._tracker = tracker
+        self._token   = token
+
+    @pyqtSlot()
+    def run(self):
+        url = self._tracker.remote_url()
+        vis = self._tracker.repo_visibility(self._token)
+        self.finished.emit(url, vis)
+
+
+class _FetchWorker(QObject):
+    finished = pyqtSignal(bool)   # True = something changed
+
+    def __init__(self, tracker: GitTracker):
+        super().__init__()
+        self._tracker = tracker
+
+    @pyqtSlot()
+    def run(self):
+        changed = self._tracker.fetch()
+        self.finished.emit(changed)
 
 
 class _FirstCommitWorker(QObject):
@@ -68,17 +112,18 @@ class _FirstCommitWorker(QObject):
 class _CreateRepoWorker(QObject):
     finished = pyqtSignal(bool, str, str)   # success, error, clone_url
 
-    def __init__(self, repo_path: str, repo_name: str, token: str, username: str):
+    def __init__(self, repo_path: str, repo_name: str, token: str, username: str, private: bool = True):
         super().__init__()
         self._path     = repo_path
         self._name     = repo_name
         self._token    = token
         self._username = username
+        self._private  = private
 
     @pyqtSlot()
     def run(self):
         from core.git_ops import create_github_repo, push_to_github
-        ok, err, clone_url = create_github_repo(self._name, True, self._token)
+        ok, err, clone_url = create_github_repo(self._name, self._private, self._token)
         if not ok:
             self.finished.emit(False, err, "")
             return
@@ -95,7 +140,7 @@ class _LoadingOverlay(QWidget):
         self.setStyleSheet(f"background: {COLORS['bg_primary']};")
         layout = QVBoxLayout(self)
         layout.setAlignment(Qt.AlignCenter)
-        lbl = QLabel("Loading your saves…")
+        lbl = QLabel("Loading commits…")
         lbl.setStyleSheet(f"background: transparent; font-size: 15px; color: {COLORS['text_muted']};")
         layout.addWidget(lbl)
 
@@ -179,7 +224,7 @@ class _NoRemoteView(QWidget):
         title.setAlignment(Qt.AlignCenter)
         layout.addWidget(title)
 
-        sub = QLabel("Create a GitHub repository to back up your saves to the cloud.")
+        sub = QLabel("Create a GitHub repository to back up your commits to the cloud.")
         sub.setStyleSheet(f"background: transparent; font-size: 13px; color: {COLORS['text_muted']};")
         sub.setAlignment(Qt.AlignCenter)
         sub.setWordWrap(True)
@@ -223,6 +268,121 @@ class _NoRemoteView(QWidget):
             self.setGeometry(self.parent().rect())
 
 
+# ── No-remote banner ─────────────────────────────────────────────────────────
+
+class _NoRemoteBanner(QWidget):
+    create_requested = pyqtSignal(str, bool)  # name, is_private
+
+    _PILL = """
+        QPushButton {{
+            background: {bg}; border: 1px solid {border};
+            border-radius: 5px; color: {fg};
+            font-size: 11px; font-weight: 600; padding: 3px 12px;
+        }}
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setAttribute(Qt.WA_StyledBackground, True)
+        self.setStyleSheet(f"background: #13131f; border-bottom: 1px solid {COLORS['border']};")
+        self.setFixedHeight(52)
+        self._is_private = True
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(20, 0, 20, 0)
+        layout.setSpacing(10)
+
+        icon = QLabel("☁")
+        icon.setStyleSheet(f"background: transparent; font-size: 15px; color: {COLORS['text_muted']};")
+        layout.addWidget(icon)
+
+        msg = QLabel("Not on GitHub yet —")
+        msg.setStyleSheet(f"background: transparent; font-size: 12px; color: {COLORS['text_muted']};")
+        layout.addWidget(msg)
+
+        self._name_input = QLineEdit()
+        self._name_input.setPlaceholderText("repository name")
+        self._name_input.setFixedSize(180, 30)
+        self._name_input.setStyleSheet(f"""
+            QLineEdit {{
+                background: {COLORS['bg_card']}; border: 1px solid {COLORS['border']};
+                border-radius: 6px; color: {COLORS['text_primary']};
+                font-size: 12px; padding: 0 10px;
+            }}
+            QLineEdit:focus {{ border-color: {COLORS['accent']}; }}
+        """)
+        layout.addWidget(self._name_input)
+
+        self._priv_btn = QPushButton("Private")
+        self._pub_btn  = QPushButton("Public")
+        for btn in (self._priv_btn, self._pub_btn):
+            btn.setCursor(Qt.PointingHandCursor)
+            btn.setFixedHeight(30)
+        self._priv_btn.clicked.connect(lambda: self._set_privacy(True))
+        self._pub_btn.clicked.connect(lambda: self._set_privacy(False))
+        layout.addWidget(self._priv_btn)
+        layout.addWidget(self._pub_btn)
+        self._set_privacy(True, emit=False)
+
+        layout.addStretch()
+
+        self._btn = QPushButton("Create →")
+        self._btn.setCursor(Qt.PointingHandCursor)
+        self._btn.setFixedHeight(30)
+        self._btn.setStyleSheet(f"""
+            QPushButton {{
+                background: {COLORS['accent']}; border: none; border-radius: 6px;
+                color: white; font-size: 12px; font-weight: 600; padding: 0 16px;
+            }}
+            QPushButton:hover {{ background: {COLORS['accent_dim']}; }}
+            QPushButton:disabled {{ background: {COLORS['border']}; color: {COLORS['text_muted']}; }}
+        """)
+        self._btn.clicked.connect(self._emit_create)
+        layout.addWidget(self._btn)
+
+    def set_repo_name(self, name: str):
+        self._name_input.setText(name)
+
+    def _set_privacy(self, private: bool, emit: bool = True):
+        self._is_private = private
+        active_style   = self._PILL.format(bg=COLORS['accent'], border=COLORS['accent'], fg="white")
+        inactive_style = self._PILL.format(bg="transparent", border=COLORS['border'], fg=COLORS['text_muted'])
+        self._priv_btn.setStyleSheet(active_style   if private else inactive_style)
+        self._pub_btn.setStyleSheet( inactive_style if private else active_style)
+
+    def _emit_create(self):
+        name = self._name_input.text().strip()
+        if name:
+            self.create_requested.emit(name, self._is_private)
+
+    def set_creating(self, creating: bool):
+        self._btn.setEnabled(not creating)
+        self._name_input.setEnabled(not creating)
+        self._priv_btn.setEnabled(not creating)
+        self._pub_btn.setEnabled(not creating)
+        self._btn.setText("Creating…" if creating else "Create →")
+
+    def set_error(self, msg: str):
+        self.set_creating(False)
+        self._btn.setText("Try again →")
+
+    def show_deleted(self):
+        """Switch banner to 'repo was deleted' warning state."""
+        self.setStyleSheet("background: #2d1515; border-bottom: 1px solid #4a2020;")
+        self._name_input.show()
+        self._priv_btn.show()
+        self._pub_btn.show()
+        self._btn.show()
+        self._btn.setText("Recreate →")
+        # Update the message label
+        for i in range(self.layout().count()):
+            w = self.layout().itemAt(i).widget()
+            if isinstance(w, QLabel) and "yet" in (w.text() or ""):
+                w.setText("Remote repository was deleted —")
+                w.setStyleSheet(f"background: transparent; font-size: 12px; color: #ef4444;")
+                break
+
+
 # ── Header bar ────────────────────────────────────────────────────────────────
 
 class _Header(QWidget):
@@ -241,11 +401,25 @@ class _Header(QWidget):
         layout.setContentsMargins(24, 0, 24, 0)
         layout.setSpacing(10)
 
+        name_block = QVBoxLayout()
+        name_block.setSpacing(1)
+        name_block.setAlignment(Qt.AlignVCenter)
+
         self._name = QLabel("—")
         self._name.setStyleSheet(
             f"background: transparent; font-size: 14px; font-weight: 600; color: {COLORS['text_primary']};"
         )
-        layout.addWidget(self._name)
+        name_block.addWidget(self._name)
+
+        self._url = QLabel("")
+        self._url.setStyleSheet(
+            f"background: transparent; font-size: 11px; color: {COLORS['accent']};"
+        )
+        self._url.setOpenExternalLinks(True)
+        self._url.hide()
+        name_block.addWidget(self._url)
+
+        layout.addLayout(name_block)
         layout.addStretch()
 
         self._count = QLabel("")
@@ -255,8 +429,32 @@ class _Header(QWidget):
     def set_repo(self, name: str):
         self._name.setText(name)
 
+    def set_url(self, url: str, visibility: str = ""):
+        if visibility == "not_found":
+            self._url.setText(
+                '<span style="color:#ef4444; font-size:11px;">⚠ Repository deleted on GitHub</span>'
+            )
+            self._url.setFixedHeight(16)
+            self.setFixedHeight(64)
+            self._url.show()
+        elif url:
+            badge = ""
+            if visibility == "private":
+                badge = ' <span style="font-size:10px; color:#6b7280;">· Private</span>'
+            elif visibility == "public":
+                badge = ' <span style="font-size:10px; color:#6b7280;">· Public</span>'
+            self._url.setText(
+                f'<a href="{url}" style="color:{COLORS["accent"]}; text-decoration:none;">{url}</a>{badge}'
+            )
+            self._url.setFixedHeight(16)
+            self.setFixedHeight(64)
+            self._url.show()
+        else:
+            self._url.hide()
+            self.setFixedHeight(52)
+
     def set_count(self, n: int):
-        self._count.setText(f"{n} save{'s' if n != 1 else ''}")
+        self._count.setText(f"{n} commit{'s' if n != 1 else ''}")
 
 
 # ── Zoom bar ──────────────────────────────────────────────────────────────────
@@ -341,7 +539,7 @@ class _Legend(QWidget):
         ("──", "Version history"),
         ("┄→", "Where a version was combined"),
         ("┄┄", "Where this version started"),
-        ("⚑", "First save on this version"),
+        ("⚑", "First commit on this branch"),
     ]
 
     def __init__(self, parent=None):
@@ -380,6 +578,7 @@ class _Legend(QWidget):
             layout.addLayout(row)
 
         self.adjustSize()
+
 
 
 # ── Collaborator panel ───────────────────────────────────────────────────────
@@ -481,7 +680,7 @@ class _CollabRow(QWidget):
     clicked = pyqtSignal(str)   # login
 
     def __init__(self, login: str, contributions: int, avatar_url: str,
-                 display_name: Optional[str] = None, parent=None):
+                 display_name: Optional[str] = None, is_owner: bool = False, parent=None):
         super().__init__(parent)
         self._login = login
         self.setAttribute(Qt.WA_StyledBackground, True)
@@ -499,14 +698,27 @@ class _CollabRow(QWidget):
         info = QVBoxLayout()
         info.setSpacing(1)
 
+        name_row = QHBoxLayout()
+        name_row.setSpacing(5)
+        name_row.setContentsMargins(0, 0, 0, 0)
+
         name_lbl = QLabel(display_name or login)
         name_lbl.setStyleSheet(
             f"background: transparent; font-size: 12px; font-weight: 600; color: {COLORS['text_primary']};"
         )
-        commits_lbl = QLabel(f"{contributions} save{'s' if contributions != 1 else ''}")
+        name_row.addWidget(name_lbl)
+
+        if is_owner:
+            crown = QLabel("👑")
+            crown.setStyleSheet("background: transparent; font-size: 11px;")
+            name_row.addWidget(crown)
+
+        name_row.addStretch()
+        info.addLayout(name_row)
+
+        commits_lbl = QLabel(f"{contributions} commit{'s' if contributions != 1 else ''}")
         commits_lbl.setStyleSheet(f"background: transparent; font-size: 11px; color: {COLORS['text_muted']};")
 
-        info.addWidget(name_lbl)
         info.addWidget(commits_lbl)
         layout.addLayout(info)
 
@@ -582,6 +794,17 @@ class CollaboratorPanel(QWidget):
             " letter-spacing: 0.04em;"
         )
         hdr_layout.addWidget(title)
+
+        self._count_lbl = QLabel("")
+        self._count_lbl.setFixedHeight(18)
+        self._count_lbl.setAlignment(Qt.AlignCenter)
+        self._count_lbl.setStyleSheet(
+            f"background: {COLORS['bg_primary']}; border-radius: 9px;"
+            f" font-size: 10px; font-weight: 600; color: {COLORS['text_muted']};"
+            f" padding: 0 8px;"
+        )
+        self._count_lbl.hide()
+        hdr_layout.addWidget(self._count_lbl)
         hdr_layout.addStretch()
 
         self._toggle_btn = QPushButton("▾")
@@ -647,9 +870,24 @@ class CollaboratorPanel(QWidget):
 
     def load(self, collaborators: list[dict]):
         self._clear()
+        n = len(collaborators)
+        if n > 0:
+            self._count_lbl.setText(str(n))
+            self._count_lbl.show()
+        else:
+            self._count_lbl.hide()
 
         if not collaborators:
-            self.hide()
+            lbl = QLabel("No collaborators yet")
+            lbl.setAlignment(Qt.AlignCenter)
+            lbl.setStyleSheet(
+                f"background: transparent; font-size: 12px; color: {COLORS['text_muted']}; padding: 12px 0;"
+            )
+            self._list.insertWidget(0, lbl)
+            self._scroll.show()
+            self._toggle_btn.setText("▾")
+            self.adjustSize()
+            self.show()
             return
 
         for collab in collaborators:
@@ -658,6 +896,7 @@ class CollaboratorPanel(QWidget):
                 contributions=collab.get("contributions", 0),
                 avatar_url=collab.get("avatar_url", ""),
                 display_name=collab.get("display_name"),
+                is_owner=collab.get("is_owner", False),
             )
             row.clicked.connect(self.collaborator_clicked)
             self._list.insertWidget(self._list.count() - 1, row)
@@ -669,14 +908,16 @@ class CollaboratorPanel(QWidget):
 
     def _toggle(self):
         if self._scroll.isVisible():
+            self._scroll.setMaximumHeight(0)
             self._scroll.hide()
             self._toggle_btn.setText("▸")
-            self.setFixedHeight(38)   # just the header
+            self.setFixedHeight(38)
         else:
+            self._scroll.setMaximumHeight(280)
             self._scroll.show()
             self._toggle_btn.setText("▾")
-            self.setFixedHeight(self.sizeHint().height())
             self.adjustSize()
+            self.setFixedHeight(self.sizeHint().height())
 
 
 # ── Page ──────────────────────────────────────────────────────────────────────
@@ -696,6 +937,12 @@ class CommitViewPage(QWidget):
 
         self._header = _Header()
         layout.addWidget(self._header)
+
+        self._no_remote_banner = _NoRemoteBanner()
+        self._no_remote_banner.create_requested.connect(self._start_create_repo)
+
+        self._no_remote_banner.hide()
+        layout.addWidget(self._no_remote_banner)
 
         self._canvas = SpatialCanvas()
         layout.addWidget(self._canvas)
@@ -723,9 +970,16 @@ class CommitViewPage(QWidget):
         self._user: dict = {}
         self._collab_thread: Optional[QThread] = None
         self._collab_worker = None
+        self._fetch_thread:  Optional[QThread] = None
+        self._detail_thread: Optional[QThread] = None
+        self._vis_thread:    Optional[QThread] = None
         self._commits: list = []
         self._collaborators: list = []
         self._you_shas: set = set()
+
+        self._poll_timer = QTimer()
+        self._poll_timer.setInterval(30_000)
+        self._poll_timer.timeout.connect(self._poll_remote)
         self._canvas.commit_clicked.connect(self._on_commit_clicked)
         self._canvas.contributor_badge_clicked.connect(self._on_collaborator_clicked)
         self._collab_panel.collaborator_clicked.connect(self._on_collaborator_clicked)
@@ -753,6 +1007,7 @@ class CommitViewPage(QWidget):
         self._collaborators = []
         self._you_shas = set()
         self._user = {}
+        self._poll_timer.stop()
         self._canvas.load_graph([], {})
         self._collab_panel.hide()
         self._changes_panel.hide_panel()
@@ -767,11 +1022,39 @@ class CommitViewPage(QWidget):
         self._collaborators = []
         self._you_shas = set()
         self._tracker = GitTracker(repo_path)
-        self._tracker.open()
+        try:
+            self._tracker.open()
+        except Exception:
+            self._tracker = None
+            self._loading.hide()
+            return
 
         self._header.set_repo(self._tracker.repo_name)
         self._panel.hide_panel()
-        self._collab_panel.hide()
+        has_remote = self._tracker.has_remote()
+        if has_remote:
+            self._collab_panel.show_loading()
+            self._reposition_collab()
+        else:
+            self._collab_panel.hide()
+        self._no_remote_banner.set_repo_name(self._tracker.repo_name)
+        self._no_remote_banner.setVisible(not has_remote)
+        token = self._user.get("access_token", "")
+        if has_remote:
+            self._header.set_url(self._tracker.remote_url())   # show URL immediately, badge loads async
+            if token:
+                self._vis_thread  = QThread()
+                self._vis_worker  = _VisibilityWorker(self._tracker, token)
+                self._vis_worker.moveToThread(self._vis_thread)
+                self._vis_thread.started.connect(self._vis_worker.run)
+                self._vis_worker.finished.connect(self._on_visibility_ready)
+                self._vis_worker.finished.connect(self._vis_thread.quit)
+                self._vis_thread.start()
+        else:
+            self._header.set_url("")
+        self._poll_timer.stop()
+        if has_remote:
+            self._poll_timer.start()
         self._start_load()
         self._load_collaborators()
 
@@ -796,7 +1079,71 @@ class CommitViewPage(QWidget):
         self._worker.finished.connect(self._thread.quit)
         self._thread.start()
 
-    def _on_loaded(self, commits: list[CommitInfo], branch_tip_map: dict, local_only: set):
+    def _on_visibility_ready(self, url: str, visibility: str):
+        self._header.set_url(url, visibility)
+        if visibility == "not_found" and self._tracker:
+            self._no_remote_banner.set_repo_name(self._tracker.repo_name)
+            self._no_remote_banner.show_deleted()
+            self._no_remote_banner.show()
+
+    def _poll_remote(self):
+        if not self._tracker or not self._tracker.has_remote():
+            return
+        if self._fetch_thread and self._fetch_thread.isRunning():
+            return
+        self._fetch_thread  = QThread()
+        self._fetch_worker  = _FetchWorker(self._tracker)
+        self._fetch_worker.moveToThread(self._fetch_thread)
+        self._fetch_thread.started.connect(self._fetch_worker.run)
+        self._fetch_worker.finished.connect(self._on_fetch_done)
+        self._fetch_worker.finished.connect(self._fetch_thread.quit)
+        self._fetch_thread.start()
+
+    def _on_fetch_done(self, changed: bool):
+        if changed:
+            self._start_load()
+
+    def _start_create_repo(self, name: str, private: bool):
+        if not self._tracker:
+            return
+        token    = self._user.get("access_token", "")
+        username = self._user.get("login", "")
+        if not token or not username:
+            return
+        self._no_remote_banner.set_creating(True)
+        self._create_thread  = QThread()
+        self._create_worker  = _CreateRepoWorker(
+            self._tracker._path, name, token, username, private,
+        )
+        self._create_worker.moveToThread(self._create_thread)
+        self._create_thread.started.connect(self._create_worker.run)
+        self._create_worker.finished.connect(self._on_create_done)
+        self._create_worker.finished.connect(self._create_thread.quit)
+        self._create_thread.start()
+
+    def _on_create_done(self, success: bool, error: str, clone_url: str):
+        if not success:
+            self._no_remote_banner.set_creating(False)
+            self._no_remote_banner.set_error(error or "Something went wrong.")
+            return
+        self._tracker.close()
+        self._tracker.open()
+        self._no_remote_banner.hide()
+        token = self._user.get("access_token", "")
+        self._header.set_url(self._tracker.remote_url())
+        if token:
+            self._vis_thread  = QThread()
+            self._vis_worker  = _VisibilityWorker(self._tracker, token)
+            self._vis_worker.moveToThread(self._vis_thread)
+            self._vis_thread.started.connect(self._vis_worker.run)
+            self._vis_worker.finished.connect(self._on_visibility_ready)
+            self._vis_worker.finished.connect(self._vis_thread.quit)
+            self._vis_thread.start()
+        self._start_load()
+        self._load_collaborators()
+
+    def _on_loaded(self, commits: list[CommitInfo], branch_tip_map: dict,
+                   local_only: set, unpushed: set):
         if not commits and self._tracker:
             self._make_first_commit()
             return
@@ -805,7 +1152,8 @@ class CommitViewPage(QWidget):
         self._you_shas = self._compute_you_shas(commits)
         self._canvas.load_graph(commits, branch_tip_map,
                                 you_shas=self._you_shas,
-                                local_only_branches=local_only)
+                                local_only_branches=local_only,
+                                unpushed_shas=unpushed)
         self._header.set_count(len(commits))
         self._loading.hide()
         if self._collaborators:
@@ -851,6 +1199,17 @@ class CommitViewPage(QWidget):
                 self._header.height() + margin)
 
     def _on_collabs_loaded(self, collabs: list[dict]):
+        login = self._user.get("login", "")
+        if login and not any(c.get("login") == login for c in collabs):
+            collabs = [{
+                "login":         login,
+                "avatar_url":    self._user.get("avatar_url", ""),
+                "contributions": 0,
+                "gh_name":       self._user.get("name") or login,
+            }] + collabs
+        owner = self._tracker.repo_owner() if self._tracker else ""
+        for c in collabs:
+            c["is_owner"] = (c.get("login") == owner)
         self._collaborators = collabs
         if self._commits:
             self._place_contributor_badges()
@@ -936,8 +1295,22 @@ class CommitViewPage(QWidget):
     def _on_commit_clicked(self, commit: CommitInfo):
         self._changes_panel.hide_panel()
         self._panel.deselect_files()
-        detail = self._tracker.commit_detail(commit.sha) if self._tracker else {}
-        files  = self._tracker.commit_files(commit.sha)  if self._tracker else []
+        if not self._tracker:
+            return
+
+        if self._detail_thread and self._detail_thread.isRunning():
+            self._detail_thread.quit()
+            self._detail_thread.wait()
+
+        self._detail_thread  = QThread()
+        self._detail_worker  = _CommitDetailWorker(self._tracker, commit)
+        self._detail_worker.moveToThread(self._detail_thread)
+        self._detail_thread.started.connect(self._detail_worker.run)
+        self._detail_worker.finished.connect(self._on_commit_detail_ready)
+        self._detail_worker.finished.connect(self._detail_thread.quit)
+        self._detail_thread.start()
+
+    def _on_commit_detail_ready(self, commit: CommitInfo, detail: dict, files: list):
         is_you = commit.sha in self._you_shas
         collab = next(
             (c for c in self._collaborators

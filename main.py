@@ -65,6 +65,9 @@ class App(QStackedWidget):
 
     def _on_repo_selected(self, repo_path: str):
         import os
+        if not os.path.isdir(repo_path):
+            self._repo_page._validate_paths()
+            return
         repo_name = os.path.basename(repo_path)
         self._main_window.set_repo_name(repo_name)
         self._commit_page.load_repo(repo_path)

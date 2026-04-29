@@ -112,7 +112,7 @@ class AuthPage(QWidget):
         left_layout.addSpacerItem(QSpacerItem(0, 16, QSizePolicy.Minimum, QSizePolicy.Fixed))
 
         sub = QLabel(
-            "See every save your team has made, explore your project's\n"
+            "See every commit your team has made, explore your project's\n"
             "full history, and understand changes at a glance."
         )
         sub.setStyleSheet(f"background: transparent; font-size: 14px; color: {COLORS['text_secondary']}; line-height: 1.6;")
@@ -122,7 +122,7 @@ class AuthPage(QWidget):
         left_layout.addStretch()
 
         # Feature pills
-        for text in ["Visual save history", "See all your versions", "GitHub integration"]:
+        for text in ["Visual commit history", "See all your versions", "GitHub integration"]:
             pill = QLabel(f"✓  {text}")
             pill.setStyleSheet(f"background: transparent; font-size: 13px; color: {COLORS['accent']}; margin-bottom: 6px;")
             left_layout.addWidget(pill)
