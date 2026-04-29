@@ -57,11 +57,26 @@ class GitTracker:
 
     def open(self):
         self._repo = git.Repo(self._path)
+        self._remove_gitdummy_identity()
 
     def close(self):
         if self._repo:
             self._repo.close()
             self._repo = None
+
+    def _remove_gitdummy_identity(self):
+        """Remove any Git Dummy placeholder identity left by an earlier app version."""
+        try:
+            with self._repo.config_writer() as cw:
+                for key in ("name", "email"):
+                    try:
+                        val = cw.get("user", key)
+                        if val in ("Git Dummy", "gitdummy@local"):
+                            cw.remove_option("user", key)
+                    except Exception:
+                        pass
+        except Exception:
+            pass
 
     @property
     def repo_name(self) -> str:
