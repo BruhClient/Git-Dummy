@@ -107,11 +107,11 @@ class TopNav(QWidget):
         logo = _LogoMark()
         layout.addWidget(logo)
 
-        app_name = QLabel("Git Dummy")
-        app_name.setStyleSheet(
+        self._app_name = QLabel("Git Dummy")
+        self._app_name.setStyleSheet(
             f"font-size: 14px; font-weight: 700; color: {COLORS['text_primary']};"
         )
-        layout.addWidget(app_name)
+        layout.addWidget(self._app_name)
 
         layout.addSpacing(16)
 
@@ -209,12 +209,16 @@ class TopNav(QWidget):
         self._back_btn.hide()
         self._sep.hide()
         self._page_label.hide()
+        self._app_name.show()
 
     def show_commits_state(self, repo_name: str = ""):
         self._back_btn.show()
         self._sep.show()
         self._page_label.setText(repo_name)
         self._page_label.show()
+        # Hide the app name when the breadcrumb is showing — avoids
+        # "Git Dummy › Git Dummy" when the project has the same name
+        self._app_name.hide()
 
 class MainWindow(QMainWindow):
     PAGE_REPOS = "repos"

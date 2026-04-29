@@ -165,10 +165,14 @@ class GitTracker:
             remote_branch_names = {display for _, display, _    in ref_list}
             for b in self._repo.branches:
                 try:
-                    if b.commit.hexsha not in remote_tip_shas:
-                        ref_list.append((b.name, b.name, b.commit.hexsha))
-                        if b.name not in remote_branch_names:
-                            local_only.add(b.name)
+                    sha = b.commit.hexsha
+                    if b.name not in remote_branch_names:
+                        # Branch doesn't exist on remote at all — always include
+                        ref_list.append((b.name, b.name, sha))
+                        local_only.add(b.name)
+                    elif sha not in remote_tip_shas:
+                        # Same name as a remote branch but local is ahead
+                        ref_list.append((b.name, b.name, sha))
                 except Exception:
                     pass
 
@@ -288,6 +292,25 @@ class GitTracker:
 
     def has_remote(self) -> bool:
         return bool(self._repo and self._repo.remotes)
+
+    def operation_in_progress(self) -> str:
+        """Return the name of any ongoing git operation, or '' if none."""
+        if not self._repo:
+            return ""
+        gd = self._repo.git_dir
+        checks = [
+            ("MERGE_HEAD",          "Merging"),
+            ("CHERRY_PICK_HEAD",    "Cherry-picking"),
+            ("REVERT_HEAD",         "Reverting"),
+            ("BISECT_LOG",          "Bisecting"),
+        ]
+        for filename, label in checks:
+            if os.path.exists(os.path.join(gd, filename)):
+                return label
+        for dirname in ("rebase-merge", "rebase-apply"):
+            if os.path.isdir(os.path.join(gd, dirname)):
+                return "Rebasing"
+        return ""
 
     def graph_commits_local(self, max_count: int = 600) -> tuple[list["CommitInfo"], dict[str, list[str]]]:
         """Same as graph_commits but reads local branches only."""

@@ -3,10 +3,11 @@ from __future__ import annotations
 from typing import Optional
 
 import hashlib
+import os
 import re
 import threading
 
-from PyQt5.QtCore import Qt, QThread, QObject, QTimer, pyqtSlot, pyqtSignal
+from PyQt5.QtCore import Qt, QThread, QObject, QTimer, QFileSystemWatcher, pyqtSlot, pyqtSignal
 from PyQt5.QtGui import QPainter, QColor, QBrush, QPen, QPixmap, QPainterPath, QFont
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
@@ -422,12 +423,28 @@ class _Header(QWidget):
         layout.addLayout(name_block)
         layout.addStretch()
 
+        self._op_badge = QLabel("")
+        self._op_badge.setStyleSheet(f"""
+            background: #2d2010; border: 1px solid {COLORS['warning']};
+            border-radius: 5px; color: {COLORS['warning']};
+            font-size: 11px; font-weight: 600; padding: 2px 10px;
+        """)
+        self._op_badge.hide()
+        layout.addWidget(self._op_badge)
+
         self._count = QLabel("")
         self._count.setStyleSheet(f"background: transparent; font-size: 12px; color: {COLORS['text_muted']};")
         layout.addWidget(self._count)
 
     def set_repo(self, name: str):
         self._name.setText(name)
+
+    def set_operation(self, op: str):
+        if op:
+            self._op_badge.setText(f"⚙ {op}…")
+            self._op_badge.show()
+        else:
+            self._op_badge.hide()
 
     def set_url(self, url: str, visibility: str = ""):
         if visibility == "not_found":
@@ -980,6 +997,17 @@ class CommitViewPage(QWidget):
         self._poll_timer = QTimer()
         self._poll_timer.setInterval(30_000)
         self._poll_timer.timeout.connect(self._poll_remote)
+
+        # Filesystem watcher — instant detection of any .git change
+        self._fs_watcher = QFileSystemWatcher()
+        self._fs_watcher.fileChanged.connect(self._on_git_file_changed)
+        self._fs_watcher.directoryChanged.connect(self._on_git_dir_changed)
+
+        # Short debounce so rapid multi-file git ops don't fire multiple reloads
+        self._reload_debounce = QTimer()
+        self._reload_debounce.setSingleShot(True)
+        self._reload_debounce.setInterval(150)
+        self._reload_debounce.timeout.connect(self._start_load)
         self._canvas.commit_clicked.connect(self._on_commit_clicked)
         self._canvas.contributor_badge_clicked.connect(self._on_collaborator_clicked)
         self._collab_panel.collaborator_clicked.connect(self._on_collaborator_clicked)
@@ -1008,6 +1036,8 @@ class CommitViewPage(QWidget):
         self._you_shas = set()
         self._user = {}
         self._poll_timer.stop()
+        self._reload_debounce.stop()
+        self._teardown_fs_watcher()
         self._canvas.load_graph([], {})
         self._collab_panel.hide()
         self._changes_panel.hide_panel()
@@ -1030,6 +1060,7 @@ class CommitViewPage(QWidget):
             return
 
         self._header.set_repo(self._tracker.repo_name)
+        self._header.set_operation("")
         self._panel.hide_panel()
         has_remote = self._tracker.has_remote()
         if has_remote:
@@ -1055,21 +1086,26 @@ class CommitViewPage(QWidget):
         self._poll_timer.stop()
         if has_remote:
             self._poll_timer.start()
-        self._start_load()
+        self._setup_fs_watcher(self._tracker._repo.git_dir)
+        self._start_load(initial=True)
         self._load_collaborators()
 
     # ── Internal ──────────────────────────────────────────────────────────
 
-    def _start_load(self):
+    def _start_load(self, initial: bool = False):
         if not self._tracker:
             return
 
-        self._loading.show()
-        self._loading.raise_()
-
+        # If a load is already running, queue another attempt instead of blocking
         if self._thread and self._thread.isRunning():
-            self._thread.quit()
-            self._thread.wait()
+            self._reload_debounce.start()
+            return
+
+        # Only show the loading overlay on the very first open — background
+        # refreshes (watcher / remote poll) update silently to avoid flicker
+        if initial:
+            self._loading.show()
+            self._loading.raise_()
 
         self._thread = QThread()
         self._worker = _Loader(self._tracker)
@@ -1102,6 +1138,45 @@ class CommitViewPage(QWidget):
     def _on_fetch_done(self, changed: bool):
         if changed:
             self._start_load()
+
+    def _setup_fs_watcher(self, git_dir: str):
+        self._teardown_fs_watcher()
+        paths = []
+        for name in ("HEAD", "packed-refs", "ORIG_HEAD"):
+            p = os.path.join(git_dir, name)
+            if os.path.exists(p):
+                paths.append(p)
+        # Watch .git/ root and every directory under refs/ recursively
+        # so loose ref updates (push, fetch, branch create) are caught at any depth
+        for dirpath, dirnames, _ in os.walk(git_dir):
+            rel = os.path.relpath(dirpath, git_dir)
+            if rel == "." or rel.startswith("refs"):
+                paths.append(dirpath)
+            # Don't descend into object store — too many dirs, not useful
+            dirnames[:] = [d for d in dirnames if d not in ("objects", "logs")]
+        if paths:
+            self._fs_watcher.addPaths(paths)
+
+    def _teardown_fs_watcher(self):
+        files = self._fs_watcher.files()
+        dirs  = self._fs_watcher.directories()
+        if files:
+            self._fs_watcher.removePaths(files)
+        if dirs:
+            self._fs_watcher.removePaths(dirs)
+
+    def _on_git_file_changed(self, path: str):
+        # Git atomically replaces ref files — re-add so we keep watching
+        if os.path.exists(path) and path not in self._fs_watcher.files():
+            self._fs_watcher.addPath(path)
+        if self._tracker:
+            self._header.set_operation(self._tracker.operation_in_progress())
+        self._reload_debounce.start()
+
+    def _on_git_dir_changed(self, path: str):
+        if self._tracker:
+            self._header.set_operation(self._tracker.operation_in_progress())
+        self._reload_debounce.start()
 
     def _start_create_repo(self, name: str, private: bool):
         if not self._tracker:
@@ -1255,8 +1330,10 @@ class CommitViewPage(QWidget):
         return best
 
     def _place_contributor_badges(self):
-        enriched   = []
-        badge_data = []
+        enriched    = []
+        badge_data  = []
+        known_authors: set[str] = set()
+
         for collab in self._collaborators:
             login   = collab.get("login", "")
             gh_name = collab.get("gh_name", "")
@@ -1270,12 +1347,22 @@ class CommitViewPage(QWidget):
                     "sha":        commit.sha,
                     "color":      _person_color(login),
                 })
+            # Collect every git author name that maps to this collaborator
+            nl = self._alpha(login)
+            nn = self._alpha(gh_name)
+            for c in self._commits:
+                na = self._alpha(c.author)
+                if (nl and (nl == na or nl in na or na in nl)) or \
+                   (nn and (nn == na or nn in na or na in nn)):
+                    known_authors.add(c.author)
+
         you_gh_name = next(
             (c.get("gh_name", "") for c in self._collaborators
              if c.get("login") == self._user.get("login")), ""
         )
         self._you_shas = self._compute_you_shas(self._commits, you_gh_name)
         self._canvas.refresh_you_labels(self._you_shas)
+        self._canvas.set_known_authors(known_authors)
         self._collab_panel.load(enriched)
         self._reposition_collab()
         self._canvas.load_contributor_avatars(badge_data)

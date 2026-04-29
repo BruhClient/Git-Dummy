@@ -7,15 +7,15 @@ from urllib.parse import urlparse
 import requests
 
 
-def init_repo(path: str) -> tuple[bool, str]:
+def init_repo(path: str, user_name: str = "", user_email: str = "") -> tuple[bool, str]:
     try:
         r = subprocess.run(["git", "init", "-b", "main"], cwd=path, capture_output=True, text=True)
         if r.returncode != 0:
             return False, r.stderr.strip()
 
-        # Set a local identity so the commit doesn't fail on unconfigured machines
-        subprocess.run(["git", "config", "user.email", "gitdummy@local"], cwd=path)
-        subprocess.run(["git", "config", "user.name", "Git Dummy"], cwd=path)
+        # Set identity from the logged-in user; fall back only if nothing provided
+        subprocess.run(["git", "config", "user.name",  user_name  or "User"],               cwd=path)
+        subprocess.run(["git", "config", "user.email", user_email or "user@gitdummy.local"], cwd=path)
 
         subprocess.run(["git", "add", "."], cwd=path, capture_output=True)
         c = subprocess.run(
@@ -52,6 +52,8 @@ def push_to_github(
     clone_url: str,
     username: str,
     token: str,
+    user_name: str = "",
+    user_email: str = "",
 ) -> tuple[bool, str]:
     """
     Stages everything, makes an initial commit if needed, adds remote, pushes.
@@ -67,9 +69,8 @@ def push_to_github(
                 raise RuntimeError(r.stderr.strip() or r.stdout.strip())
             return r
 
-        # Ensure user identity is set (local scope only)
-        subprocess.run(["git", "config", "user.email", "gitdummy@local"], cwd=path)
-        subprocess.run(["git", "config", "user.name", "Git Dummy"], cwd=path)
+        subprocess.run(["git", "config", "user.name",  user_name  or username or "User"],       cwd=path)
+        subprocess.run(["git", "config", "user.email", user_email or "user@gitdummy.local"],   cwd=path)
 
         # Stage and commit if no commits yet
         log = subprocess.run(

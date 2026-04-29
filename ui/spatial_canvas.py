@@ -53,6 +53,13 @@ def _lane_color(lane_idx: int) -> str:
     return COLORS["accent"] if lane_idx == 0 else PALETTE[(lane_idx - 1) % len(PALETTE)]
 
 
+def _branch_color(name: str) -> str:
+    """Deterministic color per branch name — so label pills are unique even on shared commits."""
+    if name in ("main", "master"):
+        return COLORS["accent"]
+    return PALETTE[sum(ord(c) for c in name) % len(PALETTE)]
+
+
 # ── Lane algorithm ─────────────────────────────────────────────────────────────
 
 def _compute_lanes(
@@ -579,6 +586,7 @@ class SpatialCanvas(QGraphicsView):
         self._node_colors: dict[str, str] = {}
         self._content_rect: QRectF = QRectF()
         self._you_shas: set = set()
+        self._known_authors: set = set()
         self._author_items: dict[str, QGraphicsSimpleTextItem] = {}
 
     # ── Helpers ───────────────────────────────────────────────────────────────
@@ -610,9 +618,19 @@ class SpatialCanvas(QGraphicsView):
         local_only_branches: set = None,
         unpushed_shas: set = None,
     ):
-        self._scene.clear()
+        # Snapshot viewport centre so we can restore position after the swap
+        prev_centre = self.mapToScene(self.viewport().rect().center())
+
+        # Build into a fresh offscreen scene, then swap — avoids the blank-frame
+        # flicker that scene.clear() + incremental adds would cause on refresh.
+        old_scene = self._scene
+        self._scene = QGraphicsScene(self)
+        self._scene.setBackgroundBrush(self._make_grid_brush())
+        self.setScene(self._scene)
+        old_scene.deleteLater()
+
         self._nodes.clear()
-        self._badges.clear()   # scene.clear() already removes items
+        self._badges.clear()
         self._positions.clear()
         self._node_colors.clear()
         self._author_items.clear()
@@ -784,24 +802,18 @@ class SpatialCanvas(QGraphicsView):
             self._nodes[commit.sha] = node
 
         # ── 4. Branch labels ───────────────────────────────────────────────
-        # One label per lane, placed at the topmost (newest) commit in that
-        # lane.  Using lane_branch / _lane_color directly avoids the
-        # lane_map.get(sha, 0) fallback that caused wrong colours.
-        lane_top: dict[int, tuple[float, float]] = {}
-        for commit in commits:
-            lane = lane_map.get(commit.sha, 0)
-            cx, cy = positions[commit.sha]
-            if lane not in lane_top or cy < lane_top[lane][1]:
-                lane_top[lane] = (cx, cy)
-
-        for lane, (cx, cy) in lane_top.items():
-            name = lane_branch.get(lane, "")
-            if not name:
+        # All names from branch_tip_map are rendered for each tip commit,
+        # stacked horizontally so every branch pointing to that commit is shown.
+        for sha, names in branch_tip_map.items():
+            if sha not in positions:
                 continue
-            color = _lane_color(lane)
-            label = BranchLabel(name, color)
-            label.setPos(cx + NODE_R + 10, cy)
-            self._scene.addItem(label)
+            cx, cy = positions[sha]
+            x = cx + NODE_R + 10
+            for name in names:
+                label = BranchLabel(name, _branch_color(name))
+                label.setPos(x, cy)
+                self._scene.addItem(label)
+                x += label.boundingRect().width() + 6
 
         # ── 5. Commit info text (date + author) ────────────────────────────
         date_font   = QFont("Inter, Segoe UI", 8)
@@ -823,9 +835,7 @@ class SpatialCanvas(QGraphicsView):
             date_item.setZValue(2)
             self._scene.addItem(date_item)
 
-            raw_author = "You" if commit.sha in self._you_shas else commit.author
-            author = raw_author if len(raw_author) <= 22 else raw_author[:20] + "…"
-            auth_item = QGraphicsSimpleTextItem(author)
+            auth_item = QGraphicsSimpleTextItem("")
             auth_item.setFont(author_font)
             auth_item.setBrush(author_color)
             auth_item.setPos(text_x, cy - auth_item.boundingRect().height() / 2 + 7)
@@ -833,6 +843,7 @@ class SpatialCanvas(QGraphicsView):
             auth_item.setZValue(2)
             self._scene.addItem(auth_item)
             self._author_items[commit.sha] = auth_item
+            self._update_author_item(auth_item, commit.sha, commit)
 
 
         # ── Scene rect ─────────────────────────────────────────────────────
@@ -844,7 +855,11 @@ class SpatialCanvas(QGraphicsView):
             content_w + CANVAS_PAD * 2,
             content_h + CANVAS_PAD * 2,
         )
-        self.centerOn(H_PAD, V_PAD)
+        # Restore viewport position if we had one, otherwise centre on graph top
+        if prev_centre.x() or prev_centre.y():
+            self.centerOn(prev_centre)
+        else:
+            self.centerOn(H_PAD, V_PAD)
 
     def refresh_you_labels(self, you_shas: set):
         """Update author text labels to show 'You' for the given commit SHAs."""
@@ -853,8 +868,28 @@ class SpatialCanvas(QGraphicsView):
             commit = next((c for c in self._commits if c.sha == sha), None)
             if commit is None:
                 continue
-            raw = "You" if sha in you_shas else commit.author
+            self._update_author_item(item, sha, commit)
+
+    def set_known_authors(self, known: set[str]):
+        """Show only authors whose git name appears in the collaborators set.
+        Pass an empty set to show all authors (e.g. local-only repos)."""
+        self._known_authors = known
+        for sha, item in self._author_items.items():
+            commit = next((c for c in self._commits if c.sha == sha), None)
+            if commit:
+                self._update_author_item(item, sha, commit)
+
+    def _update_author_item(self, item, sha: str, commit):
+        is_you = sha in self._you_shas
+        if is_you:
+            item.setText("You")
+            item.setVisible(True)
+        elif not self._known_authors or commit.author in self._known_authors:
+            raw = commit.author
             item.setText(raw if len(raw) <= 22 else raw[:20] + "…")
+            item.setVisible(True)
+        else:
+            item.setVisible(False)
 
     def load_contributor_avatars(self, badge_data: list[dict]):
         """Place avatar badges for each contributor at their latest commit.

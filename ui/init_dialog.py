@@ -276,8 +276,11 @@ class InitDialog(QDialog):
         self._step_progress.set_text("Setting up tracking…")
         self._stack.setCurrentWidget(self._step_progress)
 
+        u = self._user or {}
+        name  = u.get("name") or u.get("login", "")
+        email = u.get("email", "")
         self._run_in_thread(
-            lambda: git_ops.init_repo(self._path),
+            lambda: git_ops.init_repo(self._path, name, email),
             self._on_init_done,
         )
 
@@ -294,8 +297,10 @@ class InitDialog(QDialog):
         if not repo_name:
             return
 
-        token = self._user["access_token"]
-        login = self._user.get("login", "")
+        token      = self._user["access_token"]
+        login      = self._user.get("login", "")
+        user_name  = self._user.get("name") or login
+        user_email = self._user.get("email", "")
 
         self._step_progress.set_text("Creating your GitHub project…")
         self._stack.setCurrentWidget(self._step_progress)
@@ -305,7 +310,7 @@ class InitDialog(QDialog):
             if not ok:
                 return False, f"Could not create repo: {err}"
             self._step_progress.set_text("Uploading your files…")
-            ok2, err2 = git_ops.push_to_github(self._path, clone_url, login, token)
+            ok2, err2 = git_ops.push_to_github(self._path, clone_url, login, token, user_name, user_email)
             if not ok2:
                 return False, f"Push failed: {err2}"
             return True, clone_url

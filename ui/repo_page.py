@@ -234,7 +234,6 @@ class RepoCard(QWidget):
         self._rm_btn = QPushButton("✕")
         self._rm_btn.setFixedSize(28, 28)
         self._rm_btn.setCursor(Qt.PointingHandCursor)
-        self._rm_btn.hide()
         self._rm_btn.setStyleSheet(f"""
             QPushButton {{
                 background: transparent; border: none;
@@ -251,11 +250,9 @@ class RepoCard(QWidget):
 
     def enterEvent(self, _):
         self._apply_style(True)
-        self._rm_btn.show()
 
     def leaveEvent(self, _):
         self._apply_style(False)
-        self._rm_btn.hide()
 
     def mousePressEvent(self, event):
         if event.button() == Qt.LeftButton:
