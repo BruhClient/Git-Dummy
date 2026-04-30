@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import concurrent.futures
 import os
+import re
+import subprocess
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional
 
 import git  # gitpython
+import requests
 
 
 @dataclass
@@ -54,6 +58,7 @@ class GitTracker:
     def __init__(self, repo_path: str):
         self._path = repo_path
         self._repo: Optional[git.Repo] = None
+        self._commit_cache: dict[str, CommitInfo] = {}
 
     def open(self):
         self._repo = git.Repo(self._path)
@@ -63,6 +68,7 @@ class GitTracker:
         if self._repo:
             self._repo.close()
             self._repo = None
+        self._commit_cache.clear()
 
     def _remove_gitdummy_identity(self):
         """Remove any Git Dummy placeholder identity left by an earlier app version."""
@@ -211,18 +217,26 @@ class GitTracker:
 
         commits: list[CommitInfo] = []
         for c in raw:
+            sha = c.hexsha
+            if sha in self._commit_cache:
+                cached = self._commit_cache[sha]
+                cached.tags = tag_map.get(sha, [])   # tags can change
+                commits.append(cached)
+                continue
             try:
-                commits.append(CommitInfo(
-                    sha=c.hexsha,
-                    short_sha=c.hexsha[:7],
+                info = CommitInfo(
+                    sha=sha,
+                    short_sha=sha[:7],
                     message=c.message.strip().splitlines()[0],
                     author=c.author.name or "",
                     author_email=c.author.email or "",
                     date=datetime.fromtimestamp(c.committed_date),
                     branch="",
-                    tags=tag_map.get(c.hexsha, []),
+                    tags=tag_map.get(sha, []),
                     parents=[p.hexsha for p in c.parents],
-                ))
+                )
+                self._commit_cache[sha] = info
+                commits.append(info)
             except Exception:
                 continue
 
@@ -245,12 +259,12 @@ class GitTracker:
         """Return commit SHAs reachable from local branches but not from any remote ref."""
         if not self._repo or not self.has_remote():
             return set()
-        import subprocess
         try:
             r = subprocess.run(
                 ["git", "rev-list", "--branches", "--not", "--remotes"],
                 cwd=self._path,
                 capture_output=True, text=True,
+                timeout=10,
             )
             if r.returncode == 0:
                 return {s for s in r.stdout.strip().splitlines() if s}
@@ -260,7 +274,6 @@ class GitTracker:
 
     def repo_visibility(self, token: str) -> str:
         """Return 'private', 'public', or '' if unknown."""
-        import re, requests as req
         if not self._repo or not self.has_remote():
             return ""
         try:
@@ -269,7 +282,7 @@ class GitTracker:
             if not m:
                 return ""
             owner, repo = m.group(1), m.group(2)
-            r = req.get(
+            r = requests.get(
                 f"https://api.github.com/repos/{owner}/{repo}",
                 headers={"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"},
                 timeout=8,
@@ -284,7 +297,6 @@ class GitTracker:
 
     def repo_owner(self) -> str:
         """Return the GitHub username that owns the remote repo, or ''."""
-        import re
         if not self._repo or not self.has_remote():
             return ""
         try:
@@ -311,6 +323,15 @@ class GitTracker:
     def has_remote(self) -> bool:
         return bool(self._repo and self._repo.remotes)
 
+    def head_sha(self) -> str:
+        """Return the SHA of the currently checked-out commit, or ''."""
+        if not self._repo:
+            return ""
+        try:
+            return self._repo.head.commit.hexsha
+        except Exception:
+            return ""
+
     def operation_in_progress(self) -> str:
         """Return the name of any ongoing git operation, or '' if none."""
         if not self._repo:
@@ -330,59 +351,12 @@ class GitTracker:
                 return "Rebasing"
         return ""
 
-    def graph_commits_local(self, max_count: int = 600) -> tuple[list["CommitInfo"], dict[str, list[str]]]:
-        """Same as graph_commits but reads local branches only."""
-        if not self._repo:
-            return [], {}
-
-        tag_map: dict[str, list[str]] = {}
-        for tag in self._repo.tags:
-            tag_map.setdefault(tag.commit.hexsha, []).append(tag.name)
-
-        ref_list: list[tuple[str, str, str]] = []
-        for b in self._repo.branches:
-            try:
-                ref_list.append((b.name, b.name, b.commit.hexsha))
-            except Exception:
-                pass
-
-        if not ref_list:
-            return [], {}
-
-        branch_tip_map: dict[str, list[str]] = {}
-        for _, display_name, tip_sha in ref_list:
-            branch_tip_map.setdefault(tip_sha, []).append(display_name)
-
-        iter_refs = [r[0] for r in ref_list]
-        try:
-            raw = list(self._repo.iter_commits(iter_refs, topo_order=True, max_count=max_count))
-        except Exception:
-            raw = []
-
-        commits: list[CommitInfo] = []
-        for c in raw:
-            commits.append(CommitInfo(
-                sha=c.hexsha,
-                short_sha=c.hexsha[:7],
-                message=c.message.strip().splitlines()[0],
-                author=c.author.name or "",
-                author_email=c.author.email or "",
-                date=datetime.fromtimestamp(c.committed_date),
-                branch="",
-                tags=tag_map.get(c.hexsha, []),
-                parents=[p.hexsha for p in c.parents],
-            ))
-
-        return commits, branch_tip_map
-
     def get_collaborators(self, token: str) -> list[dict]:
         """
         Fetch contributors for this repo from GitHub's API.
         Returns a list of dicts: {login, avatar_url, contributions}.
         Returns [] if the repo has no GitHub remote or the request fails.
         """
-        import re, requests as req
-
         if not self._repo:
             return []
 
@@ -404,7 +378,7 @@ class GitTracker:
             "Accept": "application/vnd.github+json",
         }
         try:
-            resp = req.get(
+            resp = requests.get(
                 f"https://api.github.com/repos/{owner}/{repo}/contributors",
                 headers=headers,
                 params={"per_page": 50},
@@ -417,12 +391,10 @@ class GitTracker:
             return []
 
         # Enrich each contributor with their GitHub display name (parallel fetches)
-        import concurrent.futures
-
         def _fetch_gh_name(collab):
             login = collab.get("login", "")
             try:
-                r = req.get(
+                r = requests.get(
                     f"https://api.github.com/users/{login}",
                     headers=headers,
                     timeout=5,

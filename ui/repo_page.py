@@ -16,15 +16,12 @@ from core import repo_store
 
 
 def _remote_owner(repo_path: str) -> str:
-    """Get the GitHub owner login from the origin remote URL."""
-    import subprocess
+    """Get the GitHub owner login by reading .git/config directly — no subprocess."""
     try:
-        r = subprocess.run(
-            ["git", "remote", "get-url", "origin"],
-            cwd=repo_path, capture_output=True, text=True, timeout=3,
-        )
-        if r.returncode == 0:
-            url = r.stdout.strip()
+        cfg = configparser.ConfigParser()
+        cfg.read(os.path.join(repo_path, ".git", "config"), encoding="utf-8")
+        url = cfg.get('remote "origin"', "url", fallback="")
+        if url:
             m = re.search(r"github\.com[:/]([^/]+)/", url)
             return m.group(1) if m else ""
     except Exception:

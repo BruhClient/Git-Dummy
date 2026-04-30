@@ -4,7 +4,7 @@ import hashlib
 import re
 import threading
 
-from PyQt5.QtCore import Qt, QPropertyAnimation, QEasingCurve, QRect, QPoint, pyqtSignal
+from PyQt5.QtCore import Qt, QPropertyAnimation, QEasingCurve, QRect, QPoint, pyqtSignal, QObject
 from PyQt5.QtGui import QPainter, QColor, QBrush, QPen, QPainterPath, QPixmap, QFont
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
@@ -27,6 +27,7 @@ class _HeaderAvatar(QWidget):
     """Circular avatar in the detail panel header — initials first, photo on load."""
 
     SIZE = 40
+    _pixmap_ready = pyqtSignal(object)  # QPixmap — cross-thread delivery
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -34,6 +35,12 @@ class _HeaderAvatar(QWidget):
         self._initials = ""
         self._color    = QColor("#6366f1")
         self._pixmap: QPixmap | None = None
+        self._pixmap_ready.connect(self._apply_pixmap)
+
+    def _apply_pixmap(self, pm: QPixmap):
+        s = self.SIZE
+        self._pixmap = pm.scaled(s, s, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
+        self.update()
 
     def set_author(self, name: str, avatar_url: str = ""):
         self._initials = (name[:1] + (name.split()[-1][:1] if " " in name else "")).upper()
@@ -51,9 +58,7 @@ class _HeaderAvatar(QWidget):
                 pm = QPixmap()
                 pm.loadFromData(resp.content)
                 if not pm.isNull():
-                    s = self.SIZE
-                    self._pixmap = pm.scaled(s, s, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
-                    self.update()
+                    self._pixmap_ready.emit(pm)  # dispatches to main thread
         except Exception:
             pass
 
@@ -976,59 +981,6 @@ class AllChangesPopup(QWidget):
         return section
 
     def _diff_block(self, title: str, lines: list, kind: str) -> QWidget:
-        color = "#22c55e" if kind == "added" else "#ef4444"
-        bg    = "rgba(34,197,94,0.06)" if kind == "added" else "rgba(239,68,68,0.06)"
-        block = QWidget()
-        block.setAttribute(Qt.WA_StyledBackground, True)
-        block.setStyleSheet("background: transparent;")
-        bl = QVBoxLayout(block)
-        bl.setContentsMargins(0, 0, 0, 0)
-        bl.setSpacing(0)
-
-        hdr = QWidget()
-        hdr.setAttribute(Qt.WA_StyledBackground, True)
-        hdr.setStyleSheet(f"background: {bg};")
-        hdr.setFixedHeight(32)
-        hhl = QHBoxLayout(hdr)
-        hhl.setContentsMargins(16, 0, 16, 0)
-        lbl = QLabel(title)
-        lbl.setStyleSheet(
-            f"background: transparent; font-size: 10px; font-weight: 700;"
-            f" color: {color}; letter-spacing: 0.08em;"
-        )
-        hhl.addWidget(lbl)
-        hhl.addStretch()
-        c_lbl = QLabel(f"{len(lines)} line{'s' if len(lines) != 1 else ''}")
-        c_lbl.setStyleSheet(f"background: transparent; font-size: 10px; color: {color};")
-        hhl.addWidget(c_lbl)
-        bl.addWidget(hdr)
-
-        limit  = 80
-        chunks = _chunk_lines(lines[:limit])
-        for i, chunk in enumerate(chunks):
-            if i > 0:
-                gap = QLabel("· · ·")
-                gap.setAlignment(Qt.AlignCenter)
-                gap.setStyleSheet(
-                    f"background: transparent; color: {COLORS['text_muted']};"
-                    f" font-size: 11px; padding: 4px 0;"
-                )
-                bl.addWidget(gap)
-            for line_num, text in chunk:
-                bl.addWidget(_DiffLine(kind, text, line_num))
-
-        if len(lines) > limit:
-            more = QLabel(f"  … {len(lines) - limit} more lines")
-            more.setStyleSheet(
-                f"background: transparent; font-size: 11px;"
-                f" color: {COLORS['text_muted']}; padding: 6px 16px;"
-            )
-            bl.addWidget(more)
-
-        return block
-
-    def _diff_block(self, title: str, lines: list, kind: str) -> QWidget:
-        """lines: list of (line_num, text)"""
         color  = "#22c55e" if kind == "added" else "#ef4444"
         bg     = "rgba(34,197,94,0.06)" if kind == "added" else "rgba(239,68,68,0.06)"
         block  = QWidget()

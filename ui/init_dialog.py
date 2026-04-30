@@ -107,7 +107,12 @@ class _StepGitHub(QWidget):
                 13, COLORS["text_secondary"], wrap=True,
             ))
             layout.addStretch()
-            layout.addWidget(QPushButton("Close"))
+            close_btn = QPushButton("Close")
+            close_btn.setStyleSheet(BTN_SECONDARY)
+            close_btn.setFixedHeight(38)
+            close_btn.setCursor(Qt.PointingHandCursor)
+            close_btn.clicked.connect(self.skipped.emit)
+            layout.addWidget(close_btn)
             return
 
         layout.addWidget(_label("Back up to GitHub?", 14, bold=True))
