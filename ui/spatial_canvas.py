@@ -247,6 +247,41 @@ class BranchLabel(QGraphicsItem):
         )
 
 
+class _HeadPin(QGraphicsItem):
+    """Red 'You are here' map pin drawn above the HEAD commit node, above all badges."""
+
+    _PIN_R = 7
+
+    def __init__(self):
+        super().__init__()
+        self.setZValue(6)
+        self.setAcceptedMouseButtons(Qt.NoButton)
+
+    def boundingRect(self) -> QRectF:
+        r = self._PIN_R
+        return QRectF(-r - 2, -r * 3 - 6, (r + 2) * 2, r * 3 + 8)
+
+    def paint(self, painter: QPainter, _option, _widget):
+        painter.setRenderHint(QPainter.Antialiasing)
+        r   = self._PIN_R
+        px, py = 0.0, 0.0
+        tip = QPointF(px, py + r + 6)
+        red = QColor("#ef4444")
+
+        path = QPainterPath()
+        path.addEllipse(QPointF(px, py), r, r)
+        path.moveTo(QPointF(px - r * 0.6, py + r * 0.5))
+        path.lineTo(tip)
+        path.lineTo(QPointF(px + r * 0.6, py + r * 0.5))
+
+        painter.setPen(Qt.NoPen)
+        painter.setBrush(QBrush(red))
+        painter.drawPath(path)
+
+        painter.setBrush(QBrush(QColor("white")))
+        painter.drawEllipse(QPointF(px, py), r * 0.38, r * 0.38)
+
+
 class CommitNode(QGraphicsObject):
     """Coloured circle representing a single commit."""
 
@@ -300,11 +335,6 @@ class CommitNode(QGraphicsObject):
             painter.setPen(QPen(border, 1.5))
         painter.drawEllipse(QPointF(0, 0), r, r)
 
-        # Main-tip ring — red outline on the latest commit of main/master
-        if self._is_main_tip:
-            painter.setBrush(Qt.NoBrush)
-            painter.setPen(QPen(QColor("#ef4444"), 2))
-            painter.drawEllipse(QPointF(0, 0), r + 4, r + 4)
 
         # Selection ring
         if self._selected:
@@ -614,6 +644,8 @@ class SpatialCanvas(QGraphicsView):
         self._author_items: dict[str, QGraphicsSimpleTextItem] = {}
         self._orientation: str = ORIENT_LR
         self._dimmed_shas: set[str] = set()
+        self._head_sha:  str                  = ""
+        self._head_pin:  Optional[_HeadPin]   = None
         self._avatar_cache: dict[str, "QPixmap"] = {}
 
     # ── Helpers ───────────────────────────────────────────────────────────────
@@ -638,13 +670,18 @@ class SpatialCanvas(QGraphicsView):
     # ── Public ────────────────────────────────────────────────────────────────
 
     def set_head_sha(self, sha: str):
-        if sha == getattr(self, "_head_sha", ""):
+        if sha == self._head_sha:
             return
-        old = getattr(self, "_head_sha", "")
         self._head_sha = sha
-        for s in (old, sha):
-            if s and s in self._nodes:
-                self._nodes[s].set_main_tip(s == sha)
+        if sha and sha in self._positions:
+            cx, cy = self._positions[sha]
+            if self._head_pin is None:
+                self._head_pin = _HeadPin()
+                self._scene.addItem(self._head_pin)
+            self._head_pin.setPos(cx, cy - NODE_R - _HeadPin._PIN_R - 8)
+        elif self._head_pin:
+            self._scene.removeItem(self._head_pin)
+            self._head_pin = None
 
     def load_graph(
         self,
@@ -669,6 +706,7 @@ class SpatialCanvas(QGraphicsView):
 
         self._orientation = orientation
         self._head_sha    = head_sha
+        self._head_pin    = None
         self._nodes.clear()
         self._badges.clear()
         self._positions.clear()
@@ -847,6 +885,14 @@ class SpatialCanvas(QGraphicsView):
             self._scene.addItem(node)
             self._nodes[commit.sha] = node
 
+        # ── "You are here" pin on HEAD commit ──────────────────────────────
+        if head_sha and head_sha in positions:
+            cx, cy = positions[head_sha]
+            pin = _HeadPin()
+            pin.setPos(cx, cy - NODE_R - _HeadPin._PIN_R - 8)
+            self._scene.addItem(pin)
+            self._head_pin = pin
+
         # ── 4. Branch labels ───────────────────────────────────────────────
         name_to_color: dict[str, str] = {
             name: _lane_color(lane) for lane, name in lane_branch.items()
@@ -968,6 +1014,32 @@ class SpatialCanvas(QGraphicsView):
             self.centerOn(H_PAD + (n - 1) * ROW_H, V_PAD)  # newest at right
         else:
             self.centerOn(H_PAD, V_PAD)
+
+    def grab_preview(self, center_sha: str, w: int, h: int) -> "QPixmap":
+        """Render a w×h snapshot of the scene centred on the given commit SHA."""
+        from PyQt5.QtGui import QPixmap
+        pm = QPixmap(w, h)
+        pm.fill(QColor(COLORS["bg_primary"]))
+
+        if center_sha and center_sha in self._positions:
+            cx, cy = self._positions[center_sha]
+        elif self._positions:
+            xs = [x for x, _ in self._positions.values()]
+            ys = [y for _, y in self._positions.values()]
+            cx, cy = sum(xs) / len(xs), sum(ys) / len(ys)
+        else:
+            return pm
+
+        zoom   = 1.5
+        sw, sh = w / zoom, h / zoom
+        source = QRectF(cx - sw / 2, cy - sh / 2, sw, sh)
+
+        from PyQt5.QtGui import QPainter
+        p = QPainter(pm)
+        p.setRenderHint(QPainter.Antialiasing)
+        self._scene.render(p, QRectF(0, 0, w, h), source)
+        p.end()
+        return pm
 
     def apply_commit_filter(self, dimmed_shas: set[str]):
         """Dim the given SHAs to 15% opacity; restore all others."""

@@ -92,8 +92,8 @@ class _HeaderAvatar(QWidget):
         p.drawEllipse(1, 1, s - 2, s - 2)
         p.end()
 
-PANEL_W   = 320
-CHANGES_W = 460
+PANEL_W   = 400
+CHANGES_W = 420
 
 SWIPE_THRESHOLD = 70   # px rightward drag to dismiss a panel
 
@@ -424,7 +424,7 @@ class _DiffLine(QWidget):
             )
             layout.addWidget(num_lbl)
 
-        lbl = QLabel(text[:140] or " ")
+        lbl = QLabel(text[:200] or " ")
         lbl.setTextInteractionFlags(Qt.TextSelectableByMouse)
         fg = COLORS["text_primary"] if kind in ("added", "removed") else COLORS["text_muted"]
         lbl.setStyleSheet(
@@ -632,7 +632,7 @@ class ChangesPanel(QWidget):
         self._content = QWidget()
         self._content.setStyleSheet("background: transparent;")
         self._content_layout = QVBoxLayout(self._content)
-        self._content_layout.setContentsMargins(0, 8, 0, 8)
+        self._content_layout.setContentsMargins(0, 8, 0, 32)
         self._content_layout.setSpacing(0)
 
         scroll.setWidget(self._content)
@@ -873,6 +873,7 @@ class AllChangesPopup(QWidget):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         scroll.setStyleSheet(_scrollbar_style(COLORS))
 
         content = QWidget()
@@ -1134,6 +1135,7 @@ class DetailPanel(QWidget):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         scroll.setStyleSheet(_scrollbar_style(COLORS))
 
         content = QWidget()
@@ -1145,13 +1147,11 @@ class DetailPanel(QWidget):
         self._sha    = _Row("Committed on")
         self._branch = _Row("Branch")
         self._author = _Row("Made by")
-        self._date   = _Row("When")
 
         content_layout.addWidget(self._sha)
         content_layout.addWidget(_divider())
         content_layout.addWidget(self._branch)
         content_layout.addWidget(self._author)
-        content_layout.addWidget(self._date)
         content_layout.addWidget(_divider())
 
         msg_label = QLabel("DESCRIPTION")
@@ -1260,7 +1260,6 @@ class DetailPanel(QWidget):
         self._sha.set(saved_at, color=COLORS["text_secondary"])
         self._branch.set(commit.branch)
         self._author.set(shown_name or "—", color=COLORS["text_secondary"])
-        self._date.set(commit.date_str, color=COLORS["text_secondary"])
         self._message.setText(detail.get("message", commit.message))
         self._populate_files(files or [])
 

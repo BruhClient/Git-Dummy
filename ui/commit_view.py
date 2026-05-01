@@ -1340,6 +1340,7 @@ class CommitViewPage(QWidget):
         self._last_local_only:  set   = set()
         self._last_unpushed:    set   = set()
         self._last_badge_data:  list  = []
+        self._last_head_sha:    str   = ""
 
         self._poll_timer = QTimer()
         self._poll_timer.setInterval(30_000)
@@ -1388,6 +1389,7 @@ class CommitViewPage(QWidget):
         self._last_local_only  = set()
         self._last_unpushed    = set()
         self._last_badge_data  = []
+        self._last_head_sha    = ""
         self._user = {}
         self._poll_timer.stop()
         self._reload_debounce.stop()
@@ -1424,6 +1426,7 @@ class CommitViewPage(QWidget):
         self._last_local_only  = set()
         self._last_unpushed    = set()
         self._last_badge_data  = []
+        self._last_head_sha    = ""
 
         new_tracker = GitTracker(repo_path)
         try:
@@ -1582,6 +1585,7 @@ class CommitViewPage(QWidget):
                 local_only_branches=self._last_local_only,
                 unpushed_shas=self._last_unpushed,
                 orientation=orient,
+                head_sha=self._last_head_sha,
             )
             # Reposition badges from cache — no collab panel rebuild, no network
             if self._last_badge_data:
@@ -1693,6 +1697,7 @@ class CommitViewPage(QWidget):
         self._last_branch_tips = branch_tip_map
         self._last_local_only  = local_only
         self._last_unpushed    = unpushed
+        self._last_head_sha    = head_sha
 
         self._commits  = commits
         self._you_shas = self._compute_you_shas(commits)
@@ -1705,6 +1710,7 @@ class CommitViewPage(QWidget):
         branch_count = sum(len(names) for names in branch_tip_map.values())
         self._header.set_count(len(commits), branch_count)
         self._loading.hide()
+
 
         # Populate branches — authors are set later in _place_contributor_badges
         all_branches = sorted({c.branch for c in commits if c.branch})
