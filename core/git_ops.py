@@ -7,6 +7,70 @@ from urllib.parse import urlparse
 import requests
 
 
+def has_uncommitted_changes(path: str) -> bool:
+    r = subprocess.run(
+        ["git", "status", "--porcelain"],
+        cwd=path, capture_output=True, text=True,
+    )
+    return bool(r.stdout.strip())
+
+
+def create_auto_stash(path: str) -> bool:
+    from datetime import datetime
+    msg = "Auto-stash: " + datetime.now().strftime("%b %d %I:%M %p")
+    r = subprocess.run(
+        ["git", "stash", "push", "-m", msg],
+        cwd=path, capture_output=True, text=True,
+    )
+    return r.returncode == 0 and "No local changes" not in r.stdout
+
+
+def pop_auto_stash(path: str) -> bool:
+    r = subprocess.run(
+        ["git", "stash", "pop"],
+        cwd=path, capture_output=True, text=True,
+    )
+    return r.returncode == 0
+
+
+def checkout_commit(path: str, sha: str) -> tuple[bool, str]:
+    r = subprocess.run(
+        ["git", "checkout", sha],
+        cwd=path, capture_output=True, text=True,
+    )
+    return r.returncode == 0, r.stderr.strip()
+
+
+def checkout_branch(path: str, branch: str) -> tuple[bool, str]:
+    r = subprocess.run(
+        ["git", "checkout", branch],
+        cwd=path, capture_output=True, text=True,
+    )
+    return r.returncode == 0, r.stderr.strip()
+
+
+def current_branch(path: str) -> str:
+    """Return the current branch name, or '' if in detached HEAD state."""
+    r = subprocess.run(
+        ["git", "branch", "--show-current"],
+        cwd=path, capture_output=True, text=True,
+    )
+    return r.stdout.strip()
+
+
+def branch_for_commit(path: str, sha: str) -> str:
+    """Return a branch name that contains sha — used when in detached HEAD."""
+    r = subprocess.run(
+        ["git", "branch", "--contains", sha],
+        cwd=path, capture_output=True, text=True,
+    )
+    for line in r.stdout.splitlines():
+        name = line.strip().lstrip("* ").strip()
+        if name and not name.startswith("("):
+            return name
+    return ""
+
+
 def init_repo(path: str, user_name: str = "", user_email: str = "") -> tuple[bool, str]:
     try:
         r = subprocess.run(["git", "init", "-b", "main"], cwd=path, capture_output=True, text=True)

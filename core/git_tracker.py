@@ -95,6 +95,15 @@ class GitTracker:
         except TypeError:
             return "No branch"
 
+    def head_sha(self) -> str:
+        """Return the SHA of the currently checked-out commit, or ''."""
+        if not self._repo:
+            return ""
+        try:
+            return self._repo.head.commit.hexsha
+        except Exception:
+            return ""
+
     def branches(self) -> list[str]:
         return [b.name for b in self._repo.branches]
 

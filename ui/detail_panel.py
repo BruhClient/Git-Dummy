@@ -1056,8 +1056,9 @@ class DetailPanel(QWidget):
     Slides in from the right edge of its parent when show_commit() is called.
     Parent must call reposition() whenever its size changes.
     """
-    panel_toggled = pyqtSignal(bool)    # True = opening, False = closing
-    file_selected = pyqtSignal(dict)   # file info dict when a card is clicked
+    panel_toggled      = pyqtSignal(bool)
+    file_selected      = pyqtSignal(dict)
+    navigate_requested = pyqtSignal(str)   # commit sha
 
     def __init__(self, parent: QWidget):
         super().__init__(parent)
@@ -1204,6 +1205,20 @@ class DetailPanel(QWidget):
         self._files_layout.setSpacing(6)
         content_layout.addWidget(self._files_container)
 
+        content_layout.addWidget(_divider())
+
+        self._goto_btn = QPushButton("Go to this snapshot →")
+        self._goto_btn.setCursor(Qt.PointingHandCursor)
+        self._goto_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: {COLORS['accent']}; border: none; border-radius: 8px;
+                color: white; font-size: 12px; font-weight: 600; padding: 9px 16px;
+            }}
+            QPushButton:hover {{ background: {COLORS['accent_dim']}; }}
+        """)
+        self._goto_btn.clicked.connect(self._on_goto)
+        content_layout.addWidget(self._goto_btn)
+
         content_layout.addStretch()
         scroll.setWidget(content)
         scroll.viewport().setStyleSheet("background: transparent;")
@@ -1248,8 +1263,13 @@ class DetailPanel(QWidget):
             card.set_selected(False)
         self._selected_card = None
 
+    def _on_goto(self):
+        if getattr(self, "_current_sha", None):
+            self.navigate_requested.emit(self._current_sha)
+
     def show_commit(self, commit, detail: dict, avatar_url: str = "",
                     display_author: str = None, files: list = None):
+        self._current_sha = commit.sha
         shown_name = display_author or commit.author
         self._header_avatar.set_author(commit.author, avatar_url)
         self._header_name.setText(shown_name)

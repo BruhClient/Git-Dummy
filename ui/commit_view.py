@@ -5,22 +5,27 @@ from typing import Optional
 import hashlib
 import os
 import re
-import subprocess
 import threading
-
-import requests
 
 from PyQt5.QtCore import Qt, QThread, QObject, QTimer, QFileSystemWatcher, pyqtSlot, pyqtSignal
 from PyQt5.QtGui import QPainter, QColor, QBrush, QPen, QPixmap, QPainterPath, QFont
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QScrollArea, QFrame, QLineEdit, QCheckBox,
+    QScrollArea, QFrame, QLineEdit,
 )
 from styles.theme import COLORS
+from core.git_tracker import GitTracker, CommitInfo
+from core.git_ops import (current_branch, branch_for_commit,
+                          has_uncommitted_changes, create_auto_stash,
+                          pop_auto_stash, checkout_commit, checkout_branch)
 from core import collab_cache
+from ui.spatial_canvas import SpatialCanvas, MiniMap
+from ui.detail_panel import DetailPanel, ChangesPanel, PANEL_W as DETAIL_PANEL_W, CHANGES_W
+from ui.position_panel import PositionPanel
 
-# ── Avatar disk cache ─────────────────────────────────────────────────────────
-_AVATAR_CACHE: dict[str, "QPixmap"] = {}
+
+# ── Avatar disk + memory cache ────────────────────────────────────────────────
+_AVATAR_CACHE: dict[str, QPixmap] = {}
 _AVATAR_DIR = os.path.join(os.path.expanduser("~"), ".gitdummy_cache", "avatars")
 os.makedirs(_AVATAR_DIR, exist_ok=True)
 
@@ -41,16 +46,12 @@ def _load_avatar(url: str) -> "QPixmap | None":
     return None
 
 
-def _save_avatar(url: str, pm: "QPixmap"):
+def _save_avatar(url: str, pm: QPixmap):
     _AVATAR_CACHE[url] = pm
     try:
         pm.save(_avatar_disk_path(url), "PNG")
     except Exception:
         pass
-from core import settings_store
-from core.git_tracker import GitTracker, CommitInfo
-from ui.spatial_canvas import SpatialCanvas, MiniMap, ORIENT_TB, ORIENT_BT, ORIENT_LR, ORIENT_RL
-from ui.detail_panel import DetailPanel, ChangesPanel, PANEL_W as DETAIL_PANEL_W, CHANGES_W
 
 
 # ── Background loaders ───────────────────────────────────────────────────────
@@ -70,7 +71,7 @@ class _CollabLoader(QObject):
 
 
 class _Loader(QObject):
-    finished = pyqtSignal(list, dict, set, set, str)  # commits, branch_tip_map, local_only, unpushed, head_sha
+    finished = pyqtSignal(list, dict, set, set)   # commits, branch_tip_map, local_only, unpushed
 
     def __init__(self, tracker: GitTracker):
         super().__init__()
@@ -81,10 +82,9 @@ class _Loader(QObject):
         try:
             commits, branch_tip_map, local_only = self._tracker.graph_commits()
             unpushed = self._tracker.get_unpushed_shas()
-            head_sha = self._tracker.head_sha()
         except Exception:
-            commits, branch_tip_map, local_only, unpushed, head_sha = [], {}, set(), set(), ""
-        self.finished.emit(commits, branch_tip_map, local_only, unpushed, head_sha)
+            commits, branch_tip_map, local_only, unpushed = [], {}, set(), set()
+        self.finished.emit(commits, branch_tip_map, local_only, unpushed)
 
 
 class _CommitDetailWorker(QObject):
@@ -139,6 +139,7 @@ class _FirstCommitWorker(QObject):
 
     @pyqtSlot()
     def run(self):
+        import subprocess
         subprocess.run(["git", "add", "."], cwd=self._path, capture_output=True)
         r = subprocess.run(
             ["git", "commit", "-m", "First commit"],
@@ -511,9 +512,8 @@ class _Header(QWidget):
             self._url.hide()
             self.setFixedHeight(52)
 
-    def set_count(self, commits: int, branches: int = 0):
-        branch_str = f"  ·  {branches} branch{'es' if branches != 1 else ''}" if branches else ""
-        self._count.setText(f"{commits} commit{'s' if commits != 1 else ''}{branch_str}")
+    def set_count(self, n: int):
+        self._count.setText(f"{n} commit{'s' if n != 1 else ''}")
 
 
 # ── Zoom bar ──────────────────────────────────────────────────────────────────
@@ -685,8 +685,6 @@ class _SkeletonRow(QWidget):
 class _AvatarDot(QWidget):
     """32px circular avatar — starts with initials, upgrades to real photo."""
 
-    _pixmap_ready = pyqtSignal(object)  # QPixmap — cross-thread delivery
-
     def __init__(self, login: str, color: str, size: int = 32, parent=None):
         super().__init__(parent)
         self.setFixedSize(size, size)
@@ -694,10 +692,6 @@ class _AvatarDot(QWidget):
         self._login  = login
         self._color  = QColor(color)
         self._pixmap: QPixmap | None = None
-        self._pixmap_ready.connect(self._apply_pixmap)
-
-    def _apply_pixmap(self, pm: QPixmap):
-        self.set_pixmap(pm)
 
     def set_pixmap(self, pm: QPixmap):
         self._pixmap = pm.scaled(
@@ -787,7 +781,6 @@ class _CollabRow(QWidget):
         info.addWidget(commits_lbl)
         layout.addLayout(info)
 
-        # Apply from cache (memory or disk) instantly, otherwise fetch
         if avatar_url:
             cached = _load_avatar(avatar_url)
             if cached:
@@ -810,13 +803,14 @@ class _CollabRow(QWidget):
 
     def _fetch(self, url: str):
         try:
+            import requests
             resp = requests.get(url, timeout=10)
             if resp.status_code == 200:
                 pm = QPixmap()
                 pm.loadFromData(resp.content)
                 if not pm.isNull():
                     _save_avatar(url, pm)
-                    self._dot._pixmap_ready.emit(pm)  # dispatches to main thread
+                    self._dot.set_pixmap(pm)
         except Exception:
             pass
 
@@ -989,268 +983,46 @@ class CollaboratorPanel(QWidget):
             self.setFixedHeight(self.sizeHint().height())
 
 
-# ── Filter panel ──────────────────────────────────────────────────────────────
+# ── Exploration banner ────────────────────────────────────────────────────────
 
-class _FilterPanel(QWidget):
-    filter_changed = pyqtSignal()
-
-    PANEL_W = 220
-    _CB_STYLE = f"""
-        QCheckBox {{
-            background: transparent; font-size: 12px;
-            color: {COLORS['text_primary']}; spacing: 6px;
-        }}
-        QCheckBox::indicator {{
-            width: 14px; height: 14px;
-            border: 1px solid {COLORS['border']};
-            border-radius: 3px; background: transparent;
-        }}
-        QCheckBox::indicator:checked {{
-            background: {COLORS['accent']}; border-color: {COLORS['accent']};
-        }}
-    """
+class _ExploreBanner(QWidget):
+    return_requested = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setFixedWidth(self.PANEL_W)
-        self.setAttribute(Qt.WA_StyledBackground, True)
-        self.setObjectName("filterPanel")
-        self.setStyleSheet(f"""
-            #filterPanel {{
-                background: {COLORS['bg_card']};
-                border: 1px solid {COLORS['border']};
-                border-radius: 10px;
-            }}
-        """)
-        self.hide()
-
-        root = QVBoxLayout(self)
-        root.setContentsMargins(0, 0, 0, 0)
-        root.setSpacing(0)
-
-        # Header
-        hdr = QWidget()
-        hdr.setObjectName("fpHdr")
-        hdr.setFixedHeight(38)
-        hdr.setStyleSheet(f"""
-            #fpHdr {{
-                background: {COLORS['bg_secondary']};
-                border-bottom: 1px solid {COLORS['border']};
-                border-radius: 10px 10px 0 0;
-            }}
-        """)
-        hl = QHBoxLayout(hdr)
-        hl.setContentsMargins(14, 0, 8, 0)
-        title_lbl = QLabel("Filters")
-        title_lbl.setStyleSheet(
-            f"background: transparent; font-size: 12px; font-weight: 600;"
-            f" color: {COLORS['text_muted']};"
-        )
-        hl.addWidget(title_lbl)
-        hl.addStretch()
-        reset_btn = QPushButton("Reset")
-        reset_btn.setCursor(Qt.PointingHandCursor)
-        reset_btn.setStyleSheet(f"""
-            QPushButton {{ background: transparent; border: none;
-                font-size: 11px; color: {COLORS['accent']}; }}
-            QPushButton:hover {{ color: {COLORS['text_primary']}; }}
-        """)
-        reset_btn.clicked.connect(self._reset)
-        hl.addWidget(reset_btn)
-        root.addWidget(hdr)
-
-        _scroll_style = f"""
-            QScrollArea {{ background: transparent; border: none; }}
-            QScrollBar:vertical {{
-                background: transparent; width: 4px; margin: 0;
-            }}
-            QScrollBar::handle:vertical {{
-                background: {COLORS['border']}; border-radius: 2px; min-height: 20px;
-            }}
-            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
-        """
-
-        body = QVBoxLayout()
-        body.setContentsMargins(12, 8, 12, 12)
-        body.setSpacing(4)
-
-        # ── Branches ─────────────────────────────────────────────────────
-        bl = QLabel("BRANCHES")
-        bl.setStyleSheet(
-            f"background: transparent; font-size: 10px; font-weight: 700;"
-            f" color: {COLORS['text_muted']}; letter-spacing: 0.06em;"
-        )
-        body.addWidget(bl)
-
-        self._branch_container = QWidget()
-        self._branch_container.setStyleSheet("background: transparent;")
-        self._branch_layout = QVBoxLayout(self._branch_container)
-        self._branch_layout.setContentsMargins(0, 0, 0, 0)
-        self._branch_layout.setSpacing(2)
-
-        branch_scroll = QScrollArea()
-        branch_scroll.setWidgetResizable(True)
-        branch_scroll.setFrameShape(QFrame.NoFrame)
-        branch_scroll.setStyleSheet(_scroll_style)
-        branch_scroll.setMaximumHeight(160)
-        branch_scroll.setWidget(self._branch_container)
-        branch_scroll.viewport().setStyleSheet("background: transparent;")
-        body.addWidget(branch_scroll)
-
-        div = QFrame()
-        div.setFrameShape(QFrame.HLine)
-        div.setStyleSheet(f"background: {COLORS['border']}; max-height: 1px; margin: 4px 0;")
-        body.addWidget(div)
-
-        # ── Collaborators ─────────────────────────────────────────────────
-        al = QLabel("COLLABORATORS")
-        al.setStyleSheet(
-            f"background: transparent; font-size: 10px; font-weight: 700;"
-            f" color: {COLORS['text_muted']}; letter-spacing: 0.06em;"
-        )
-        body.addWidget(al)
-
-        # Loading placeholder shown until collaborators arrive
-        self._collab_loading = QLabel("Loading…")
-        self._collab_loading.setStyleSheet(
-            f"background: transparent; font-size: 12px; color: {COLORS['text_muted']}; padding: 6px 0;"
-        )
-        body.addWidget(self._collab_loading)
-
-        self._author_container = QWidget()
-        self._author_container.setStyleSheet("background: transparent;")
-        self._author_layout = QVBoxLayout(self._author_container)
-        self._author_layout.setContentsMargins(0, 0, 0, 0)
-        self._author_layout.setSpacing(2)
-
-        author_scroll = QScrollArea()
-        author_scroll.setWidgetResizable(True)
-        author_scroll.setFrameShape(QFrame.NoFrame)
-        author_scroll.setStyleSheet(_scroll_style)
-        author_scroll.setMaximumHeight(260)
-        author_scroll.setWidget(self._author_container)
-        author_scroll.viewport().setStyleSheet("background: transparent;")
-        author_scroll.hide()
-        self._author_scroll = author_scroll
-        body.addWidget(author_scroll)
-
-        body_widget = QWidget()
-        body_widget.setStyleSheet("background: transparent;")
-        body_widget.setLayout(body)
-        root.addWidget(body_widget)
-
-        self._branch_checks: dict[str, QCheckBox] = {}
-        self._author_checks: dict[str, QCheckBox] = {}
-
-    def _make_cb(self, name: str, layout: QVBoxLayout, store: dict):
-        cb = QCheckBox(name)
-        cb.setChecked(True)
-        cb.setStyleSheet(self._CB_STYLE)
-        cb.stateChanged.connect(lambda _: self.filter_changed.emit())
-        layout.addWidget(cb)
-        store[name] = cb
-
-    def _clear_layout(self, layout: QVBoxLayout, store: dict):
-        while layout.count():
-            w = layout.takeAt(0).widget()
-            if w:
-                w.setParent(None)
-        store.clear()
-
-    def set_branches(self, names: list[str]):
-        self._clear_layout(self._branch_layout, self._branch_checks)
-        for n in names:
-            self._make_cb(n, self._branch_layout, self._branch_checks)
-
-    def set_authors(self, names: list[str]):
-        self._clear_layout(self._author_layout, self._author_checks)
-        for n in names:
-            self._make_cb(n, self._author_layout, self._author_checks)
-        self._collab_loading.hide()
-        self._author_scroll.show()
-
-    def show_collaborators_loading(self):
-        self._clear_layout(self._author_layout, self._author_checks)
-        self._author_scroll.hide()
-        self._collab_loading.show()
-
-    def active_branches(self) -> set[str]:
-        return {n for n, cb in self._branch_checks.items() if cb.isChecked()}
-
-    def active_authors(self) -> set[str]:
-        return {n for n, cb in self._author_checks.items() if cb.isChecked()}
-
-    def _all_branches(self) -> set[str]:
-        return set(self._branch_checks.keys())
-
-    def _all_authors(self) -> set[str]:
-        return set(self._author_checks.keys())
-
-    def _reset(self):
-        for cb in list(self._branch_checks.values()) + list(self._author_checks.values()):
-            cb.setChecked(True)
-
-
-# ── Orientation bar ───────────────────────────────────────────────────────────
-
-class _OrientBar(QWidget):
-    orientation_changed = pyqtSignal(str)
-
-    _BUTTONS = [
-        (ORIENT_BT, "↓", "Top to bottom — oldest to newest"),
-        (ORIENT_TB, "↑", "Bottom to top — newest to oldest"),
-        (ORIENT_LR, "→", "Left to right — oldest to newest"),
-        (ORIENT_RL, "←", "Right to left — newest to oldest"),
-    ]
-    _ACTIVE = f"""
-        QPushButton {{
-            background: {COLORS['accent']}; border: none; border-radius: 6px;
-            color: white; font-size: 14px; font-weight: 600;
-        }}
-    """
-    _INACTIVE = f"""
-        QPushButton {{
-            background: transparent; border: none; border-radius: 6px;
-            color: {COLORS['text_muted']}; font-size: 14px;
-        }}
-        QPushButton:hover {{ color: {COLORS['text_primary']}; }}
-    """
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setObjectName("orientBar")
         self.setAttribute(Qt.WA_StyledBackground, True)
         self.setStyleSheet(f"""
-            #orientBar {{
-                background: {COLORS['bg_card']};
-                border: 1px solid {COLORS['border']};
-                border-radius: 8px;
-            }}
+            background: {COLORS['accent']}1a;
+            border-bottom: 1px solid {COLORS['accent']}60;
         """)
-        self.setFixedHeight(34)
+        self.setFixedHeight(44)
 
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(4, 0, 4, 0)
-        layout.setSpacing(0)
+        layout.setContentsMargins(20, 0, 20, 0)
+        layout.setSpacing(12)
 
-        self._btns: dict[str, QPushButton] = {}
-        for orient, icon, tip in self._BUTTONS:
-            btn = QPushButton(icon)
-            btn.setFixedSize(34, 34)
-            btn.setCursor(Qt.PointingHandCursor)
-            btn.setToolTip(tip)
-            btn.clicked.connect(lambda _, o=orient: self.orientation_changed.emit(o))
-            layout.addWidget(btn)
-            self._btns[orient] = btn
+        icon = QLabel("🔍")
+        icon.setStyleSheet("background: transparent; font-size: 14px;")
+        layout.addWidget(icon)
 
-        self._set_active(ORIENT_LR)
+        msg = QLabel("You're exploring the past — your current work is safe.")
+        msg.setStyleSheet(
+            f"background: transparent; font-size: 12px; color: {COLORS['text_primary']};"
+        )
+        layout.addWidget(msg)
+        layout.addStretch()
 
-    def set_orientation(self, orient: str):
-        self._set_active(orient)
-
-    def _set_active(self, orient: str):
-        for o, btn in self._btns.items():
-            btn.setStyleSheet(self._ACTIVE if o == orient else self._INACTIVE)
+        btn = QPushButton("Go back to my work →")
+        btn.setCursor(Qt.PointingHandCursor)
+        btn.setStyleSheet(f"""
+            QPushButton {{
+                background: {COLORS['accent']}; border: none; border-radius: 6px;
+                color: white; font-size: 12px; font-weight: 600; padding: 5px 14px;
+            }}
+            QPushButton:hover {{ background: {COLORS['accent_dim']}; }}
+        """)
+        btn.clicked.connect(self.return_requested)
+        layout.addWidget(btn)
 
 
 # ── Page ──────────────────────────────────────────────────────────────────────
@@ -1276,6 +1048,11 @@ class CommitViewPage(QWidget):
         self._no_remote_banner.hide()
         layout.addWidget(self._no_remote_banner)
 
+        self._explore_banner = _ExploreBanner()
+        self._explore_banner.return_requested.connect(self._return_home)
+        self._explore_banner.hide()
+        layout.addWidget(self._explore_banner)
+
         self._canvas = SpatialCanvas()
         layout.addWidget(self._canvas)
 
@@ -1288,33 +1065,11 @@ class CommitViewPage(QWidget):
         self._collab_panel = CollaboratorPanel(self)
         self._collab_panel.raise_()
 
-        self._filter_panel = _FilterPanel(self)
-        self._filter_panel.raise_()
-        self._filter_panel.filter_changed.connect(self._apply_canvas_filter)
-
+        self._position_panel = PositionPanel(self)
+        self._position_panel.raise_()
 
         self._zoom_bar = ZoomBar(self._canvas, self)
         self._zoom_bar.raise_()
-
-        self._orient_bar = _OrientBar(self)
-        self._orient_bar.raise_()
-        self._orient_bar.orientation_changed.connect(self._set_orientation)
-
-        self._filter_btn = QPushButton("⊟ Filter", self)
-        self._filter_btn.setFixedHeight(34)
-        self._filter_btn.setCursor(Qt.PointingHandCursor)
-        self._filter_btn.setStyleSheet(f"""
-            QPushButton {{
-                background: {COLORS['bg_card']}; border: 1px solid {COLORS['border']};
-                border-radius: 8px; color: {COLORS['text_muted']};
-                font-size: 12px; padding: 0 12px;
-            }}
-            QPushButton:hover {{ color: {COLORS['text_primary']}; background: {COLORS['bg_hover']}; }}
-            QPushButton:checked {{ color: {COLORS['accent']}; border-color: {COLORS['accent']}; }}
-        """)
-        self._filter_btn.setCheckable(True)
-        self._filter_btn.clicked.connect(self.toggle_filter_panel)
-        self._filter_btn.raise_()
 
         self._minimap = MiniMap(self._canvas, self)
         self._minimap.raise_()
@@ -1322,10 +1077,7 @@ class CommitViewPage(QWidget):
         self._loading = _LoadingOverlay(self)
         self._loading.hide()
 
-        self._orientation: str = ORIENT_LR
-        self._author_display_map: dict[str, str] = {}
-        self._collab_cache: dict[str, list[dict]] = {}   # keyed by remote URL
-        self._filter_rebuilding: bool = False
+
         self._user: dict = {}
         self._collab_thread: Optional[QThread] = None
         self._collab_worker = None
@@ -1335,12 +1087,15 @@ class CommitViewPage(QWidget):
         self._commits: list = []
         self._collaborators: list = []
         self._you_shas: set = set()
+        self._last_head_sha: str = ""
+        self._collab_cache: dict[str, list[dict]] = {}
+        self._exploring: bool = False
+        self._home_branch: str = ""
+        self._has_stash: bool = False
         self._last_commit_shas: tuple = ()
-        self._last_branch_tips: dict  = {}
-        self._last_local_only:  set   = set()
-        self._last_unpushed:    set   = set()
-        self._last_badge_data:  list  = []
-        self._last_head_sha:    str   = ""
+        self._last_branch_tips: dict = {}
+        self._last_local_only: set = set()
+        self._last_unpushed: set = set()
 
         self._poll_timer = QTimer()
         self._poll_timer.setInterval(30_000)
@@ -1363,6 +1118,8 @@ class CommitViewPage(QWidget):
         self._panel.panel_toggled.connect(lambda v: self._changes_panel.hide_panel() if not v else None)
         self._panel.file_selected.connect(self._changes_panel.show_file)
         self._changes_panel.panel_toggled.connect(self._reposition_collab)
+        self._position_panel.jump_requested.connect(self._canvas.jump_to_commit)
+        self._panel.navigate_requested.connect(self._on_navigate)
 
     # ── Public ────────────────────────────────────────────────────────────
 
@@ -1371,25 +1128,22 @@ class CommitViewPage(QWidget):
 
     def reset(self):
         """Full teardown — called on sign out."""
-        self._disconnect_workers()
-        old_tracker = self._tracker
-        self._tracker = None
-        for attr, thread in (("_thread", self._thread), ("_collab_thread", self._collab_thread)):
+        if self._tracker:
+            self._tracker.close()
+            self._tracker = None
+        for thread in (self._thread, self._collab_thread):
             if thread and thread.isRunning():
                 thread.quit()
-                thread.wait(1000)
+                thread.wait()
         self._thread = self._collab_thread = None
-        if old_tracker:
-            old_tracker.close()
         self._commits = []
         self._collaborators = []
         self._you_shas = set()
+        self._last_head_sha = ""
         self._last_commit_shas = ()
         self._last_branch_tips = {}
-        self._last_local_only  = set()
-        self._last_unpushed    = set()
-        self._last_badge_data  = []
-        self._last_head_sha    = ""
+        self._last_local_only = set()
+        self._last_unpushed = set()
         self._user = {}
         self._poll_timer.stop()
         self._reload_debounce.stop()
@@ -1398,51 +1152,31 @@ class CommitViewPage(QWidget):
         self._collab_panel.hide()
         self._changes_panel.hide_panel()
         self._panel.hide_panel()
+        self._position_panel.clear()
+        self._explore_banner.hide()
+        self._exploring = False
+        self._home_branch = ""
+        self._has_stash = False
+        self._last_head_sha = ""
         self._header.set_repo("—")
 
     def load_repo(self, repo_path: str):
-        # Disconnect worker signals before anything else so in-flight results
-        # from the old repo are silently discarded rather than applied.
-        self._disconnect_workers()
+        if self._tracker:
+            self._tracker.close()
 
-        # Let running threads finish naturally against the old tracker —
-        # close the old tracker only after its thread exits to avoid
-        # reading from a closed git process (which caused the crash).
-        old_tracker = self._tracker
-        old_thread  = self._thread
-        if old_tracker:
-            if old_thread and old_thread.isRunning():
-                old_thread.finished.connect(old_tracker.close)
-            else:
-                old_tracker.close()
-
-        self._tracker = None
-        self._thread  = None
         self._commits = []
         self._collaborators = []
         self._you_shas = set()
-        self._last_commit_shas = ()
-        self._last_branch_tips = {}
-        self._last_local_only  = set()
-        self._last_unpushed    = set()
-        self._last_badge_data  = []
-        self._last_head_sha    = ""
-
-        new_tracker = GitTracker(repo_path)
+        self._tracker = GitTracker(repo_path)
         try:
-            new_tracker.open()
+            self._tracker.open()
         except Exception:
+            self._tracker = None
             self._loading.hide()
             return
-        self._tracker = new_tracker
 
         self._header.set_repo(self._tracker.repo_name)
         self._header.set_operation("")
-        self._filter_panel.hide()
-        self._filter_panel.show_collaborators_loading()
-        orientations = settings_store.get("repo_orientations", {})
-        self._orientation = orientations.get(repo_path, ORIENT_LR)
-        self._orient_bar.set_orientation(self._orientation)
         self._panel.hide_panel()
         has_remote = self._tracker.has_remote()
         if has_remote:
@@ -1520,76 +1254,6 @@ class CommitViewPage(QWidget):
     def _on_fetch_done(self, changed: bool):
         if changed:
             self._start_load()
-
-    def _disconnect_workers(self):
-        """Disconnect all worker finished signals so in-flight results are dropped."""
-        for attr in ("_worker", "_collab_worker", "_fetch_worker",
-                     "_detail_worker", "_vis_worker"):
-            w = getattr(self, attr, None)
-            if w is not None:
-                try:
-                    w.finished.disconnect()
-                except Exception:
-                    pass
-
-    def _apply_canvas_filter(self):
-        if self._filter_rebuilding or not self._commits:
-            return
-        active_branches = self._filter_panel.active_branches()
-        active_authors  = self._filter_panel.active_authors()
-        all_branches    = self._filter_panel._all_branches()
-        all_authors     = self._filter_panel._all_authors()
-
-        # If everything is checked, clear filter immediately
-        if active_branches == all_branches and active_authors == all_authors:
-            self._canvas.apply_commit_filter(set())
-            return
-
-        dimmed: set[str] = set()
-        for commit in self._commits:
-            display   = self._author_display_map.get(commit.author, commit.author)
-            branch_ok = (not commit.branch) or (commit.branch in active_branches)
-            # Only apply author filter for commits whose author is in the panel
-            if display in all_authors:
-                author_ok = display in active_authors
-            else:
-                author_ok = True   # not a known collaborator — never dim on their behalf
-            if not branch_ok or not author_ok:
-                dimmed.add(commit.sha)
-        self._canvas.apply_commit_filter(dimmed)
-
-    def toggle_filter_panel(self):
-        visible = not self._filter_panel.isVisible()
-        self._filter_panel.setVisible(visible)
-        self._filter_btn.setChecked(visible)
-        if visible:
-            self._filter_panel.raise_()
-            self._reposition_filter()
-
-    def _set_orientation(self, orient: str):
-        if orient == self._orientation:
-            return
-        self._orientation = orient
-        self._orient_bar.set_orientation(orient)
-
-        if self._tracker:
-            orientations = settings_store.get("repo_orientations", {})
-            orientations[self._tracker._path] = orient
-            settings_store.save({"repo_orientations": orientations})
-
-        if self._commits:
-            self._canvas.load_graph(
-                self._commits,
-                self._last_branch_tips,
-                you_shas=self._you_shas,
-                local_only_branches=self._last_local_only,
-                unpushed_shas=self._last_unpushed,
-                orientation=orient,
-                head_sha=self._last_head_sha,
-            )
-            # Reposition badges from cache — no collab panel rebuild, no network
-            if self._last_badge_data:
-                self._canvas.load_contributor_avatars(self._last_badge_data)
 
     def _setup_fs_watcher(self, git_dir: str):
         self._teardown_fs_watcher()
@@ -1679,48 +1343,57 @@ class CommitViewPage(QWidget):
         self._load_collaborators()
 
     def _on_loaded(self, commits: list[CommitInfo], branch_tip_map: dict,
-                   local_only: set, unpushed: set, head_sha: str = ""):
+                   local_only: set, unpushed: set):
         if not commits and self._tracker:
             self._make_first_commit()
             return
 
         new_shas = tuple(c.sha for c in commits)
 
-        # ── Layer 1: skip full rebuild if nothing changed ─────────────────
-        if new_shas == self._last_commit_shas and branch_tip_map == self._last_branch_tips:
-            self._canvas.refresh_local_status(local_only, unpushed)
-            self._canvas.set_head_sha(head_sha)
+        # Skip full rebuild when nothing has changed
+        if (new_shas == self._last_commit_shas
+                and branch_tip_map == self._last_branch_tips
+                and local_only == self._last_local_only
+                and unpushed == self._last_unpushed):
             self._loading.hide()
+            self._update_position_panel(commits)
             return
 
         self._last_commit_shas = new_shas
         self._last_branch_tips = branch_tip_map
         self._last_local_only  = local_only
         self._last_unpushed    = unpushed
-        self._last_head_sha    = head_sha
 
         self._commits  = commits
         self._you_shas = self._compute_you_shas(commits)
+        self._update_position_panel(commits)
+
         self._canvas.load_graph(commits, branch_tip_map,
                                 you_shas=self._you_shas,
                                 local_only_branches=local_only,
                                 unpushed_shas=unpushed,
-                                orientation=self._orientation,
-                                head_sha=head_sha)
-        branch_count = sum(len(names) for names in branch_tip_map.values())
-        self._header.set_count(len(commits), branch_count)
+                                head_sha=self._last_head_sha)
+        if self._last_head_sha:
+            self._canvas.jump_to_commit(self._last_head_sha)
+        self._header.set_count(len(commits))
         self._loading.hide()
-
-
-        # Populate branches — authors are set later in _place_contributor_badges
-        all_branches = sorted({c.branch for c in commits if c.branch})
-        self._filter_rebuilding = True
-        self._filter_panel.set_branches(all_branches)
-        self._filter_rebuilding = False
-        self._canvas.apply_commit_filter(set())
-
         if self._collaborators:
             self._place_contributor_badges()
+
+    def _update_position_panel(self, commits: list):
+        if not self._tracker:
+            return
+        head_sha = self._tracker.head_sha()
+        if not head_sha or head_sha == self._last_head_sha:
+            return
+        head_commit = next((c for c in commits if c.sha == head_sha), None)
+        if head_commit:
+            branch     = self._branch_for_head()
+            avatar_url = self._avatar_url_for_author(head_commit.author)
+            self._position_panel.load(head_commit.message, branch, head_commit.sha, head_commit.author, avatar_url)
+            self._reposition_position()
+        self._canvas.set_head_sha(head_sha)
+        self._last_head_sha = head_sha
 
     def _make_first_commit(self):
         self._first_commit_thread  = QThread()
@@ -1740,24 +1413,28 @@ class CommitViewPage(QWidget):
 
         cache_key = self._tracker.remote_url()
 
-        # 1. Check in-memory cache (same session, already enriched)
+        # 1. Session memory cache — instant, no spinner
         if cache_key and cache_key in self._collab_cache:
             self._on_collabs_loaded(self._collab_cache[cache_key])
             return
 
-        # 2. Check disk cache
+        # 2. Disk cache — instant if fresh, silent background refresh if stale
         if cache_key:
             disk_data, is_stale = collab_cache.get(cache_key)
             if disk_data is not None:
-                # Apply cached data immediately — no loading state
                 self._on_collabs_loaded(disk_data)
                 if not is_stale:
                     return
-                # Stale: silently refresh in background without showing loading
+                # Stale: refresh silently without showing a spinner
 
+        # 3. Nothing cached — show spinner and fetch
         if self._collab_thread and self._collab_thread.isRunning():
             self._collab_thread.quit()
             self._collab_thread.wait()
+
+        if not (cache_key and collab_cache.get(cache_key)[0] is not None):
+            self._collab_panel.show_loading()
+            self._reposition_collab()
 
         self._collab_thread  = QThread()
         self._collab_worker  = _CollabLoader(self._tracker, token)
@@ -1765,12 +1442,6 @@ class CommitViewPage(QWidget):
         self._collab_thread.started.connect(self._collab_worker.run)
         self._collab_worker.finished.connect(self._on_collabs_loaded)
         self._collab_worker.finished.connect(self._collab_thread.quit)
-
-        # Only show loading if we have nothing to display yet
-        if not cache_key or collab_cache.get(cache_key)[0] is None:
-            self._collab_panel.show_loading()
-            self._reposition_collab()
-
         self._collab_thread.start()
 
     def _reposition_collab(self, _=None):
@@ -1796,12 +1467,12 @@ class CommitViewPage(QWidget):
             c["is_owner"] = (c.get("login") == owner)
         self._collaborators = collabs
 
-        # Store in memory + disk cache so next visit (same session or new session) is instant
         if self._tracker:
             cache_key = self._tracker.remote_url()
             if cache_key:
                 self._collab_cache[cache_key] = collabs
                 collab_cache.save(cache_key, collabs)
+
         if self._commits:
             self._place_contributor_badges()
         else:
@@ -1846,26 +1517,16 @@ class CommitViewPage(QWidget):
         return best
 
     def _place_contributor_badges(self):
-        enriched      = []
-        badge_data    = []
-        known_authors: set[str]  = set()
-        author_display: dict[str, str] = {}   # git name → GitHub display name
-
-        # Pre-compute normalised → original author map once (O(n))
-        norm_to_author: dict[str, str] = {
-            self._alpha(c.author): c.author
-            for c in self._commits if c.author
-        }
-
-        my_login = self._user.get("login", "")
+        enriched    = []
+        badge_data  = []
+        known_authors: set[str] = set()
 
         for collab in self._collaborators:
             login   = collab.get("login", "")
-            gh_name = collab.get("gh_name", "") or login
+            gh_name = collab.get("gh_name", "")
             commit  = self._find_latest_commit_for_login(login, gh_name)
-            is_self = login == my_login
-            display = "You" if is_self else gh_name
-            enriched.append({**collab, "display_name": display})
+            is_self = login == self._user.get("login", "")
+            enriched.append({**collab, "display_name": "You" if is_self else (commit.author if commit else None)})
             if commit:
                 badge_data.append({
                     "login":      login,
@@ -1873,13 +1534,14 @@ class CommitViewPage(QWidget):
                     "sha":        commit.sha,
                     "color":      _person_color(login),
                 })
+            # Collect every git author name that maps to this collaborator
             nl = self._alpha(login)
             nn = self._alpha(gh_name)
-            for norm, original in norm_to_author.items():
-                if (nl and (nl == norm or nl in norm or norm in nl)) or \
-                   (nn and (nn == norm or nn in norm or norm in nn)):
-                    known_authors.add(original)
-                    author_display[original] = display
+            for c in self._commits:
+                na = self._alpha(c.author)
+                if (nl and (nl == na or nl in na or na in nl)) or \
+                   (nn and (nn == na or nn in na or na in nn)):
+                    known_authors.add(c.author)
 
         you_gh_name = next(
             (c.get("gh_name", "") for c in self._collaborators
@@ -1887,18 +1549,9 @@ class CommitViewPage(QWidget):
         )
         self._you_shas = self._compute_you_shas(self._commits, you_gh_name)
         self._canvas.refresh_you_labels(self._you_shas)
-        self._author_display_map = author_display
-        self._canvas.set_known_authors(known_authors, author_display)
-
-        # Sync filter collaborator list with the collaborator panel — same names, same order
-        collab_names = [e["display_name"] for e in enriched if e.get("display_name")]
-        self._filter_rebuilding = True
-        self._filter_panel.set_authors(collab_names)
-        self._filter_rebuilding = False
-
+        self._canvas.set_known_authors(known_authors)
         self._collab_panel.load(enriched)
         self._reposition_collab()
-        self._last_badge_data = badge_data
         self._canvas.load_contributor_avatars(badge_data)
 
     def _on_collaborator_clicked(self, login: str):
@@ -1953,13 +1606,62 @@ class CommitViewPage(QWidget):
             display_author = ""   # not a known collaborator — show "—"
         self._panel.show_commit(commit, detail, collab.get("avatar_url", ""), display_author, files)
 
-    # ── Resize ────────────────────────────────────────────────────────────
+    def _on_navigate(self, sha: str):
+        if not self._tracker:
+            return
+        path = self._tracker._path
 
-    def _reposition_filter(self):
+        if not self._exploring:
+            # First hop — remember home, stash if dirty
+            self._home_branch = current_branch(path)
+            if has_uncommitted_changes(path):
+                self._has_stash = create_auto_stash(path)
+            self._exploring = True
+            self._explore_banner.show()
+
+        checkout_commit(path, sha)
+
+    def _return_home(self):
+        if not self._tracker:
+            return
+        path = self._tracker._path
+        checkout_branch(path, self._home_branch)
+        if self._has_stash:
+            pop_auto_stash(path)
+        self._exploring = False
+        self._home_branch = ""
+        self._has_stash = False
+        self._explore_banner.hide()
+
+    def _branch_for_head(self) -> str:
+        if not self._tracker:
+            return ""
+        path   = self._tracker._path
+        branch = current_branch(path)
+        if branch:
+            return branch
+        head = self._tracker.head_sha()
+        if head:
+            return branch_for_commit(path, head)
+        return ""
+
+    def _avatar_url_for_author(self, author: str) -> str:
+        na = re.sub(r'[^a-z]', '', author.lower())
+        for collab in self._collaborators:
+            nl = re.sub(r'[^a-z]', '', collab.get("login", "").lower())
+            nn = re.sub(r'[^a-z]', '', (collab.get("gh_name", "") or "").lower())
+            if (nl and (nl == na or nl in na or na in nl)) or \
+               (nn and (nn == na or nn in na or na in nn)):
+                return collab.get("avatar_url", "")
+        return ""
+
+    def _reposition_position(self):
         margin = 16
-        fp = self._filter_panel
-        fp.adjustSize()
-        fp.move(margin, self._header.height() + margin)
+        pp = self._position_panel
+        pp.adjustSize()
+        pp.move(margin, self._header.height() + margin)
+
+    # ── Resize ────────────────────────────────────────────────────────────
 
     def resizeEvent(self, event):
         super().resizeEvent(event)
@@ -1972,17 +1674,9 @@ class CommitViewPage(QWidget):
         zb = self._zoom_bar
         zb.move(margin + mm.MAP_W + margin,
                 self.height() - zb.height() - margin)
-        ob = self._orient_bar
-        ob.adjustSize()
-        ob.move(margin + mm.MAP_W + margin + zb.width() + margin,
-                self.height() - ob.height() - margin)
-        fb = self._filter_btn
-        fb.adjustSize()
-        fb.move(margin + mm.MAP_W + margin + zb.width() + margin + ob.width() + margin,
-                self.height() - fb.height() - margin)
         cp = self._collab_panel
         detail_offset = DETAIL_PANEL_W if self._panel._visible else 0
         cp.move(self.width() - detail_offset - cp.PANEL_W - margin,
                 self._header.height() + margin)
-        if self._filter_panel.isVisible():
-            self._reposition_filter()
+        if self._position_panel.isVisible():
+            self._reposition_position()
