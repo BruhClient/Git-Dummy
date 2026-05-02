@@ -4,7 +4,7 @@ import hashlib
 import re
 import threading
 
-from PyQt5.QtCore import Qt, QPropertyAnimation, QEasingCurve, QRect, QPoint, pyqtSignal, QObject
+from PyQt5.QtCore import Qt, QPropertyAnimation, QEasingCurve, QRect, QPoint, pyqtSignal
 from PyQt5.QtGui import QPainter, QColor, QBrush, QPen, QPainterPath, QPixmap, QFont
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
@@ -27,7 +27,6 @@ class _HeaderAvatar(QWidget):
     """Circular avatar in the detail panel header — initials first, photo on load."""
 
     SIZE = 40
-    _pixmap_ready = pyqtSignal(object)  # QPixmap — cross-thread delivery
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -35,12 +34,6 @@ class _HeaderAvatar(QWidget):
         self._initials = ""
         self._color    = QColor("#6366f1")
         self._pixmap: QPixmap | None = None
-        self._pixmap_ready.connect(self._apply_pixmap)
-
-    def _apply_pixmap(self, pm: QPixmap):
-        s = self.SIZE
-        self._pixmap = pm.scaled(s, s, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
-        self.update()
 
     def set_author(self, name: str, avatar_url: str = ""):
         self._initials = (name[:1] + (name.split()[-1][:1] if " " in name else "")).upper()
@@ -58,7 +51,9 @@ class _HeaderAvatar(QWidget):
                 pm = QPixmap()
                 pm.loadFromData(resp.content)
                 if not pm.isNull():
-                    self._pixmap_ready.emit(pm)  # dispatches to main thread
+                    s = self.SIZE
+                    self._pixmap = pm.scaled(s, s, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
+                    self.update()
         except Exception:
             pass
 
@@ -92,8 +87,8 @@ class _HeaderAvatar(QWidget):
         p.drawEllipse(1, 1, s - 2, s - 2)
         p.end()
 
-PANEL_W   = 400
-CHANGES_W = 420
+PANEL_W   = 320
+CHANGES_W = 460
 
 SWIPE_THRESHOLD = 70   # px rightward drag to dismiss a panel
 
@@ -424,7 +419,7 @@ class _DiffLine(QWidget):
             )
             layout.addWidget(num_lbl)
 
-        lbl = QLabel(text[:200] or " ")
+        lbl = QLabel(text[:140] or " ")
         lbl.setTextInteractionFlags(Qt.TextSelectableByMouse)
         fg = COLORS["text_primary"] if kind in ("added", "removed") else COLORS["text_muted"]
         lbl.setStyleSheet(
@@ -632,7 +627,7 @@ class ChangesPanel(QWidget):
         self._content = QWidget()
         self._content.setStyleSheet("background: transparent;")
         self._content_layout = QVBoxLayout(self._content)
-        self._content_layout.setContentsMargins(0, 8, 0, 32)
+        self._content_layout.setContentsMargins(0, 8, 0, 8)
         self._content_layout.setSpacing(0)
 
         scroll.setWidget(self._content)
@@ -873,7 +868,6 @@ class AllChangesPopup(QWidget):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         scroll.setStyleSheet(_scrollbar_style(COLORS))
 
         content = QWidget()
@@ -982,6 +976,59 @@ class AllChangesPopup(QWidget):
         return section
 
     def _diff_block(self, title: str, lines: list, kind: str) -> QWidget:
+        color = "#22c55e" if kind == "added" else "#ef4444"
+        bg    = "rgba(34,197,94,0.06)" if kind == "added" else "rgba(239,68,68,0.06)"
+        block = QWidget()
+        block.setAttribute(Qt.WA_StyledBackground, True)
+        block.setStyleSheet("background: transparent;")
+        bl = QVBoxLayout(block)
+        bl.setContentsMargins(0, 0, 0, 0)
+        bl.setSpacing(0)
+
+        hdr = QWidget()
+        hdr.setAttribute(Qt.WA_StyledBackground, True)
+        hdr.setStyleSheet(f"background: {bg};")
+        hdr.setFixedHeight(32)
+        hhl = QHBoxLayout(hdr)
+        hhl.setContentsMargins(16, 0, 16, 0)
+        lbl = QLabel(title)
+        lbl.setStyleSheet(
+            f"background: transparent; font-size: 10px; font-weight: 700;"
+            f" color: {color}; letter-spacing: 0.08em;"
+        )
+        hhl.addWidget(lbl)
+        hhl.addStretch()
+        c_lbl = QLabel(f"{len(lines)} line{'s' if len(lines) != 1 else ''}")
+        c_lbl.setStyleSheet(f"background: transparent; font-size: 10px; color: {color};")
+        hhl.addWidget(c_lbl)
+        bl.addWidget(hdr)
+
+        limit  = 80
+        chunks = _chunk_lines(lines[:limit])
+        for i, chunk in enumerate(chunks):
+            if i > 0:
+                gap = QLabel("· · ·")
+                gap.setAlignment(Qt.AlignCenter)
+                gap.setStyleSheet(
+                    f"background: transparent; color: {COLORS['text_muted']};"
+                    f" font-size: 11px; padding: 4px 0;"
+                )
+                bl.addWidget(gap)
+            for line_num, text in chunk:
+                bl.addWidget(_DiffLine(kind, text, line_num))
+
+        if len(lines) > limit:
+            more = QLabel(f"  … {len(lines) - limit} more lines")
+            more.setStyleSheet(
+                f"background: transparent; font-size: 11px;"
+                f" color: {COLORS['text_muted']}; padding: 6px 16px;"
+            )
+            bl.addWidget(more)
+
+        return block
+
+    def _diff_block(self, title: str, lines: list, kind: str) -> QWidget:
+        """lines: list of (line_num, text)"""
         color  = "#22c55e" if kind == "added" else "#ef4444"
         bg     = "rgba(34,197,94,0.06)" if kind == "added" else "rgba(239,68,68,0.06)"
         block  = QWidget()
@@ -1136,7 +1183,6 @@ class DetailPanel(QWidget):
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         scroll.setStyleSheet(_scrollbar_style(COLORS))
 
         content = QWidget()
@@ -1148,11 +1194,13 @@ class DetailPanel(QWidget):
         self._sha    = _Row("Committed on")
         self._branch = _Row("Branch")
         self._author = _Row("Made by")
+        self._date   = _Row("When")
 
         content_layout.addWidget(self._sha)
         content_layout.addWidget(_divider())
         content_layout.addWidget(self._branch)
         content_layout.addWidget(self._author)
+        content_layout.addWidget(self._date)
         content_layout.addWidget(_divider())
 
         msg_label = QLabel("DESCRIPTION")
@@ -1267,9 +1315,34 @@ class DetailPanel(QWidget):
         if getattr(self, "_current_sha", None):
             self.navigate_requested.emit(self._current_sha)
 
+    def set_head_sha(self, head_sha: str):
+        self._head_sha = head_sha
+        self._refresh_goto_btn()
+
+    def _refresh_goto_btn(self):
+        is_current = bool(
+            getattr(self, "_current_sha", None) and
+            self._current_sha == getattr(self, "_head_sha", "")
+        )
+        self._goto_btn.setText("You are here" if is_current else "Go to this snapshot →")
+        self._goto_btn.setEnabled(not is_current)
+        self._goto_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: {'transparent' if is_current else COLORS['accent']};
+                border: {'1px solid ' + COLORS['border'] if is_current else 'none'};
+                border-radius: 8px;
+                color: {COLORS['text_muted'] if is_current else 'white'};
+                font-size: 12px; font-weight: 600; padding: 9px 16px;
+            }}
+            QPushButton:hover {{
+                background: {COLORS['bg_hover'] if is_current else COLORS['accent_dim']};
+            }}
+        """)
+
     def show_commit(self, commit, detail: dict, avatar_url: str = "",
                     display_author: str = None, files: list = None):
         self._current_sha = commit.sha
+        self._refresh_goto_btn()
         shown_name = display_author or commit.author
         self._header_avatar.set_author(commit.author, avatar_url)
         self._header_name.setText(shown_name)
@@ -1279,7 +1352,8 @@ class DetailPanel(QWidget):
         saved_at = f"{d.day} {d.strftime('%b')} {d.year}  {d.strftime('%H:%M')}"
         self._sha.set(saved_at, color=COLORS["text_secondary"])
         self._branch.set(commit.branch)
-        self._author.set(shown_name or "—", color=COLORS["text_secondary"])
+        self._author.set(commit.author, color=COLORS["text_secondary"])
+        self._date.set(commit.date_str, color=COLORS["text_secondary"])
         self._message.setText(detail.get("message", commit.message))
         self._populate_files(files or [])
 

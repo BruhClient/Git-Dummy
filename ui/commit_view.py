@@ -18,6 +18,7 @@ from core.git_tracker import GitTracker, CommitInfo
 from core.git_ops import (current_branch, branch_for_commit,
                           has_uncommitted_changes, create_auto_stash,
                           pop_auto_stash, checkout_commit, checkout_branch)
+from core import settings_store
 from core import collab_cache
 from ui.spatial_canvas import SpatialCanvas, MiniMap
 from ui.detail_panel import DetailPanel, ChangesPanel, PANEL_W as DETAIL_PANEL_W, CHANGES_W
@@ -1025,6 +1026,50 @@ class _ExploreBanner(QWidget):
         layout.addWidget(btn)
 
 
+# ── Toast notification ────────────────────────────────────────────────────────
+
+class _Toast(QWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setAttribute(Qt.WA_StyledBackground, True)
+        self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        self.setStyleSheet(f"""
+            background: {COLORS['bg_card']};
+            border: 1px solid {COLORS['warning']}80;
+            border-radius: 8px;
+        """)
+        self.hide()
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(14, 10, 14, 10)
+        layout.setSpacing(8)
+
+        icon = QLabel("📦")
+        icon.setStyleSheet("background: transparent; font-size: 14px;")
+        layout.addWidget(icon)
+
+        self._msg = QLabel("")
+        self._msg.setStyleSheet(
+            f"background: transparent; font-size: 12px; color: {COLORS['text_primary']};"
+        )
+        layout.addWidget(self._msg)
+
+        self._timer = QTimer()
+        self._timer.setSingleShot(True)
+        self._timer.timeout.connect(self.hide)
+
+    def show_message(self, text: str, duration_ms: int = 3000):
+        self._msg.setText(text)
+        self.adjustSize()
+        if self.parent():
+            p = self.parent()
+            self.move((p.width() - self.width()) // 2,
+                      p.height() - self.height() - 80)
+        self.raise_()
+        self.show()
+        self._timer.start(duration_ms)
+
+
 # ── Page ──────────────────────────────────────────────────────────────────────
 
 class CommitViewPage(QWidget):
@@ -1048,11 +1093,6 @@ class CommitViewPage(QWidget):
         self._no_remote_banner.hide()
         layout.addWidget(self._no_remote_banner)
 
-        self._explore_banner = _ExploreBanner()
-        self._explore_banner.return_requested.connect(self._return_home)
-        self._explore_banner.hide()
-        layout.addWidget(self._explore_banner)
-
         self._canvas = SpatialCanvas()
         layout.addWidget(self._canvas)
 
@@ -1075,6 +1115,7 @@ class CommitViewPage(QWidget):
         self._minimap.raise_()
 
         self._loading = _LoadingOverlay(self)
+        self._toast   = _Toast(self)
         self._loading.hide()
 
 
@@ -1119,6 +1160,7 @@ class CommitViewPage(QWidget):
         self._panel.file_selected.connect(self._changes_panel.show_file)
         self._changes_panel.panel_toggled.connect(self._reposition_collab)
         self._position_panel.jump_requested.connect(self._canvas.jump_to_commit)
+        self._position_panel.return_requested.connect(self._return_home)
         self._panel.navigate_requested.connect(self._on_navigate)
 
     # ── Public ────────────────────────────────────────────────────────────
@@ -1153,7 +1195,6 @@ class CommitViewPage(QWidget):
         self._changes_panel.hide_panel()
         self._panel.hide_panel()
         self._position_panel.clear()
-        self._explore_banner.hide()
         self._exploring = False
         self._home_branch = ""
         self._has_stash = False
@@ -1178,6 +1219,14 @@ class CommitViewPage(QWidget):
         self._header.set_repo(self._tracker.repo_name)
         self._header.set_operation("")
         self._panel.hide_panel()
+
+        # Restore exploration state if app was closed mid-explore
+        saved = settings_store.get("explore_state")
+        if saved and saved.get("repo_path") == repo_path and saved.get("has_stash"):
+            self._home_branch = saved.get("home_branch", "")
+            self._has_stash   = True
+            self._exploring   = True
+            self._position_panel.set_exploring(True)
         has_remote = self._tracker.has_remote()
         if has_remote:
             self._collab_panel.show_loading()
@@ -1368,12 +1417,13 @@ class CommitViewPage(QWidget):
         self._you_shas = self._compute_you_shas(commits)
         self._update_position_panel(commits)
 
+        is_initial = not bool(self._last_commit_shas)
         self._canvas.load_graph(commits, branch_tip_map,
                                 you_shas=self._you_shas,
                                 local_only_branches=local_only,
                                 unpushed_shas=unpushed,
                                 head_sha=self._last_head_sha)
-        if self._last_head_sha:
+        if is_initial and self._last_head_sha:
             self._canvas.jump_to_commit(self._last_head_sha)
         self._header.set_count(len(commits))
         self._loading.hide()
@@ -1393,6 +1443,7 @@ class CommitViewPage(QWidget):
             self._position_panel.load(head_commit.message, branch, head_commit.sha, head_commit.author, avatar_url)
             self._reposition_position()
         self._canvas.set_head_sha(head_sha)
+        self._panel.set_head_sha(head_sha)
         self._last_head_sha = head_sha
 
     def _make_first_commit(self):
@@ -1611,13 +1662,22 @@ class CommitViewPage(QWidget):
             return
         path = self._tracker._path
 
-        if not self._exploring:
-            # First hop — remember home, stash if dirty
-            self._home_branch = current_branch(path)
-            if has_uncommitted_changes(path):
-                self._has_stash = create_auto_stash(path)
-            self._exploring = True
-            self._explore_banner.show()
+        if not self._has_stash and has_uncommitted_changes(path):
+            self._home_branch  = current_branch(path)
+            stashed_files      = create_auto_stash(path)
+            self._has_stash    = bool(stashed_files)
+            self._exploring    = True
+            settings_store.save({"explore_state": {
+                "repo_path":   path,
+                "home_branch": self._home_branch,
+                "has_stash":   self._has_stash,
+            }})
+            self._position_panel.set_exploring(True, stashed_files)
+            self._reposition_position()
+            n = len(stashed_files)
+            self._toast.show_message(
+                f"Your unsaved work has been saved — {n} file{'s' if n != 1 else ''}"
+            )
 
         checkout_commit(path, sha)
 
@@ -1626,12 +1686,29 @@ class CommitViewPage(QWidget):
             return
         path = self._tracker._path
         checkout_branch(path, self._home_branch)
+
         if self._has_stash:
-            pop_auto_stash(path)
+            ok = pop_auto_stash(path)
+            if not ok:
+                # Pop conflicted — abort it and keep stash intact so nothing is lost
+                import subprocess
+                subprocess.run(["git", "checkout", "--ours", "."],
+                               cwd=path, capture_output=True)
+                subprocess.run(["git", "reset", "HEAD"],
+                               cwd=path, capture_output=True)
+                self._toast.show_message(
+                    "Your saved work could not be restored automatically — "
+                    "run  git stash pop  in the terminal.",
+                    duration_ms=8000,
+                )
+                self._has_stash = False
+
         self._exploring = False
         self._home_branch = ""
         self._has_stash = False
-        self._explore_banner.hide()
+        settings_store.save({"explore_state": None})
+        self._position_panel.set_exploring(False)
+        self._reposition_position()
 
     def _branch_for_head(self) -> str:
         if not self._tracker:
@@ -1680,3 +1757,6 @@ class CommitViewPage(QWidget):
                 self._header.height() + margin)
         if self._position_panel.isVisible():
             self._reposition_position()
+        if self._toast.isVisible():
+            t = self._toast
+            t.move((self.width() - t.width()) // 2, self.height() - t.height() - 80)

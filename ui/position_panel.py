@@ -93,7 +93,8 @@ class PositionPanel(QWidget):
     """Floating panel showing the commit currently checked out in the local repo."""
 
     PANEL_W = PANEL_W
-    jump_requested = pyqtSignal(str)  # sha
+    jump_requested   = pyqtSignal(str)
+    return_requested = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -127,17 +128,30 @@ class PositionPanel(QWidget):
         hl = QHBoxLayout(hdr)
         hl.setContentsMargins(14, 0, 12, 0)
 
-        dot = QLabel("●")
-        dot.setStyleSheet(f"background: transparent; font-size: 8px; color: {COLORS['accent']};")
-        hl.addWidget(dot)
+        self._dot = QLabel("●")
+        self._dot.setStyleSheet(f"background: transparent; font-size: 8px; color: {COLORS['accent']};")
+        hl.addWidget(self._dot)
 
-        title = QLabel("Where you are now")
-        title.setStyleSheet(
+        self._title = QLabel("Where you are now")
+        self._title.setStyleSheet(
             f"background: transparent; font-size: 12px; font-weight: 600;"
             f" color: {COLORS['text_muted']}; letter-spacing: 0.04em;"
         )
-        hl.addWidget(title)
+        hl.addWidget(self._title)
         hl.addStretch()
+
+        self._explore_badge = QLabel("EXPLORING")
+        self._explore_badge.setStyleSheet(f"""
+            background: {COLORS['warning']}22;
+            border: 1px solid {COLORS['warning']}80;
+            border-radius: 4px;
+            color: {COLORS['warning']};
+            font-size: 9px; font-weight: 700;
+            padding: 2px 6px; letter-spacing: 0.06em;
+        """)
+        self._explore_badge.hide()
+        hl.addWidget(self._explore_badge)
+
         root.addWidget(hdr)
 
         # Body
@@ -203,6 +217,30 @@ class PositionPanel(QWidget):
         self._jump_btn.clicked.connect(self._on_jump)
         bl.addWidget(self._jump_btn)
 
+        self._return_btn = QPushButton("Go back to my work →")
+        self._return_btn.setCursor(Qt.PointingHandCursor)
+        self._return_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: {COLORS['warning']}22;
+                border: 1px solid {COLORS['warning']}80;
+                border-radius: 8px;
+                color: {COLORS['warning']};
+                font-size: 12px; font-weight: 600;
+                padding: 8px 16px;
+            }}
+            QPushButton:hover {{ background: {COLORS['warning']}33; }}
+        """)
+        self._return_btn.clicked.connect(self.return_requested)
+        self._return_btn.hide()
+        bl.addWidget(self._return_btn)
+
+        self._stash_lbl = QLabel("")
+        self._stash_lbl.setStyleSheet(
+            f"background: transparent; font-size: 11px; color: {COLORS['text_muted']};"
+        )
+        self._stash_lbl.hide()
+        bl.addWidget(self._stash_lbl)
+
         root.addWidget(body)
 
         self._current_sha = ""
@@ -210,6 +248,29 @@ class PositionPanel(QWidget):
     def _on_jump(self):
         if self._current_sha:
             self.jump_requested.emit(self._current_sha)
+
+    def set_exploring(self, exploring: bool, stashed_files: list[str] | None = None):
+        self._explore_badge.setVisible(exploring)
+        self._return_btn.setVisible(exploring)
+        self._jump_btn.setVisible(not exploring)
+        if exploring:
+            self._title.setText("Exploring the past")
+            self._dot.setStyleSheet(
+                f"background: transparent; font-size: 8px; color: {COLORS['warning']};"
+            )
+            if stashed_files:
+                n = len(stashed_files)
+                self._stash_lbl.setText(f"📦 {n} file{'s' if n != 1 else ''} saved")
+                self._stash_lbl.show()
+            else:
+                self._stash_lbl.hide()
+        else:
+            self._title.setText("Where you are now")
+            self._dot.setStyleSheet(
+                f"background: transparent; font-size: 8px; color: {COLORS['accent']};"
+            )
+            self._stash_lbl.hide()
+        self.adjustSize()
 
     def load(self, message: str, branch: str, sha: str, author: str = "", avatar_url: str = ""):
         self._current_sha = sha
@@ -226,6 +287,7 @@ class PositionPanel(QWidget):
         self._name_lbl.set_value("—")
         self._branch_lbl.set_value("—")
         self._sha_lbl.set_value("—")
+        self.set_exploring(False)
         self.adjustSize()
         self.hide()
 

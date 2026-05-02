@@ -15,14 +15,27 @@ def has_uncommitted_changes(path: str) -> bool:
     return bool(r.stdout.strip())
 
 
-def create_auto_stash(path: str) -> bool:
+def get_stash_files(path: str) -> list[str]:
+    r = subprocess.run(
+        ["git", "stash", "show", "--name-only"],
+        cwd=path, capture_output=True, text=True,
+    )
+    if r.returncode != 0:
+        return []
+    return [f.strip() for f in r.stdout.strip().splitlines() if f.strip()]
+
+
+def create_auto_stash(path: str) -> list[str]:
+    """Stash uncommitted changes. Returns list of stashed files, or [] on failure."""
     from datetime import datetime
     msg = "Auto-stash: " + datetime.now().strftime("%b %d %I:%M %p")
     r = subprocess.run(
         ["git", "stash", "push", "-m", msg],
         cwd=path, capture_output=True, text=True,
     )
-    return r.returncode == 0 and "No local changes" not in r.stdout
+    if r.returncode != 0 or "No local changes" in r.stdout:
+        return []
+    return get_stash_files(path)
 
 
 def pop_auto_stash(path: str) -> bool:
