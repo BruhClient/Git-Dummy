@@ -608,6 +608,7 @@ class SpatialCanvas(QGraphicsView):
         self._node_colors: dict[str, str] = {}
         self._content_rect: QRectF = QRectF()
         self._you_shas: set = set()
+        self._known_authors: set = set()
         self._author_items: dict[str, QGraphicsSimpleTextItem] = {}
         self._head_sha: str = ""
 
@@ -888,6 +889,20 @@ class SpatialCanvas(QGraphicsView):
                 continue
             raw = "You" if sha in you_shas else commit.author
             item.setText(raw if len(raw) <= 22 else raw[:20] + "…")
+
+    def set_known_authors(self, known: set[str]):
+        """Dim author labels for commits whose author isn't a known collaborator."""
+        self._known_authors = known
+        muted = QColor(COLORS["text_muted"])
+        primary = QColor(COLORS["text_primary"])
+        for sha, item in self._author_items.items():
+            commit = next((c for c in self._commits if c.sha == sha), None)
+            if commit is None:
+                continue
+            if sha in self._you_shas or not known or commit.author in known:
+                item.setBrush(QBrush(primary))
+            else:
+                item.setBrush(QBrush(muted))
 
     def load_contributor_avatars(self, badge_data: list[dict]):
         """Place avatar badges for each contributor at their latest commit.
