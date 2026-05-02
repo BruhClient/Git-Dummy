@@ -479,21 +479,17 @@ class GitTracker:
             return []
 
     def commit_detail(self, sha: str) -> dict:
-        """Return extended info for a single commit (stats, full message)."""
+        """Return extended info for a single commit (full message)."""
         if not self._repo:
             return {}
         try:
             c = self._repo.commit(sha)
-            stats = c.stats.total
             return {
-                "sha": sha,
+                "sha":    sha,
                 "message": c.message.strip(),
                 "author": c.author.name,
                 "author_email": c.author.email,
-                "date": datetime.fromtimestamp(c.committed_date).strftime("%Y-%m-%d %H:%M:%S"),
-                "insertions": stats.get("insertions", 0),
-                "deletions": stats.get("deletions", 0),
-                "files_changed": stats.get("files", 0),
+                "date":   datetime.fromtimestamp(c.committed_date).strftime("%Y-%m-%d %H:%M:%S"),
                 "parents": [p.hexsha[:7] for p in c.parents],
             }
         except Exception:

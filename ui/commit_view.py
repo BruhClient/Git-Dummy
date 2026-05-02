@@ -90,18 +90,19 @@ class _Loader(QObject):
 
 
 class _CommitDetailWorker(QObject):
-    finished = pyqtSignal(object, dict, list)   # commit, detail, files
+    finished = pyqtSignal(object, dict, list, int)   # commit, detail, files, gen
 
-    def __init__(self, tracker: GitTracker, commit):
+    def __init__(self, tracker: GitTracker, commit, gen: int):
         super().__init__()
         self._tracker = tracker
         self._commit  = commit
+        self._gen     = gen
 
     @pyqtSlot()
     def run(self):
         detail = self._tracker.commit_detail(self._commit.sha)
         files  = self._tracker.commit_files(self._commit.sha)
-        self.finished.emit(self._commit, detail, files)
+        self.finished.emit(self._commit, detail, files, self._gen)
 
 
 class _VisibilityWorker(QObject):
@@ -1125,6 +1126,7 @@ class CommitViewPage(QWidget):
         self._collab_worker = None
         self._fetch_thread:  Optional[QThread] = None
         self._detail_thread: Optional[QThread] = None
+        self._detail_gen: int = 0
         self._vis_thread:    Optional[QThread] = None
         self._commits: list = []
         self._collaborators: list = []
@@ -1652,17 +1654,25 @@ class CommitViewPage(QWidget):
 
         if self._detail_thread and self._detail_thread.isRunning():
             self._detail_thread.quit()
-            self._detail_thread.wait()
+            # No wait() — let old thread die naturally; gen check discards stale results
 
-        self._detail_thread  = QThread()
-        self._detail_worker  = _CommitDetailWorker(self._tracker, commit)
-        self._detail_worker.moveToThread(self._detail_thread)
-        self._detail_thread.started.connect(self._detail_worker.run)
-        self._detail_worker.finished.connect(self._on_commit_detail_ready)
-        self._detail_worker.finished.connect(self._detail_thread.quit)
-        self._detail_thread.start()
+        self._detail_gen += 1
+        gen = self._detail_gen
 
-    def _on_commit_detail_ready(self, commit: CommitInfo, detail: dict, files: list):
+        thread = QThread()
+        worker = _CommitDetailWorker(self._tracker, commit, gen)
+        worker.moveToThread(thread)
+        thread.started.connect(worker.run)
+        worker.finished.connect(self._on_commit_detail_ready)
+        worker.finished.connect(thread.quit)
+        thread.finished.connect(lambda t=thread: self._on_detail_thread_done(t))
+        self._detail_thread = thread
+        self._detail_worker = worker
+        thread.start()
+
+    def _on_commit_detail_ready(self, commit: CommitInfo, detail: dict, files: list, gen: int):
+        if gen != self._detail_gen:
+            return
         is_you = commit.sha in self._you_shas
         collab = next(
             (c for c in self._collaborators
@@ -1679,6 +1689,10 @@ class CommitViewPage(QWidget):
         else:
             display_author = ""   # not a known collaborator — show "—"
         self._panel.show_commit(commit, detail, collab.get("avatar_url", ""), display_author, files)
+
+    def _on_detail_thread_done(self, thread: QThread):
+        if self._detail_thread is thread:
+            self._detail_thread = None
 
     def _on_navigate(self, sha: str):
         if not self._tracker:
