@@ -15,30 +15,54 @@ def has_uncommitted_changes(path: str) -> bool:
     return bool(r.stdout.strip())
 
 
-def get_stash_files(path: str) -> list[str]:
-    r = subprocess.run(
-        ["git", "stash", "show", "--name-only"],
-        cwd=path, capture_output=True, text=True,
-    )
+def get_stash_files(path: str, stash_id: str = "") -> list[str]:
+    ref = ""
+    if stash_id:
+        r = subprocess.run(
+            ["git", "stash", "list"],
+            cwd=path, capture_output=True, text=True,
+        )
+        for line in r.stdout.strip().splitlines():
+            if stash_id in line:
+                ref = line.split(":")[0].strip()
+                break
+    args = ["git", "stash", "show", "--name-only"]
+    if ref:
+        args.append(ref)
+    r = subprocess.run(args, cwd=path, capture_output=True, text=True)
     if r.returncode != 0:
         return []
     return [f.strip() for f in r.stdout.strip().splitlines() if f.strip()]
 
 
-def create_auto_stash(path: str) -> list[str]:
-    """Stash uncommitted changes. Returns list of stashed files, or [] on failure."""
-    from datetime import datetime
-    msg = "Auto-stash: " + datetime.now().strftime("%b %d %I:%M %p")
+def create_auto_stash(path: str) -> tuple[list[str], str]:
+    """Stash uncommitted changes. Returns (stashed_files, stash_id) or ([], '') on failure."""
+    import uuid
+    stash_id = "gitdummy-autostash-" + uuid.uuid4().hex[:8]
     r = subprocess.run(
-        ["git", "stash", "push", "-m", msg],
+        ["git", "stash", "push", "-m", stash_id],
         cwd=path, capture_output=True, text=True,
     )
     if r.returncode != 0 or "No local changes" in r.stdout:
-        return []
-    return get_stash_files(path)
+        return [], ""
+    return get_stash_files(path), stash_id
 
 
-def pop_auto_stash(path: str) -> bool:
+def pop_auto_stash(path: str, stash_id: str = "") -> bool:
+    if stash_id:
+        r = subprocess.run(
+            ["git", "stash", "list"],
+            cwd=path, capture_output=True, text=True,
+        )
+        for line in r.stdout.strip().splitlines():
+            if stash_id in line:
+                ref = line.split(":")[0].strip()
+                r2 = subprocess.run(
+                    ["git", "stash", "pop", ref],
+                    cwd=path, capture_output=True, text=True,
+                )
+                return r2.returncode == 0
+        return False
     r = subprocess.run(
         ["git", "stash", "pop"],
         cwd=path, capture_output=True, text=True,

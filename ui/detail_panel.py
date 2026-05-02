@@ -15,6 +15,7 @@ from styles.theme import COLORS
 # Hi there! The code below is for the detail panel and changes panel in the commit details view.
 
 # This is another area where I had to make some tradeoffs for the sake of shipping a v1 — in this case, the diff rendering.
+
 _PALETTE = [
     "#6366f1", "#f59e0b", "#ef4444", "#8b5cf6",
     "#06b6d4", "#f97316", "#ec4899", "#14b8a6",
@@ -1220,6 +1221,20 @@ class DetailPanel(QWidget):
 
         content_layout.addWidget(_divider())
 
+        self._goto_btn = QPushButton("Go to this snapshot →")
+        self._goto_btn.setCursor(Qt.PointingHandCursor)
+        self._goto_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: {COLORS['accent']}; border: none; border-radius: 8px;
+                color: white; font-size: 12px; font-weight: 600; padding: 9px 16px;
+            }}
+            QPushButton:hover {{ background: {COLORS['accent_dim']}; }}
+        """)
+        self._goto_btn.clicked.connect(self._on_goto)
+        content_layout.addWidget(self._goto_btn)
+
+        content_layout.addWidget(_divider())
+
         files_hdr = QWidget()
         files_hdr.setStyleSheet("background: transparent;")
         fhl = QHBoxLayout(files_hdr)
@@ -1255,20 +1270,6 @@ class DetailPanel(QWidget):
         self._files_layout.setContentsMargins(0, 0, 0, 0)
         self._files_layout.setSpacing(6)
         content_layout.addWidget(self._files_container)
-
-        content_layout.addWidget(_divider())
-
-        self._goto_btn = QPushButton("Go to this snapshot →")
-        self._goto_btn.setCursor(Qt.PointingHandCursor)
-        self._goto_btn.setStyleSheet(f"""
-            QPushButton {{
-                background: {COLORS['accent']}; border: none; border-radius: 8px;
-                color: white; font-size: 12px; font-weight: 600; padding: 9px 16px;
-            }}
-            QPushButton:hover {{ background: {COLORS['accent_dim']}; }}
-        """)
-        self._goto_btn.clicked.connect(self._on_goto)
-        content_layout.addWidget(self._goto_btn)
 
         content_layout.addStretch()
         scroll.setWidget(content)

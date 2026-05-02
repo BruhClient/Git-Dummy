@@ -17,7 +17,8 @@ from styles.theme import COLORS
 from core.git_tracker import GitTracker, CommitInfo
 from core.git_ops import (current_branch, branch_for_commit,
                           has_uncommitted_changes, create_auto_stash,
-                          pop_auto_stash, checkout_commit, checkout_branch)
+                          pop_auto_stash, checkout_commit, checkout_branch,
+                          get_stash_files)
 from core import settings_store
 from core import collab_cache
 from ui.spatial_canvas import SpatialCanvas, MiniMap
@@ -1133,6 +1134,10 @@ class CommitViewPage(QWidget):
         self._exploring: bool = False
         self._home_branch: str = ""
         self._has_stash: bool = False
+        self._stash_id: str = ""
+        self._stash_timer = QTimer(self)
+        self._stash_timer.setInterval(5000)
+        self._stash_timer.timeout.connect(self._refresh_stash_display)
         self._last_commit_shas: tuple = ()
         self._last_branch_tips: dict = {}
         self._last_local_only: set = set()
@@ -1240,8 +1245,11 @@ class CommitViewPage(QWidget):
         if saved and saved.get("repo_path") == repo_path and saved.get("has_stash"):
             self._home_branch = saved.get("home_branch", "")
             self._has_stash   = True
+            self._stash_id    = saved.get("stash_id", "")
             self._exploring   = True
-            self._position_panel.set_exploring(True)
+            files = get_stash_files(repo_path, self._stash_id)
+            self._position_panel.set_exploring(True, files)
+            self._stash_timer.start()
         has_remote = self._tracker.has_remote()
         if has_remote:
             self._collab_panel.show_loading()
@@ -1423,6 +1431,8 @@ class CommitViewPage(QWidget):
             self._update_position_panel(commits)
             return
 
+        is_initial = not bool(self._last_commit_shas)
+
         self._last_commit_shas = new_shas
         self._last_branch_tips = branch_tip_map
         self._last_local_only  = local_only
@@ -1431,8 +1441,6 @@ class CommitViewPage(QWidget):
         self._commits  = commits
         self._you_shas = self._compute_you_shas(commits)
         self._update_position_panel(commits)
-
-        is_initial = not bool(self._last_commit_shas)
         self._canvas.load_graph(commits, branch_tip_map,
                                 you_shas=self._you_shas,
                                 local_only_branches=local_only,
@@ -1679,15 +1687,17 @@ class CommitViewPage(QWidget):
 
         if not self._has_stash and has_uncommitted_changes(path):
             self._home_branch  = current_branch(path)
-            stashed_files      = create_auto_stash(path)
+            stashed_files, self._stash_id = create_auto_stash(path)
             self._has_stash    = bool(stashed_files)
             self._exploring    = True
             settings_store.save({"explore_state": {
                 "repo_path":   path,
                 "home_branch": self._home_branch,
                 "has_stash":   self._has_stash,
+                "stash_id":    self._stash_id,
             }})
             self._position_panel.set_exploring(True, stashed_files)
+            self._stash_timer.start()
             self._reposition_position()
             n = len(stashed_files)
             self._toast.show_message(
@@ -1703,7 +1713,7 @@ class CommitViewPage(QWidget):
         checkout_branch(path, self._home_branch)
 
         if self._has_stash:
-            ok = pop_auto_stash(path)
+            ok = pop_auto_stash(path, self._stash_id)
             if not ok:
                 # Pop conflicted — abort it and keep stash intact so nothing is lost
                 import subprocess
@@ -1718,12 +1728,20 @@ class CommitViewPage(QWidget):
                 )
                 self._has_stash = False
 
+        self._stash_timer.stop()
         self._exploring = False
         self._home_branch = ""
         self._has_stash = False
+        self._stash_id = ""
         settings_store.save({"explore_state": None})
         self._position_panel.set_exploring(False)
         self._reposition_position()
+
+    def _refresh_stash_display(self):
+        if not self._exploring or not self._tracker:
+            return
+        files = get_stash_files(self._tracker._path, self._stash_id)
+        self._position_panel.update_stash_files(files)
 
     def _branch_for_head(self) -> str:
         if not self._tracker:

@@ -236,10 +236,18 @@ class PositionPanel(QWidget):
 
         self._stash_lbl = QLabel("")
         self._stash_lbl.setStyleSheet(
-            f"background: transparent; font-size: 11px; color: {COLORS['text_muted']};"
+            f"background: transparent; font-size: 11px; font-weight: 600; color: {COLORS['text_muted']};"
         )
         self._stash_lbl.hide()
         bl.addWidget(self._stash_lbl)
+
+        self._stash_files_lbl = QLabel("")
+        self._stash_files_lbl.setWordWrap(True)
+        self._stash_files_lbl.setStyleSheet(
+            f"background: transparent; font-size: 10px; color: {COLORS['text_muted']};"
+        )
+        self._stash_files_lbl.hide()
+        bl.addWidget(self._stash_files_lbl)
 
         root.addWidget(body)
 
@@ -259,18 +267,34 @@ class PositionPanel(QWidget):
                 f"background: transparent; font-size: 8px; color: {COLORS['warning']};"
             )
             if stashed_files:
-                n = len(stashed_files)
-                self._stash_lbl.setText(f"📦 {n} file{'s' if n != 1 else ''} saved")
+                self._stash_lbl.setText("📦 Saved changes")
                 self._stash_lbl.show()
+                self._render_stash_files(stashed_files)
             else:
                 self._stash_lbl.hide()
+                self._stash_files_lbl.hide()
         else:
             self._title.setText("Where you are now")
             self._dot.setStyleSheet(
                 f"background: transparent; font-size: 8px; color: {COLORS['accent']};"
             )
             self._stash_lbl.hide()
+            self._stash_files_lbl.hide()
         self.adjustSize()
+
+    def update_stash_files(self, files: list[str]):
+        if not files:
+            return
+        self._render_stash_files(files)
+        self.adjustSize()
+
+    def _render_stash_files(self, files: list[str]):
+        MAX = 5
+        lines = [f"  {f}" for f in files[:MAX]]
+        if len(files) > MAX:
+            lines.append(f"  …and {len(files) - MAX} more")
+        self._stash_files_lbl.setText("\n".join(lines))
+        self._stash_files_lbl.show()
 
     def load(self, message: str, branch: str, sha: str, author: str = "", avatar_url: str = ""):
         self._current_sha = sha
