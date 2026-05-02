@@ -1170,13 +1170,10 @@ class CommitViewPage(QWidget):
 
     def reset(self):
         """Full teardown — called on sign out."""
+        self._stop_all_threads()
         if self._tracker:
             self._tracker.close()
             self._tracker = None
-        for thread in (self._thread, self._collab_thread):
-            if thread and thread.isRunning():
-                thread.quit()
-                thread.wait()
         self._thread = self._collab_thread = None
         self._commits = []
         self._collaborators = []
@@ -1201,7 +1198,25 @@ class CommitViewPage(QWidget):
         self._last_head_sha = ""
         self._header.set_repo("—")
 
+    def _stop_all_threads(self):
+        for attr in ("_thread", "_collab_thread", "_fetch_thread",
+                     "_detail_thread", "_vis_thread"):
+            t = getattr(self, attr, None)
+            if t and t.isRunning():
+                t.quit()
+                t.wait(500)
+        for attr in ("_worker", "_collab_worker", "_fetch_worker",
+                     "_detail_worker", "_vis_worker"):
+            w = getattr(self, attr, None)
+            if w is not None:
+                try:
+                    w.finished.disconnect()
+                except Exception:
+                    pass
+
     def load_repo(self, repo_path: str):
+        self._stop_all_threads()
+
         if self._tracker:
             self._tracker.close()
 
