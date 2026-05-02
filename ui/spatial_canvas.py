@@ -619,6 +619,7 @@ class SpatialCanvas(QGraphicsView):
         self._head_sha: str = ""
         self._orientation: str = ORIENT_LR
         self._dimmed_shas: set[str] = set()
+        self._author_display: dict[str, str] = {}
 
     # ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -955,6 +956,27 @@ class SpatialCanvas(QGraphicsView):
             if commit.sha in self._author_items:
                 self._author_items[commit.sha].setOpacity(0.0 if dim else 1.0)
         self.viewport_changed.emit()
+
+    def _update_author_item(self, item, sha: str, commit):
+        is_you = sha in self._you_shas
+        if is_you:
+            item.setText("You")
+            item.setVisible(True)
+        elif not self._known_authors or commit.author in self._known_authors:
+            raw = self._author_display.get(commit.author, commit.author)
+            item.setText(raw if len(raw) <= 22 else raw[:20] + "…")
+            item.setVisible(True)
+        else:
+            item.setVisible(False)
+            return
+        if self._orientation in (ORIENT_LR, ORIENT_RL) and sha in self._positions:
+            cx, cy = self._positions[sha]
+            max_w = ROW_H - 8
+            if item.boundingRect().width() > max_w:
+                fm = QFontMetrics(item.font())
+                item.setText(fm.elidedText(item.text(), Qt.ElideRight, int(max_w)))
+            aw = item.boundingRect().width()
+            item.setPos(cx - aw / 2, cy + NODE_R + 6)
 
     def refresh_you_labels(self, you_shas: set):
         """Update author text labels to show 'You' for the given commit SHAs."""
