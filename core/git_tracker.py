@@ -82,6 +82,22 @@ class GitTracker:
         except Exception:
             return ""
 
+    def operation_in_progress(self) -> str:
+        """Return the name of any ongoing git operation, or '' if none."""
+        if not self._repo:
+            return ""
+        gd = self._repo.git_dir
+        checks = [
+            ("MERGE_HEAD",       "Merging"),
+            ("CHERRY_PICK_HEAD", "Cherry-picking"),
+            ("REVERT_HEAD",      "Reverting"),
+            ("BISECT_LOG",       "Bisecting"),
+        ]
+        for filename, label in checks:
+            if os.path.exists(os.path.join(gd, filename)):
+                return label
+        return ""
+
     def branches(self) -> list[str]:
         return [b.name for b in self._repo.branches]
 
