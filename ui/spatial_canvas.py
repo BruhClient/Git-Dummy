@@ -32,6 +32,12 @@ ZOOM_MIN  = 0.5
 ZOOM_MAX  = 1.5
 ZOOM_STEP = 1.10
 
+# ── Orientation ───────────────────────────────────────────────────────────────
+ORIENT_TB = "TB"   # top → bottom  (newest at top)
+ORIENT_BT = "BT"   # bottom → top  (oldest at top)
+ORIENT_LR = "LR"   # left → right  (oldest at left)
+ORIENT_RL = "RL"   # right → left  (newest at left)
+
 # ── Branch colours ─────────────────────────────────────────────────────────────
 MAIN_COLOR = COLORS["accent"]   # updated by apply_theme(); read via _lane_color()
 
@@ -611,6 +617,8 @@ class SpatialCanvas(QGraphicsView):
         self._known_authors: set = set()
         self._author_items: dict[str, QGraphicsSimpleTextItem] = {}
         self._head_sha: str = ""
+        self._orientation: str = ORIENT_LR
+        self._dimmed_shas: set[str] = set()
 
     # ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -640,41 +648,60 @@ class SpatialCanvas(QGraphicsView):
         you_shas: set = None,
         local_only_branches: set = None,
         unpushed_shas: set = None,
+        orientation: str = ORIENT_LR,
         head_sha: str = "",
     ):
-        self._scene.clear()
+        prev_centre = self.mapToScene(self.viewport().rect().center())
+
+        old_scene = self._scene
+        self._scene = QGraphicsScene(self)
+        self._scene.setBackgroundBrush(self._make_grid_brush())
+        self.setScene(self._scene)
+        old_scene.deleteLater()
+
+        self._orientation = orientation
+        self._head_sha    = head_sha
         self._nodes.clear()
-        self._badges.clear()   # scene.clear() already removes items
+        self._badges.clear()
         self._positions.clear()
         self._node_colors.clear()
         self._author_items.clear()
         self._content_rect = QRectF()
         self._selected_sha = None
+        self._dimmed_shas.clear()
         self._commits = commits
         self._you_shas            = you_shas            or set()
         self._local_only_branches = local_only_branches or set()
         self._unpushed_shas       = unpushed_shas       or set()
-        self._head_sha            = head_sha
 
         if not commits:
             return
 
         lane_map, lane_branch = _compute_lanes(commits, branch_tip_map)
 
-        # Stamp each commit's branch field so the detail panel shows it correctly
         for commit in commits:
             commit.branch = lane_branch.get(lane_map.get(commit.sha, 0), "")
 
         # ── Positions ──────────────────────────────────────────────────────
+        n = len(commits)
         positions: dict[str, tuple[float, float]] = {}
         for i, commit in enumerate(commits):
             lane = lane_map.get(commit.sha, 0)
-            x = H_PAD + lane * LANE_W
-            y = V_PAD + i * ROW_H
+            if orientation == ORIENT_LR:
+                x = H_PAD + (n - 1 - i) * ROW_H
+                y = V_PAD + lane * LANE_W
+            elif orientation == ORIENT_RL:
+                x = H_PAD + i * ROW_H
+                y = V_PAD + lane * LANE_W
+            elif orientation == ORIENT_BT:
+                x = H_PAD + lane * LANE_W
+                y = V_PAD + (n - 1 - i) * ROW_H
+            else:  # ORIENT_TB
+                x = H_PAD + lane * LANE_W
+                y = V_PAD + i * ROW_H
             positions[commit.sha] = (x, y)
         self._positions = positions
 
-        # Content rect for minimap
         if positions:
             xs = [x for x, y in positions.values()]
             ys = [y for x, y in positions.values()]
@@ -683,8 +710,6 @@ class SpatialCanvas(QGraphicsView):
                 max(xs) - min(xs) + 60, max(ys) - min(ys) + 60,
             )
 
-        # start_shas built after lane_bottom is computed (see step 2)
-
         # ── 1. Lane spines ─────────────────────────────────────────────────
         lane_points: dict[int, list[tuple[float, float]]] = {}
         for commit in commits:
@@ -692,21 +717,20 @@ class SpatialCanvas(QGraphicsView):
             cx, cy = positions[commit.sha]
             lane_points.setdefault(lane, []).append((cx, cy))
 
+        sort_key = (lambda p: p[0]) if orientation in (ORIENT_LR, ORIENT_RL) else (lambda p: p[1])
         for lane, pts in lane_points.items():
             if len(pts) < 2:
                 continue
-            pts.sort(key=lambda p: p[1])
+            pts.sort(key=sort_key)
             path = QPainterPath()
             path.moveTo(pts[0][0], pts[0][1])
             for x, y in pts[1:]:
                 path.lineTo(x, y)
             spine = QGraphicsPathItem(path)
-            white = QColor("white")
-            white.setAlpha(120)
-            branch_name  = lane_branch.get(lane, "")
-            is_local     = branch_name in self._local_only_branches
-            raw_color    = _lane_color(lane) if is_local else "#6b7280"
-            lane_color   = QColor(raw_color)
+            branch_name = lane_branch.get(lane, "")
+            is_local    = branch_name in self._local_only_branches
+            raw_color   = _lane_color(lane) if is_local else "#6b7280"
+            lane_color  = QColor(raw_color)
             lane_color.setAlpha(160)
             spine.setPen(QPen(lane_color, 2, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
             spine.setBrush(QBrush(Qt.NoBrush))
@@ -714,47 +738,47 @@ class SpatialCanvas(QGraphicsView):
             spine.setAcceptedMouseButtons(Qt.NoButton)
             self._scene.addItem(spine)
 
-
         # ── 2. Cross-lane edges ────────────────────────────────────────────
-        # Solid diagonal  → merge    (merge commit's extra parents)
-        # Dashed diagonal → creation (exactly ONE per branch/lane — drawn only
-        #                             from the bottommost commit of that lane,
-        #                             i.e. the very first commit on the branch)
-
-        # Find the bottommost (largest y = oldest) commit per lane
         lane_bottom: dict[int, CommitInfo] = {}
         for commit in commits:
             lane = lane_map.get(commit.sha, 0)
-            _, cy = positions[commit.sha]
+            cx, cy = positions[commit.sha]
             existing = lane_bottom.get(lane)
-            if existing is None or cy > positions[existing.sha][1]:
+            if existing is None:
                 lane_bottom[lane] = commit
+            else:
+                ex, ey = positions[existing.sha]
+                if orientation == ORIENT_LR and cx < ex:
+                    lane_bottom[lane] = commit
+                elif orientation == ORIENT_RL and cx > ex:
+                    lane_bottom[lane] = commit
+                elif orientation == ORIENT_BT and cy < ey:
+                    lane_bottom[lane] = commit
+                elif orientation == ORIENT_TB and cy > ey:
+                    lane_bottom[lane] = commit
 
-        # Creation line: one per non-primary lane, from its bottommost commit.
-        # If the parent is visible and cross-lane → draw to the parent.
-        # If the parent is outside the fetched window → draw a short line
-        # toward lane 0 at the next row, so the oldest node always has a line.
         lane_creation: dict[int, tuple[float, float, float, float]] = {}
         for lane, commit in lane_bottom.items():
-            if lane == 0:        # primary branch has no creation line
-                continue
-            if not commit.parents:
+            if lane == 0 or not commit.parents:
                 continue
             cx, cy = positions[commit.sha]
-            p_sha = commit.parents[0]
-
+            p_sha  = commit.parents[0]
             if p_sha in positions:
                 parent_lane = lane_map.get(p_sha, 0)
                 px, py = positions[p_sha]
                 if parent_lane != lane:
                     lane_creation[lane] = (cx, cy, px, py)
             else:
-                # Parent beyond visible range — point toward lane 0 one row below
-                px = H_PAD          # lane 0 x-centre
-                py = cy + ROW_H
+                if orientation == ORIENT_LR:
+                    px, py = cx - ROW_H, V_PAD
+                elif orientation == ORIENT_RL:
+                    px, py = cx + ROW_H, V_PAD
+                elif orientation == ORIENT_BT:
+                    px, py = H_PAD, cy - ROW_H
+                else:
+                    px, py = H_PAD, cy + ROW_H
                 lane_creation[lane] = (cx, cy, px, py)
 
-        # Pass B: draw merge edges (solid + arrowhead) + creation edges (dashed)
         for commit in commits:
             cx, cy = positions[commit.sha]
             commit_lane = lane_map.get(commit.sha, 0)
@@ -766,24 +790,19 @@ class SpatialCanvas(QGraphicsView):
                     px, py = positions[p_sha]
                     edge = EdgeItem(cx, cy, px, py, _lane_color(parent_lane), dashed=False)
                     self._scene.addItem(edge)
-
-                    # Arrowhead at the merge-commit end, pointing from feature → main
                     dx, dy = cx - px, cy - py
                     length = math.hypot(dx, dy)
                     if length > 0:
                         ux, uy = dx / length, dy / length
-                        # Tip just outside the merge commit node
                         tip_x = cx - ux * (NODE_R + 2)
                         tip_y = cy - uy * (NODE_R + 2)
                         sz = 7
-                        l_x = tip_x - ux * sz - uy * (sz / 2)
-                        l_y = tip_y - uy * sz + ux * (sz / 2)
-                        r_x = tip_x - ux * sz + uy * (sz / 2)
-                        r_y = tip_y - uy * sz - ux * (sz / 2)
                         poly = QPolygonF([
                             QPointF(tip_x, tip_y),
-                            QPointF(l_x, l_y),
-                            QPointF(r_x, r_y),
+                            QPointF(tip_x - ux * sz - uy * (sz / 2),
+                                    tip_y - uy * sz + ux * (sz / 2)),
+                            QPointF(tip_x - ux * sz + uy * (sz / 2),
+                                    tip_y - uy * sz - ux * (sz / 2)),
                         ])
                         arrow = QGraphicsPolygonItem(poly)
                         arrow.setBrush(QBrush(QColor(_lane_color(parent_lane))))
@@ -793,49 +812,75 @@ class SpatialCanvas(QGraphicsView):
                         self._scene.addItem(arrow)
 
         for lane, (cx, cy, px, py) in lane_creation.items():
-            edge = EdgeItem(cx, cy, px, py, _lane_color(lane), dashed=True)
-            self._scene.addItem(edge)
+            self._scene.addItem(EdgeItem(cx, cy, px, py, _lane_color(lane), dashed=True))
 
-        # Oldest commit of each lane gets the start flag
         start_shas = {c.sha for c in lane_bottom.values()}
 
         # ── 3. Nodes ───────────────────────────────────────────────────────
         for commit in commits:
-            cx, cy        = positions[commit.sha]
-            lane          = lane_map.get(commit.sha, 0)
-            branch_name   = lane_branch.get(lane, "")
-            is_local      = (branch_name in self._local_only_branches
-                             or commit.sha in self._unpushed_shas)
-            color         = _lane_color(lane)
+            cx, cy      = positions[commit.sha]
+            lane        = lane_map.get(commit.sha, 0)
+            branch_name = lane_branch.get(lane, "")
+            is_local    = (branch_name in self._local_only_branches
+                           or commit.sha in self._unpushed_shas)
+            color       = _lane_color(lane)
             self._node_colors[commit.sha] = color
-            node  = CommitNode(commit, color,
-                               is_start=commit.sha in start_shas,
-                               is_local_only=is_local,
-                               is_head=commit.sha == self._head_sha)
+            node = CommitNode(commit, color,
+                              is_start=commit.sha in start_shas,
+                              is_local_only=is_local,
+                              is_head=commit.sha == head_sha)
             node.setPos(cx, cy)
             node.clicked.connect(self._on_node_clicked)
             self._scene.addItem(node)
             self._nodes[commit.sha] = node
 
         # ── 4. Branch labels ───────────────────────────────────────────────
-        # One label per lane, placed at the topmost (newest) commit in that
-        # lane.  Using lane_branch / _lane_color directly avoids the
-        # lane_map.get(sha, 0) fallback that caused wrong colours.
+        name_to_color: dict[str, str] = {
+            name: _lane_color(lane) for lane, name in lane_branch.items()
+        }
+
         lane_top: dict[int, tuple[float, float]] = {}
         for commit in commits:
             lane = lane_map.get(commit.sha, 0)
             cx, cy = positions[commit.sha]
-            if lane not in lane_top or cy < lane_top[lane][1]:
+            if lane not in lane_top:
                 lane_top[lane] = (cx, cy)
+            else:
+                ex, ey = lane_top[lane]
+                if orientation == ORIENT_LR and cx > ex:
+                    lane_top[lane] = (cx, cy)
+                elif orientation == ORIENT_RL and cx < ex:
+                    lane_top[lane] = (cx, cy)
+                elif orientation == ORIENT_BT and cy > ey:
+                    lane_top[lane] = (cx, cy)
+                elif orientation == ORIENT_TB and cy < ey:
+                    lane_top[lane] = (cx, cy)
 
         for lane, (cx, cy) in lane_top.items():
-            name = lane_branch.get(lane, "")
-            if not name:
+            primary = lane_branch.get(lane, "")
+            if not primary:
                 continue
-            color = _lane_color(lane)
-            label = BranchLabel(name, color)
-            label.setPos(cx + NODE_R + 10, cy)
-            self._scene.addItem(label)
+            tip_sha = next(
+                (sha for sha, names in branch_tip_map.items() if primary in names), None
+            )
+            names = branch_tip_map.get(tip_sha, [primary]) if tip_sha else [primary]
+            if orientation in (ORIENT_LR, ORIENT_RL):
+                y_off = cy - NODE_R - 6
+                for name in reversed(names):
+                    color = name_to_color.get(name) or _lane_color(lane)
+                    label = BranchLabel(name, color)
+                    y_off -= label.boundingRect().height()
+                    label.setPos(cx - label.boundingRect().width() / 2, y_off)
+                    self._scene.addItem(label)
+                    y_off -= 4
+            else:
+                x_off = cx + NODE_R + 10
+                for name in names:
+                    color = name_to_color.get(name) or _lane_color(lane)
+                    label = BranchLabel(name, color)
+                    label.setPos(x_off, cy)
+                    self._scene.addItem(label)
+                    x_off += label.boundingRect().width() + 6
 
         # ── 5. Commit info text (date + author) ────────────────────────────
         date_font   = QFont("Inter, Segoe UI", 8)
@@ -845,40 +890,71 @@ class SpatialCanvas(QGraphicsView):
 
         for commit in commits:
             cx, cy = positions[commit.sha]
-            text_x = cx + NODE_R + 14
             d = commit.date
             date_str = f"{d.day} {d.strftime('%b')} {d.year}  {d.strftime('%H:%M')}"
 
             date_item = QGraphicsSimpleTextItem(date_str)
             date_item.setFont(date_font)
             date_item.setBrush(date_color)
-            date_item.setPos(text_x, cy - date_item.boundingRect().height() / 2 - 7)
             date_item.setAcceptedMouseButtons(Qt.NoButton)
             date_item.setZValue(2)
-            self._scene.addItem(date_item)
 
-            raw_author = "You" if commit.sha in self._you_shas else commit.author
-            author = raw_author if len(raw_author) <= 22 else raw_author[:20] + "…"
-            auth_item = QGraphicsSimpleTextItem(author)
+            auth_item = QGraphicsSimpleTextItem("")
             auth_item.setFont(author_font)
             auth_item.setBrush(author_color)
-            auth_item.setPos(text_x, cy - auth_item.boundingRect().height() / 2 + 7)
             auth_item.setAcceptedMouseButtons(Qt.NoButton)
             auth_item.setZValue(2)
-            self._scene.addItem(auth_item)
-            self._author_items[commit.sha] = auth_item
 
+            if orientation in (ORIENT_LR, ORIENT_RL):
+                self._author_items[commit.sha] = auth_item
+                self._update_author_item(auth_item, commit.sha, commit)
+                auth_item.setPos(cx - auth_item.boundingRect().width() / 2, cy + NODE_R + 6)
+                self._scene.addItem(auth_item)
+            else:
+                text_x = cx + NODE_R + 14
+                dh = date_item.boundingRect().height()
+                ah = auth_item.boundingRect().height()
+                date_item.setPos(text_x, cy - dh / 2 - 7)
+                auth_item.setPos(text_x, cy - ah / 2 + 7)
+                self._scene.addItem(date_item)
+                self._scene.addItem(auth_item)
+                self._author_items[commit.sha] = auth_item
+                self._update_author_item(auth_item, commit.sha, commit)
 
         # ── Scene rect ─────────────────────────────────────────────────────
         max_lane = max(lane_map.values(), default=0)
-        content_w = H_PAD * 2 + max_lane * LANE_W + 300
-        content_h = V_PAD * 2 + len(commits) * ROW_H + 100
+        if orientation in (ORIENT_LR, ORIENT_RL):
+            content_w = H_PAD * 2 + n * ROW_H + 100
+            content_h = V_PAD * 2 + max_lane * LANE_W + 300
+        else:
+            content_w = H_PAD * 2 + max_lane * LANE_W + 300
+            content_h = V_PAD * 2 + n * ROW_H + 100
         self._scene.setSceneRect(
             -CANVAS_PAD, -CANVAS_PAD,
             content_w + CANVAS_PAD * 2,
             content_h + CANVAS_PAD * 2,
         )
-        self.centerOn(H_PAD, V_PAD)
+
+        if prev_centre.x() or prev_centre.y():
+            self.centerOn(prev_centre)
+        elif orientation == ORIENT_BT:
+            self.centerOn(H_PAD, V_PAD + (n - 1) * ROW_H)
+        elif orientation == ORIENT_LR:
+            self.centerOn(H_PAD + (n - 1) * ROW_H, V_PAD)
+        else:
+            self.centerOn(H_PAD, V_PAD)
+
+    def apply_commit_filter(self, dimmed_shas: set[str]):
+        """Dim the given SHAs to 15% opacity; restore all others."""
+        self._dimmed_shas = set(dimmed_shas)
+        for commit in self._commits:
+            dim     = commit.sha in dimmed_shas
+            opacity = 0.15 if dim else 1.0
+            if commit.sha in self._nodes:
+                self._nodes[commit.sha].setOpacity(opacity)
+            if commit.sha in self._author_items:
+                self._author_items[commit.sha].setOpacity(0.0 if dim else 1.0)
+        self.viewport_changed.emit()
 
     def refresh_you_labels(self, you_shas: set):
         """Update author text labels to show 'You' for the given commit SHAs."""

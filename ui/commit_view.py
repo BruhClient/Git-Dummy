@@ -11,7 +11,7 @@ from PyQt5.QtCore import Qt, QThread, QObject, QTimer, QFileSystemWatcher, pyqtS
 from PyQt5.QtGui import QPainter, QColor, QBrush, QPen, QPixmap, QPainterPath, QFont
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QScrollArea, QFrame, QLineEdit,
+    QScrollArea, QFrame, QLineEdit, QCheckBox,
 )
 from styles.theme import COLORS
 from core.git_tracker import GitTracker, CommitInfo
@@ -21,7 +21,7 @@ from core.git_ops import (current_branch, branch_for_commit,
                           get_stash_files)
 from core import settings_store
 from core import collab_cache
-from ui.spatial_canvas import SpatialCanvas, MiniMap
+from ui.spatial_canvas import SpatialCanvas, MiniMap, ORIENT_TB, ORIENT_BT, ORIENT_LR, ORIENT_RL
 from ui.detail_panel import DetailPanel, ChangesPanel, PANEL_W as DETAIL_PANEL_W, CHANGES_W
 from ui.position_panel import PositionPanel
 
@@ -1072,6 +1072,264 @@ class _Toast(QWidget):
         self._timer.start(duration_ms)
 
 
+# ── Filter panel ──────────────────────────────────────────────────────────────
+
+class _FilterPanel(QWidget):
+    filter_changed = pyqtSignal()
+
+    PANEL_W = 220
+    _CB_STYLE = f"""
+        QCheckBox {{
+            background: transparent; font-size: 12px;
+            color: {COLORS['text_primary']}; spacing: 6px;
+        }}
+        QCheckBox::indicator {{
+            width: 14px; height: 14px;
+            border: 1px solid {COLORS['border']};
+            border-radius: 3px; background: transparent;
+        }}
+        QCheckBox::indicator:checked {{
+            background: {COLORS['accent']}; border-color: {COLORS['accent']};
+        }}
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setFixedWidth(self.PANEL_W)
+        self.setAttribute(Qt.WA_StyledBackground, True)
+        self.setObjectName("filterPanel")
+        self.setStyleSheet(f"""
+            #filterPanel {{
+                background: {COLORS['bg_card']};
+                border: 1px solid {COLORS['border']};
+                border-radius: 10px;
+            }}
+        """)
+        self.hide()
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+
+        hdr = QWidget()
+        hdr.setObjectName("fpHdr")
+        hdr.setFixedHeight(38)
+        hdr.setStyleSheet(f"""
+            #fpHdr {{
+                background: {COLORS['bg_secondary']};
+                border-bottom: 1px solid {COLORS['border']};
+                border-radius: 10px 10px 0 0;
+            }}
+        """)
+        hl = QHBoxLayout(hdr)
+        hl.setContentsMargins(14, 0, 8, 0)
+        title_lbl = QLabel("Filters")
+        title_lbl.setStyleSheet(
+            f"background: transparent; font-size: 12px; font-weight: 600;"
+            f" color: {COLORS['text_muted']};"
+        )
+        hl.addWidget(title_lbl)
+        hl.addStretch()
+        reset_btn = QPushButton("Reset")
+        reset_btn.setCursor(Qt.PointingHandCursor)
+        reset_btn.setStyleSheet(f"""
+            QPushButton {{ background: transparent; border: none;
+                font-size: 11px; color: {COLORS['accent']}; }}
+            QPushButton:hover {{ color: {COLORS['text_primary']}; }}
+        """)
+        reset_btn.clicked.connect(self._reset)
+        hl.addWidget(reset_btn)
+        root.addWidget(hdr)
+
+        _scroll_style = f"""
+            QScrollArea {{ background: transparent; border: none; }}
+            QScrollBar:vertical {{
+                background: transparent; width: 4px; margin: 0;
+            }}
+            QScrollBar::handle:vertical {{
+                background: {COLORS['border']}; border-radius: 2px; min-height: 20px;
+            }}
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
+        """
+
+        body = QVBoxLayout()
+        body.setContentsMargins(12, 8, 12, 12)
+        body.setSpacing(4)
+
+        bl = QLabel("BRANCHES")
+        bl.setStyleSheet(
+            f"background: transparent; font-size: 10px; font-weight: 700;"
+            f" color: {COLORS['text_muted']}; letter-spacing: 0.06em;"
+        )
+        body.addWidget(bl)
+
+        self._branch_container = QWidget()
+        self._branch_container.setStyleSheet("background: transparent;")
+        self._branch_layout = QVBoxLayout(self._branch_container)
+        self._branch_layout.setContentsMargins(0, 0, 0, 0)
+        self._branch_layout.setSpacing(2)
+
+        branch_scroll = QScrollArea()
+        branch_scroll.setWidgetResizable(True)
+        branch_scroll.setFrameShape(QFrame.NoFrame)
+        branch_scroll.setStyleSheet(_scroll_style)
+        branch_scroll.setMaximumHeight(160)
+        branch_scroll.setWidget(self._branch_container)
+        branch_scroll.viewport().setStyleSheet("background: transparent;")
+        body.addWidget(branch_scroll)
+
+        div = QFrame()
+        div.setFrameShape(QFrame.HLine)
+        div.setStyleSheet(f"background: {COLORS['border']}; max-height: 1px; margin: 4px 0;")
+        body.addWidget(div)
+
+        al = QLabel("COLLABORATORS")
+        al.setStyleSheet(
+            f"background: transparent; font-size: 10px; font-weight: 700;"
+            f" color: {COLORS['text_muted']}; letter-spacing: 0.06em;"
+        )
+        body.addWidget(al)
+
+        self._collab_loading = QLabel("Loading…")
+        self._collab_loading.setStyleSheet(
+            f"background: transparent; font-size: 12px; color: {COLORS['text_muted']}; padding: 6px 0;"
+        )
+        body.addWidget(self._collab_loading)
+
+        self._author_container = QWidget()
+        self._author_container.setStyleSheet("background: transparent;")
+        self._author_layout = QVBoxLayout(self._author_container)
+        self._author_layout.setContentsMargins(0, 0, 0, 0)
+        self._author_layout.setSpacing(2)
+
+        author_scroll = QScrollArea()
+        author_scroll.setWidgetResizable(True)
+        author_scroll.setFrameShape(QFrame.NoFrame)
+        author_scroll.setStyleSheet(_scroll_style)
+        author_scroll.setMaximumHeight(260)
+        author_scroll.setWidget(self._author_container)
+        author_scroll.viewport().setStyleSheet("background: transparent;")
+        author_scroll.hide()
+        self._author_scroll = author_scroll
+        body.addWidget(author_scroll)
+
+        body_widget = QWidget()
+        body_widget.setStyleSheet("background: transparent;")
+        body_widget.setLayout(body)
+        root.addWidget(body_widget)
+
+        self._branch_checks: dict[str, QCheckBox] = {}
+        self._author_checks: dict[str, QCheckBox] = {}
+
+    def _make_cb(self, name: str, layout: QVBoxLayout, store: dict):
+        cb = QCheckBox(name)
+        cb.setChecked(True)
+        cb.setStyleSheet(self._CB_STYLE)
+        cb.stateChanged.connect(lambda _: self.filter_changed.emit())
+        layout.addWidget(cb)
+        store[name] = cb
+
+    def _clear_layout(self, layout: QVBoxLayout, store: dict):
+        while layout.count():
+            w = layout.takeAt(0).widget()
+            if w:
+                w.setParent(None)
+        store.clear()
+
+    def set_branches(self, names: list[str]):
+        self._clear_layout(self._branch_layout, self._branch_checks)
+        for n in names:
+            self._make_cb(n, self._branch_layout, self._branch_checks)
+
+    def set_authors(self, names: list[str]):
+        self._clear_layout(self._author_layout, self._author_checks)
+        for n in names:
+            self._make_cb(n, self._author_layout, self._author_checks)
+        self._collab_loading.hide()
+        self._author_scroll.show()
+
+    def show_collaborators_loading(self):
+        self._clear_layout(self._author_layout, self._author_checks)
+        self._author_scroll.hide()
+        self._collab_loading.show()
+
+    def active_branches(self) -> set[str]:
+        return {n for n, cb in self._branch_checks.items() if cb.isChecked()}
+
+    def active_authors(self) -> set[str]:
+        return {n for n, cb in self._author_checks.items() if cb.isChecked()}
+
+    def _all_branches(self) -> set[str]:
+        return set(self._branch_checks.keys())
+
+    def _all_authors(self) -> set[str]:
+        return set(self._author_checks.keys())
+
+    def _reset(self):
+        for cb in list(self._branch_checks.values()) + list(self._author_checks.values()):
+            cb.setChecked(True)
+
+
+class _OrientBar(QWidget):
+    orientation_changed = pyqtSignal(str)
+
+    _BUTTONS = [
+        (ORIENT_BT, "↓", "Top to bottom — oldest to newest"),
+        (ORIENT_TB, "↑", "Bottom to top — newest to oldest"),
+        (ORIENT_LR, "→", "Left to right — oldest to newest"),
+        (ORIENT_RL, "←", "Right to left — newest to oldest"),
+    ]
+    _ACTIVE = f"""
+        QPushButton {{
+            background: {COLORS['accent']}; border: none; border-radius: 6px;
+            color: white; font-size: 14px; font-weight: 600;
+        }}
+    """
+    _INACTIVE = f"""
+        QPushButton {{
+            background: transparent; border: none; border-radius: 6px;
+            color: {COLORS['text_muted']}; font-size: 14px;
+        }}
+        QPushButton:hover {{ color: {COLORS['text_primary']}; }}
+    """
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setObjectName("orientBar")
+        self.setAttribute(Qt.WA_StyledBackground, True)
+        self.setStyleSheet(f"""
+            #orientBar {{
+                background: {COLORS['bg_card']};
+                border: 1px solid {COLORS['border']};
+                border-radius: 8px;
+            }}
+        """)
+        self.setFixedHeight(34)
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(4, 0, 4, 0)
+        layout.setSpacing(0)
+
+        self._btns: dict[str, QPushButton] = {}
+        for orient, icon, tip in self._BUTTONS:
+            btn = QPushButton(icon)
+            btn.setFixedSize(34, 34)
+            btn.setCursor(Qt.PointingHandCursor)
+            btn.setToolTip(tip)
+            btn.clicked.connect(lambda _, o=orient: self.orientation_changed.emit(o))
+            layout.addWidget(btn)
+            self._btns[orient] = btn
+
+        self._set_active(ORIENT_LR)
+
+    def set_orientation(self, orient: str):
+        self._set_active(orient)
+
+    def _set_active(self, orient: str):
+        for o, btn in self._btns.items():
+            btn.setStyleSheet(self._ACTIVE if o == orient else self._INACTIVE)
+
+
 # ── Page ──────────────────────────────────────────────────────────────────────
 
 class CommitViewPage(QWidget):
@@ -1116,10 +1374,37 @@ class CommitViewPage(QWidget):
         self._minimap = MiniMap(self._canvas, self)
         self._minimap.raise_()
 
+        self._orient_bar = _OrientBar(self)
+        self._orient_bar.raise_()
+        self._orient_bar.orientation_changed.connect(self._set_orientation)
+
+        self._filter_panel = _FilterPanel(self)
+        self._filter_panel.raise_()
+        self._filter_panel.filter_changed.connect(self._apply_canvas_filter)
+
+        self._filter_btn = QPushButton("⊟ Filter", self)
+        self._filter_btn.setFixedHeight(34)
+        self._filter_btn.setCursor(Qt.PointingHandCursor)
+        self._filter_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: {COLORS['bg_card']}; border: 1px solid {COLORS['border']};
+                border-radius: 8px; color: {COLORS['text_muted']};
+                font-size: 12px; padding: 0 12px;
+            }}
+            QPushButton:hover {{ color: {COLORS['text_primary']}; background: {COLORS['bg_hover']}; }}
+            QPushButton:checked {{ color: {COLORS['accent']}; border-color: {COLORS['accent']}; }}
+        """)
+        self._filter_btn.setCheckable(True)
+        self._filter_btn.clicked.connect(self.toggle_filter_panel)
+        self._filter_btn.raise_()
+
         self._loading = _LoadingOverlay(self)
         self._toast   = _Toast(self)
         self._loading.hide()
 
+        self._orientation: str = ORIENT_LR
+        self._author_display_map: dict[str, str] = {}
+        self._filter_rebuilding: bool = False
 
         self._user: dict = {}
         self._collab_thread: Optional[QThread] = None
@@ -1241,6 +1526,11 @@ class CommitViewPage(QWidget):
         self._header.set_repo(self._tracker.repo_name)
         self._header.set_operation("")
         self._panel.hide_panel()
+        self._filter_panel.hide()
+        self._filter_panel.show_collaborators_loading()
+        orientations = settings_store.get("repo_orientations", {})
+        self._orientation = orientations.get(repo_path, ORIENT_LR)
+        self._orient_bar.set_orientation(self._orientation)
 
         # Restore exploration state if app was closed mid-explore
         saved = settings_store.get("explore_state")
@@ -1447,11 +1737,19 @@ class CommitViewPage(QWidget):
                                 you_shas=self._you_shas,
                                 local_only_branches=local_only,
                                 unpushed_shas=unpushed,
+                                orientation=self._orientation,
                                 head_sha=self._last_head_sha)
         if is_initial and self._last_head_sha:
             self._canvas.jump_to_commit(self._last_head_sha)
         self._header.set_count(len(commits))
         self._loading.hide()
+
+        all_branches = sorted({c.branch for c in commits if c.branch})
+        self._filter_rebuilding = True
+        self._filter_panel.set_branches(all_branches)
+        self._filter_rebuilding = False
+        self._canvas.apply_commit_filter(set())
+
         if self._collaborators:
             self._place_contributor_badges()
 
@@ -1626,6 +1924,25 @@ class CommitViewPage(QWidget):
         self._you_shas = self._compute_you_shas(self._commits, you_gh_name)
         self._canvas.refresh_you_labels(self._you_shas)
         self._canvas.set_known_authors(known_authors)
+
+        author_display: dict[str, str] = {}
+        for entry in enriched:
+            display = entry.get("display_name") or ""
+            if display:
+                for c in self._commits:
+                    nl = self._alpha(entry.get("login", ""))
+                    nn = self._alpha(entry.get("gh_name", ""))
+                    na = self._alpha(c.author)
+                    if (nl and (nl == na or nl in na or na in nl)) or \
+                       (nn and (nn == na or nn in na or na in nn)):
+                        author_display[c.author] = display
+        self._author_display_map = author_display
+
+        collab_names = [e["display_name"] for e in enriched if e.get("display_name")]
+        self._filter_rebuilding = True
+        self._filter_panel.set_authors(collab_names)
+        self._filter_rebuilding = False
+
         self._collab_panel.load(enriched)
         self._reposition_collab()
         self._canvas.load_contributor_avatars(badge_data)
@@ -1785,6 +2102,58 @@ class CommitViewPage(QWidget):
         pp.adjustSize()
         pp.move(margin, self._header.height() + margin)
 
+    def toggle_filter_panel(self):
+        visible = not self._filter_panel.isVisible()
+        self._filter_panel.setVisible(visible)
+        self._filter_btn.setChecked(visible)
+        if visible:
+            self._filter_panel.raise_()
+            self._reposition_filter()
+
+    def _set_orientation(self, orient: str):
+        if orient == self._orientation:
+            return
+        self._orientation = orient
+        self._orient_bar.set_orientation(orient)
+        if self._tracker:
+            orientations = settings_store.get("repo_orientations", {})
+            orientations[self._tracker._path] = orient
+            settings_store.save({"repo_orientations": orientations})
+        if self._commits:
+            self._canvas.load_graph(
+                self._commits,
+                self._last_branch_tips,
+                you_shas=self._you_shas,
+                local_only_branches=self._last_local_only,
+                unpushed_shas=self._last_unpushed,
+                orientation=orient,
+                head_sha=self._last_head_sha,
+            )
+
+    def _apply_canvas_filter(self):
+        if self._filter_rebuilding or not self._commits:
+            return
+        active_branches = self._filter_panel.active_branches()
+        active_authors  = self._filter_panel.active_authors()
+        all_branches    = self._filter_panel._all_branches()
+        all_authors     = self._filter_panel._all_authors()
+        if active_branches == all_branches and active_authors == all_authors:
+            self._canvas.apply_commit_filter(set())
+            return
+        dimmed: set[str] = set()
+        for commit in self._commits:
+            display   = self._author_display_map.get(commit.author, commit.author)
+            branch_ok = (not commit.branch) or (commit.branch in active_branches)
+            author_ok = (display in active_authors) if (display in all_authors) else True
+            if not branch_ok or not author_ok:
+                dimmed.add(commit.sha)
+        self._canvas.apply_commit_filter(dimmed)
+
+    def _reposition_filter(self):
+        fp = self._filter_panel
+        fp.adjustSize()
+        fp.move(16, self._header.height() + 16)
+
     # ── Resize ────────────────────────────────────────────────────────────
 
     def resizeEvent(self, event):
@@ -1798,12 +2167,22 @@ class CommitViewPage(QWidget):
         zb = self._zoom_bar
         zb.move(margin + mm.MAP_W + margin,
                 self.height() - zb.height() - margin)
+        ob = self._orient_bar
+        ob.adjustSize()
+        ob.move(margin + mm.MAP_W + margin + zb.width() + margin,
+                self.height() - ob.height() - margin)
+        fb = self._filter_btn
+        fb.adjustSize()
+        fb.move(margin + mm.MAP_W + margin + zb.width() + margin + ob.width() + margin,
+                self.height() - fb.height() - margin)
         cp = self._collab_panel
         detail_offset = DETAIL_PANEL_W if self._panel._visible else 0
         cp.move(self.width() - detail_offset - cp.PANEL_W - margin,
                 self._header.height() + margin)
         if self._position_panel.isVisible():
             self._reposition_position()
+        if self._filter_panel.isVisible():
+            self._reposition_filter()
         if self._toast.isVisible():
             t = self._toast
             t.move((self.width() - t.width()) // 2, self.height() - t.height() - 80)
