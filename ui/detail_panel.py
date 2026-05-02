@@ -12,6 +12,8 @@ from PyQt5.QtWidgets import (
 )
 from styles.theme import COLORS
 
+# Hi there! The code below is for the detail panel and changes panel in the commit details view.
+
 _PALETTE = [
     "#6366f1", "#f59e0b", "#ef4444", "#8b5cf6",
     "#06b6d4", "#f97316", "#ec4899", "#14b8a6",
