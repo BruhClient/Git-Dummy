@@ -14,6 +14,7 @@ from styles.theme import COLORS
 
 # Hi there! The code below is for the detail panel and changes panel in the commit details view.
 
+# This is another area where I had to make some tradeoffs for the sake of shipping a v1 — in this case, the diff rendering.
 _PALETTE = [
     "#6366f1", "#f59e0b", "#ef4444", "#8b5cf6",
     "#06b6d4", "#f97316", "#ec4899", "#14b8a6",
