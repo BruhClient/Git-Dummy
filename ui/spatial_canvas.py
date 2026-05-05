@@ -4,7 +4,7 @@ import math
 import threading
 from typing import Optional
 
-from PyQt5.QtCore import Qt, QRectF, QPointF, QEvent, pyqtSignal
+from PyQt5.QtCore import Qt, QRectF, QPointF, QEvent, pyqtSignal, QTimer
 from PyQt5.QtGui import (
     QPainter, QColor, QPen, QBrush, QFont, QFontMetrics,
     QPainterPath, QRadialGradient, QPolygonF, QPixmap,
@@ -1195,4 +1195,4 @@ class SpatialCanvas(QGraphicsView):
             self._nodes[self._selected_sha].set_selected(False)
         self._selected_sha = commit.sha
         self._nodes[commit.sha].set_selected(True)
-        self.commit_clicked.emit(commit)
+        QTimer.singleShot(0, lambda: self.commit_clicked.emit(commit))

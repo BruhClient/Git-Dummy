@@ -891,6 +891,7 @@ class CollaboratorPanel(QWidget):
         scroll = self._scroll
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         scroll.setStyleSheet(f"""
             QScrollArea {{ background: transparent; border: none; }}
             QScrollBar:vertical {{
@@ -1172,6 +1173,7 @@ class _FilterPanel(QWidget):
         branch_scroll = QScrollArea()
         branch_scroll.setWidgetResizable(True)
         branch_scroll.setFrameShape(QFrame.NoFrame)
+        branch_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         branch_scroll.setStyleSheet(_scroll_style)
         branch_scroll.setMaximumHeight(160)
         branch_scroll.setWidget(self._branch_container)
@@ -1205,6 +1207,7 @@ class _FilterPanel(QWidget):
         author_scroll = QScrollArea()
         author_scroll.setWidgetResizable(True)
         author_scroll.setFrameShape(QFrame.NoFrame)
+        author_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         author_scroll.setStyleSheet(_scroll_style)
         author_scroll.setMaximumHeight(260)
         author_scroll.setWidget(self._author_container)
