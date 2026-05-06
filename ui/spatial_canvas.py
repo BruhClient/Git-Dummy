@@ -632,7 +632,6 @@ class SpatialCanvas(QGraphicsView):
         self._head_sha: str = ""
         self._orientation: str = ORIENT_LR
         self._dimmed_shas: set[str] = set()
-        self._author_display: dict[str, str] = {}
 
     # ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -981,7 +980,7 @@ class SpatialCanvas(QGraphicsView):
             item.setText("You")
             item.setVisible(True)
         elif not self._known_authors or commit.author in self._known_authors:
-            raw = self._author_display.get(commit.author, commit.author)
+            raw = commit.author
             item.setText(raw if len(raw) <= 22 else raw[:20] + "…")
             item.setVisible(True)
         else:

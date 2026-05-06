@@ -642,6 +642,12 @@ class ChangesPanel(QWidget):
         hl.addLayout(info_block)
         hl.addStretch()
 
+        self._source_badge = QLabel("")
+        self._source_badge.setFixedHeight(20)
+        self._source_badge.setAlignment(Qt.AlignCenter)
+        self._source_badge.hide()
+        hl.addWidget(self._source_badge)
+
         close_btn = QPushButton("✕")
         close_btn.setFixedSize(40, 40)
         close_btn.setCursor(Qt.PointingHandCursor)
@@ -666,9 +672,23 @@ class ChangesPanel(QWidget):
         scroll.viewport().setStyleSheet("background: transparent;")
         root.addWidget(scroll)
 
-    def show_file(self, info: dict):
+    def show_file(self, info: dict, source: str = "change"):
         self._current_path = info["path"]
-        self._title.setText(info["name"])
+        self._title.setText(_trunc(info["name"], 30))
+        self._title.setToolTip(info["name"])
+
+        is_stash = source == "stash"
+        badge_text  = "UNCOMMITTED" if is_stash else "CHANGE"
+        badge_color = COLORS["warning"] if is_stash else COLORS["accent"]
+        badge_bg    = "rgba(214,158,46,0.12)" if is_stash else COLORS["accent_dim"]
+        self._source_badge.setText(badge_text)
+        self._source_badge.setStyleSheet(
+            f"background: {badge_bg}; color: {badge_color};"
+            f" font-size: 9px; font-weight: 700; letter-spacing: 0.08em;"
+            f" border-radius: 4px; padding: 0 7px;"
+        )
+        self._source_badge.show()
+
         color = _STATUS_COLOR.get(info["status"], COLORS["accent"])
         label = _STATUS_LABEL.get(info["status"], "")
         path  = info["path"]
@@ -1011,59 +1031,6 @@ class AllChangesPopup(QWidget):
         return section
 
     def _diff_block(self, title: str, lines: list, kind: str) -> QWidget:
-        color = "#22c55e" if kind == "added" else "#ef4444"
-        bg    = "rgba(34,197,94,0.06)" if kind == "added" else "rgba(239,68,68,0.06)"
-        block = QWidget()
-        block.setAttribute(Qt.WA_StyledBackground, True)
-        block.setStyleSheet("background: transparent;")
-        bl = QVBoxLayout(block)
-        bl.setContentsMargins(0, 0, 0, 0)
-        bl.setSpacing(0)
-
-        hdr = QWidget()
-        hdr.setAttribute(Qt.WA_StyledBackground, True)
-        hdr.setStyleSheet(f"background: {bg};")
-        hdr.setFixedHeight(32)
-        hhl = QHBoxLayout(hdr)
-        hhl.setContentsMargins(16, 0, 16, 0)
-        lbl = QLabel(title)
-        lbl.setStyleSheet(
-            f"background: transparent; font-size: 10px; font-weight: 700;"
-            f" color: {color}; letter-spacing: 0.08em;"
-        )
-        hhl.addWidget(lbl)
-        hhl.addStretch()
-        c_lbl = QLabel(f"{len(lines)} line{'s' if len(lines) != 1 else ''}")
-        c_lbl.setStyleSheet(f"background: transparent; font-size: 10px; color: {color};")
-        hhl.addWidget(c_lbl)
-        bl.addWidget(hdr)
-
-        limit  = 80
-        chunks = _chunk_lines(lines[:limit])
-        for i, chunk in enumerate(chunks):
-            if i > 0:
-                gap = QLabel("· · ·")
-                gap.setAlignment(Qt.AlignCenter)
-                gap.setStyleSheet(
-                    f"background: transparent; color: {COLORS['text_muted']};"
-                    f" font-size: 11px; padding: 4px 0;"
-                )
-                bl.addWidget(gap)
-            for line_num, text in chunk:
-                bl.addWidget(_DiffLine(kind, text, line_num))
-
-        if len(lines) > limit:
-            more = QLabel(f"  … {len(lines) - limit} more lines")
-            more.setStyleSheet(
-                f"background: transparent; font-size: 11px;"
-                f" color: {COLORS['text_muted']}; padding: 6px 16px;"
-            )
-            bl.addWidget(more)
-
-        return block
-
-    def _diff_block(self, title: str, lines: list, kind: str) -> QWidget:
-        """lines: list of (line_num, text)"""
         color  = "#22c55e" if kind == "added" else "#ef4444"
         bg     = "rgba(34,197,94,0.06)" if kind == "added" else "rgba(239,68,68,0.06)"
         block  = QWidget()
@@ -1138,9 +1105,10 @@ class DetailPanel(QWidget):
     Slides in from the right edge of its parent when show_commit() is called.
     Parent must call reposition() whenever its size changes.
     """
-    panel_toggled      = pyqtSignal(bool)
-    file_selected      = pyqtSignal(dict)
-    navigate_requested = pyqtSignal(str)   # commit sha
+    panel_toggled        = pyqtSignal(bool)
+    file_selected        = pyqtSignal(dict)
+    stash_file_selected  = pyqtSignal(dict)
+    navigate_requested   = pyqtSignal(str)   # commit sha
 
     def __init__(self, parent: QWidget):
         super().__init__(parent)
@@ -1266,28 +1234,28 @@ class DetailPanel(QWidget):
         content_layout.addWidget(self._goto_btn)
 
         # Stash section — shown only when this commit has a saved stash
-        self._stash_bar = QWidget()
-        self._stash_bar.setStyleSheet("background: transparent;")
-        self._stash_bar.hide()
-        sbl = QHBoxLayout(self._stash_bar)
-        sbl.setContentsMargins(0, 0, 0, 0)
-        sbl.setSpacing(6)
+        self._stash_section = QWidget()
+        self._stash_section.setStyleSheet("background: transparent;")
+        self._stash_section.hide()
+        stash_vl = QVBoxLayout(self._stash_section)
+        stash_vl.setContentsMargins(0, 0, 0, 0)
+        stash_vl.setSpacing(6)
 
-        stash_dot = QLabel("●")
-        stash_dot.setFixedWidth(14)
-        stash_dot.setStyleSheet(
-            f"background: transparent; font-size: 8px; color: {COLORS['warning']};"
+        stash_hdr = QWidget()
+        stash_hdr.setStyleSheet("background: transparent;")
+        stash_hl = QHBoxLayout(stash_hdr)
+        stash_hl.setContentsMargins(0, 0, 0, 0)
+        stash_hl.setSpacing(0)
+
+        self._stash_label = QLabel("UNCOMMITTED")
+        self._stash_label.setStyleSheet(
+            f"background: transparent; font-size: 10px; font-weight: 600;"
+            f" color: {COLORS['warning']}; letter-spacing: 0.07em;"
         )
-        sbl.addWidget(stash_dot)
+        stash_hl.addWidget(self._stash_label)
+        stash_hl.addStretch()
 
-        stash_lbl = QLabel("Stashed work saved here")
-        stash_lbl.setStyleSheet(
-            f"background: transparent; font-size: 11px; color: {COLORS['text_muted']};"
-        )
-        sbl.addWidget(stash_lbl)
-        sbl.addStretch()
-
-        self._view_stash_btn = QPushButton("View Stash →")
+        self._view_stash_btn = QPushButton("View all →")
         self._view_stash_btn.setCursor(Qt.PointingHandCursor)
         self._view_stash_btn.setStyleSheet(f"""
             QPushButton {{
@@ -1297,9 +1265,19 @@ class DetailPanel(QWidget):
             }}
             QPushButton:hover {{ color: {COLORS['text_primary']}; }}
         """)
+        self._view_stash_btn.hide()
         self._view_stash_btn.clicked.connect(self._open_stash_view)
-        sbl.addWidget(self._view_stash_btn)
-        content_layout.addWidget(self._stash_bar)
+        stash_hl.addWidget(self._view_stash_btn)
+        stash_vl.addWidget(stash_hdr)
+
+        self._stash_files_container = QWidget()
+        self._stash_files_container.setStyleSheet("background: transparent;")
+        self._stash_files_layout = QVBoxLayout(self._stash_files_container)
+        self._stash_files_layout.setContentsMargins(0, 0, 0, 0)
+        self._stash_files_layout.setSpacing(6)
+        stash_vl.addWidget(self._stash_files_container)
+
+        content_layout.addWidget(self._stash_section)
 
         content_layout.addWidget(_divider())
 
@@ -1373,13 +1351,27 @@ class DetailPanel(QWidget):
         popup.show()
 
     def _on_file_card_clicked(self, info: dict):
+        # Deselect stash cards when a changes card is picked
+        for card in getattr(self, "_stash_cards", []):
+            card.set_selected(False)
         for card in self._file_cards:
             card.set_selected(card._info is info)
         self._selected_card = next((c for c in self._file_cards if c._info is info), None)
         self.file_selected.emit(info)
 
+    def _on_stash_card_clicked(self, info: dict):
+        # Deselect changes cards when a stash card is picked
+        for card in getattr(self, "_file_cards", []):
+            card.set_selected(False)
+        self._selected_card = None
+        for card in getattr(self, "_stash_cards", []):
+            card.set_selected(card._info is info)
+        self.stash_file_selected.emit(info)
+
     def deselect_files(self):
         for card in getattr(self, "_file_cards", []):
+            card.set_selected(False)
+        for card in getattr(self, "_stash_cards", []):
             card.set_selected(False)
         self._selected_card = None
 
@@ -1422,7 +1414,9 @@ class DetailPanel(QWidget):
         self._current_sha = commit.sha
         self._refresh_goto_btn()
         has_stash = commit.sha in getattr(self, "_stash_shas", set())
-        self._stash_bar.setVisible(has_stash)
+        self._stash_section.setVisible(has_stash)
+        if has_stash:
+            self._populate_stash_files()
         shown_name = display_author or commit.author
         self._header_avatar.set_author(commit.author, avatar_url)
         self._header_name.setText(shown_name)
@@ -1440,18 +1434,42 @@ class DetailPanel(QWidget):
         if not self._visible:
             self._place(visible=True, animate=True)
 
-    def _open_stash_view(self):
+    def _populate_stash_files(self):
         from core.git_ops import get_stash_ref_for_commit, get_stash_diff_files
         repo_path = getattr(self, "_repo_path", "")
         if not repo_path or not self._current_sha:
             return
+
+        # Clear existing cards
+        while self._stash_files_layout.count():
+            item = self._stash_files_layout.takeAt(0)
+            w = item.widget()
+            if w:
+                w.setParent(None)
+
         stash_ref = get_stash_ref_for_commit(repo_path, self._current_sha)
         if not stash_ref:
+            self._stash_section.hide()
             return
+
         files = get_stash_diff_files(repo_path, stash_ref)
+        n = len(files)
+        self._stash_label.setText(f"UNCOMMITTED  —  {n} file{'s' if n != 1 else ''}")
+        self._view_stash_btn.setVisible(n > 0)
+        self._stash_data = files
+
+        self._stash_cards: list[_FileCard] = []
+        for info in files:
+            card = _FileCard(info)
+            card.file_clicked.connect(self._on_stash_card_clicked)
+            self._stash_files_layout.addWidget(card)
+            self._stash_cards.append(card)
+
+    def _open_stash_view(self):
+        files = getattr(self, "_stash_data", [])
         if not files:
             return
-        popup = AllChangesPopup(files, f"Stash at {self._current_sha[:7]}", self.parent())
+        popup = AllChangesPopup(files, f"Uncommitted at {self._current_sha[:7]}", self.parent())
         popup.show()
 
     def hide_panel(self):

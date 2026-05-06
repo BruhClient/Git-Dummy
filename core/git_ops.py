@@ -36,16 +36,21 @@ def get_stash_files(path: str, stash_id: str = "") -> list[str]:
 
 
 def create_auto_stash(path: str) -> tuple[list[str], str]:
-    """Stash uncommitted changes (including untracked files). Returns (stashed_files, stash_id) or ([], '') on failure."""
+    """Stash uncommitted changes. Returns (stashed_files, stash_id) or ([], '') on failure."""
     import uuid
     stash_id = "gitdummy-autostash-" + uuid.uuid4().hex[:8]
-    r = subprocess.run(
+
+    # Try with untracked files first, fall back to tracked-only if that fails.
+    for cmd in [
         ["git", "stash", "push", "--include-untracked", "-m", stash_id],
-        cwd=path, capture_output=True, text=True,
-    )
-    if r.returncode != 0 or "No local changes" in r.stdout:
-        return [], ""
-    return get_stash_files(path), stash_id
+        ["git", "stash", "push", "-m", stash_id],
+    ]:
+        r = subprocess.run(cmd, cwd=path, capture_output=True, text=True)
+        output = r.stdout + r.stderr
+        if r.returncode == 0 and "No local changes" not in output:
+            return get_stash_files(path), stash_id
+
+    return [], ""
 
 
 def pop_auto_stash(path: str, stash_id: str = "") -> bool:
@@ -65,6 +70,24 @@ def pop_auto_stash(path: str, stash_id: str = "") -> bool:
         return False
     r = subprocess.run(
         ["git", "stash", "pop"],
+        cwd=path, capture_output=True, text=True,
+    )
+    return r.returncode == 0
+
+
+def apply_stash(path: str, stash_ref: str) -> bool:
+    """Apply a stash to the working directory without removing it from the stash list."""
+    r = subprocess.run(
+        ["git", "stash", "apply", stash_ref],
+        cwd=path, capture_output=True, text=True,
+    )
+    return r.returncode == 0
+
+
+def drop_stash(path: str, stash_ref: str) -> bool:
+    """Remove a stash entry from the stash list without applying it."""
+    r = subprocess.run(
+        ["git", "stash", "drop", stash_ref],
         cwd=path, capture_output=True, text=True,
     )
     return r.returncode == 0

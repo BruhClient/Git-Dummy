@@ -11,38 +11,20 @@ from PyQt5.QtCore import Qt, QThread, QObject, QTimer, QFileSystemWatcher, pyqtS
 from PyQt5.QtGui import QPainter, QColor, QBrush, QPen, QPixmap, QPainterPath, QFont
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QScrollArea, QFrame, QLineEdit, QCheckBox, QSizePolicy,
+    QScrollArea, QFrame, QLineEdit, QCheckBox,
 )
 from styles.theme import COLORS
 from core.git_tracker import GitTracker, CommitInfo
 from core.git_ops import (current_branch, branch_for_commit,
                           has_uncommitted_changes, create_auto_stash,
-                          pop_auto_stash, checkout_commit, checkout_branch,
-                          get_stash_files)
+                          pop_auto_stash, apply_stash, drop_stash,
+                          checkout_commit, checkout_branch,
+                          get_stash_files, get_stash_ref_for_commit)
 from core import settings_store
 from core import collab_cache
 from ui.spatial_canvas import SpatialCanvas, MiniMap, ORIENT_TB, ORIENT_BT, ORIENT_LR, ORIENT_RL
-from ui.detail_panel import DetailPanel, ChangesPanel, PANEL_W as DETAIL_PANEL_W, CHANGES_W
+from ui.detail_panel import DetailPanel, ChangesPanel, PANEL_W as DETAIL_PANEL_W, CHANGES_W, _VScrollArea
 from ui.position_panel import PositionPanel
-
-
-class _VScrollArea(QScrollArea):
-    """QScrollArea with no horizontal scrolling and content clamped to viewport width."""
-
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        w = self.widget()
-        if w:
-            w.setMaximumWidth(self.viewport().width())
-
-    def scrollContentsBy(self, dx: int, dy: int):
-        super().scrollContentsBy(0, dy)
-
-    def wheelEvent(self, event):
-        if abs(event.angleDelta().x()) > abs(event.angleDelta().y()):
-            event.ignore()
-        else:
-            super().wheelEvent(event)
 
 
 # ── Avatar disk + memory cache ────────────────────────────────────────────────
@@ -185,6 +167,51 @@ class _FetchWorker(QObject):
         finally:
             t.close()
         self.finished.emit(changed)
+
+
+class _NavigateWorker(QObject):
+    """Runs stash-save / checkout / stash-restore on a background thread."""
+    finished = pyqtSignal(bool, str)   # ok, error_message
+
+    def __init__(self, path: str, sha: str, current_head: str):
+        super().__init__()
+        self._path         = path
+        self._sha          = sha
+        self._current_head = current_head
+
+    @pyqtSlot()
+    def run(self):
+        from core.git_ops import (
+            has_uncommitted_changes, get_stash_ref_for_commit,
+            drop_stash, create_auto_stash, pop_auto_stash,
+            checkout_commit, apply_stash,
+        )
+        path = self._path
+        sha  = self._sha
+
+        created_stash_id = None
+        if has_uncommitted_changes(path):
+            if self._current_head:
+                old_ref = get_stash_ref_for_commit(path, self._current_head)
+                if old_ref:
+                    drop_stash(path, old_ref)
+            stashed_files, created_stash_id = create_auto_stash(path)
+            if not created_stash_id and has_uncommitted_changes(path):
+                self.finished.emit(False, "auto-save-failed")
+                return
+
+        ok, err = checkout_commit(path, sha)
+        if not ok:
+            if created_stash_id:
+                pop_auto_stash(path, created_stash_id)
+            self.finished.emit(False, err)
+            return
+
+        target_ref = get_stash_ref_for_commit(path, sha)
+        if target_ref:
+            apply_stash(path, target_ref)
+
+        self.finished.emit(True, "")
 
 
 class _FirstCommitWorker(QObject):
@@ -821,7 +848,6 @@ class _CollabRow(QWidget):
         raw_name = display_name or login
         name_lbl = QLabel(raw_name if len(raw_name) <= 18 else raw_name[:17] + "…")
         name_lbl.setToolTip(raw_name)
-        name_lbl.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         name_lbl.setStyleSheet(
             f"background: transparent; font-size: 12px; font-weight: 600; color: {COLORS['text_primary']};"
         )
@@ -836,7 +862,6 @@ class _CollabRow(QWidget):
         info.addLayout(name_row)
 
         commits_lbl = QLabel(f"{contributions} commit{'s' if contributions != 1 else ''}")
-        commits_lbl.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         commits_lbl.setStyleSheet(f"background: transparent; font-size: 11px; color: {COLORS['text_muted']};")
 
         info.addWidget(commits_lbl)
@@ -1468,12 +1493,15 @@ class CommitViewPage(QWidget):
         self._filter_rebuilding: bool = False
 
         self._user: dict = {}
-        self._collab_thread: Optional[QThread] = None
-        self._collab_worker = None
-        self._fetch_thread:  Optional[QThread] = None
-        self._detail_thread: Optional[QThread] = None
-        self._detail_gen: int = 0
-        self._vis_thread:    Optional[QThread] = None
+        self._collab_thread:    Optional[QThread] = None
+        self._collab_worker     = None
+        self._fetch_thread:     Optional[QThread] = None
+        self._detail_thread:    Optional[QThread] = None
+        self._detail_gen: int   = 0
+        self._vis_thread:       Optional[QThread] = None
+        self._navigate_thread:  Optional[QThread] = None
+        self._navigate_worker   = None
+        self._navigating:  bool = False
         self._commits: list = []
         self._collaborators: list = []
         self._you_shas: set = set()
@@ -1483,6 +1511,7 @@ class CommitViewPage(QWidget):
         self._last_branch_tips: dict = {}
         self._last_local_only: set = set()
         self._last_unpushed: set = set()
+        self._last_stash_shas: set = set()
         self._inflight: list = []   # keeps (thread, worker) pairs alive until C++ threads finish
 
         self._poll_timer = QTimer()
@@ -1505,6 +1534,9 @@ class CommitViewPage(QWidget):
         self._panel.panel_toggled.connect(self._reposition_collab)
         self._panel.panel_toggled.connect(lambda v: self._changes_panel.hide_panel() if not v else None)
         self._panel.file_selected.connect(self._changes_panel.show_file)
+        self._panel.stash_file_selected.connect(
+            lambda info: self._changes_panel.show_file(info, source="stash")
+        )
         self._changes_panel.panel_toggled.connect(self._reposition_collab)
         self._position_panel.jump_requested.connect(self._canvas.jump_to_commit)
         self._panel.navigate_requested.connect(self._on_navigate)
@@ -1555,11 +1587,12 @@ class CommitViewPage(QWidget):
         # 2. Quit all threads and move them to _inflight so Python GC
         #    cannot delete the objects while the C++ thread is still running.
         for t_attr, w_attr in (
-            ("_thread",        "_worker"),
-            ("_collab_thread", "_collab_worker"),
-            ("_fetch_thread",  "_fetch_worker"),
-            ("_detail_thread", "_detail_worker"),
-            ("_vis_thread",    "_vis_worker"),
+            ("_thread",          "_worker"),
+            ("_collab_thread",   "_collab_worker"),
+            ("_fetch_thread",    "_fetch_worker"),
+            ("_detail_thread",   "_detail_worker"),
+            ("_vis_thread",      "_vis_worker"),
+            ("_navigate_thread", "_navigate_worker"),
         ):
             t = getattr(self, t_attr, None)
             w = getattr(self, w_attr, None)
@@ -1567,8 +1600,13 @@ class CommitViewPage(QWidget):
                 t.quit()
                 pair = [t, w]
                 self._inflight.append(pair)
-                t.finished.connect(lambda _=None, p=pair: self._inflight.remove(p)
-                                   if p in self._inflight else None)
+                t.finished.connect(lambda _=None, p=pair: self._drop_inflight(p))
+
+    def _drop_inflight(self, pair: list):
+        try:
+            self._inflight.remove(pair)
+        except ValueError:
+            pass
 
     def load_repo(self, repo_path: str):
         self._stop_all_threads()
@@ -1584,6 +1622,7 @@ class CommitViewPage(QWidget):
         self._last_branch_tips = {}
         self._last_local_only  = set()
         self._last_unpushed    = set()
+        self._last_stash_shas  = set()
         self._tracker = GitTracker(repo_path)
         self._panel.set_repo_path(repo_path)
         try:
@@ -1713,6 +1752,8 @@ class CommitViewPage(QWidget):
             return
         if os.path.exists(path) and path not in self._fs_watcher.files():
             self._fs_watcher.addPath(path)
+        if self._navigating:
+            return
         self._header.set_operation(self._tracker.operation_in_progress())
         self._reload_debounce.start()
 
@@ -1721,6 +1762,8 @@ class CommitViewPage(QWidget):
             return
         if not os.path.isdir(self._tracker._path):
             self._teardown_fs_watcher()
+            return
+        if self._navigating:
             return
         self._header.set_operation(self._tracker.operation_in_progress())
         self._reload_debounce.start()
@@ -1774,11 +1817,14 @@ class CommitViewPage(QWidget):
 
         new_shas = tuple(c.sha for c in commits)
 
+        stash_shas = stash_shas or set()
+
         # Skip full rebuild when nothing has changed
         if (new_shas == self._last_commit_shas
                 and branch_tip_map == self._last_branch_tips
                 and local_only == self._last_local_only
-                and unpushed == self._last_unpushed):
+                and unpushed == self._last_unpushed
+                and stash_shas == self._last_stash_shas):
             self._loading.hide()
             self._update_position_panel(commits)
             return
@@ -1789,16 +1835,17 @@ class CommitViewPage(QWidget):
         self._last_branch_tips = branch_tip_map
         self._last_local_only  = local_only
         self._last_unpushed    = unpushed
+        self._last_stash_shas  = stash_shas
 
         self._commits  = commits
         self._you_shas = self._compute_you_shas(commits)
-        self._panel.set_stash_shas(stash_shas or set())
+        self._panel.set_stash_shas(stash_shas)
         self._update_position_panel(commits)
         self._canvas.load_graph(commits, branch_tip_map,
                                 you_shas=self._you_shas,
                                 local_only_branches=local_only,
                                 unpushed_shas=unpushed,
-                                stash_shas=stash_shas or set(),
+                                stash_shas=stash_shas,
                                 orientation=self._orientation,
                                 head_sha=self._last_head_sha)
         self._header.set_count(len(commits))
@@ -2075,27 +2122,33 @@ class CommitViewPage(QWidget):
     def _on_navigate(self, sha: str):
         if not self._tracker:
             return
-        path = self._tracker._path
+        if self._navigate_thread and self._navigate_thread.isRunning():
+            return
 
-        stash_id = ""
-        if has_uncommitted_changes(path):
-            stashed_files, stash_id = create_auto_stash(path)
-            if not stash_id:
-                self._toast.show_message(
-                    "Couldn't save your unsaved work — try committing or discarding changes first",
-                    duration_ms=6000,
-                )
-                return
-            n = len(stashed_files)
-            self._toast.show_message(
-                f"Your work has been saved ({n} file{'s' if n != 1 else ''}) — look for the amber dot"
-            )
+        # Block fs watcher reloads for the entire duration of the checkout
+        # so the Loader thread can't start reading git state mid-checkout.
+        self._navigating = True
+        self._reload_debounce.stop()
 
-        ok, err = checkout_commit(path, sha)
+        current_head = self._tracker.head_sha()
+        self._navigate_thread = QThread()
+        self._navigate_worker = _NavigateWorker(self._tracker._path, sha, current_head)
+        self._navigate_worker.moveToThread(self._navigate_thread)
+        self._navigate_thread.started.connect(self._navigate_worker.run)
+        self._navigate_worker.finished.connect(self._on_navigate_done)
+        self._navigate_worker.finished.connect(self._navigate_thread.quit)
+        self._navigate_thread.start()
+
+    def _on_navigate_done(self, ok: bool, err: str):
+        self._navigating = False
         if not ok:
-            if stash_id:
-                pop_auto_stash(path, stash_id)
-            self._toast.show_message(f"Couldn't switch to that commit: {err[:120]}")
+            if err == "auto-save-failed":
+                self._toast.show_message(
+                    "Couldn't auto-save your changes. Commit them first, then retry.",
+                    duration_ms=7000,
+                )
+            else:
+                self._toast.show_message(f"Couldn't switch to that commit: {err[:120]}")
             return
         self._start_load()
 
