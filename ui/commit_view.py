@@ -11,7 +11,7 @@ from PyQt5.QtCore import Qt, QThread, QObject, QTimer, QFileSystemWatcher, pyqtS
 from PyQt5.QtGui import QPainter, QColor, QBrush, QPen, QPixmap, QPainterPath, QFont
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QScrollArea, QFrame, QLineEdit, QCheckBox,
+    QScrollArea, QFrame, QLineEdit, QCheckBox, QSizePolicy,
 )
 from styles.theme import COLORS
 from core.git_tracker import GitTracker, CommitInfo
@@ -24,6 +24,25 @@ from core import collab_cache
 from ui.spatial_canvas import SpatialCanvas, MiniMap, ORIENT_TB, ORIENT_BT, ORIENT_LR, ORIENT_RL
 from ui.detail_panel import DetailPanel, ChangesPanel, PANEL_W as DETAIL_PANEL_W, CHANGES_W
 from ui.position_panel import PositionPanel
+
+
+class _VScrollArea(QScrollArea):
+    """QScrollArea with no horizontal scrolling and content clamped to viewport width."""
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        w = self.widget()
+        if w:
+            w.setMaximumWidth(self.viewport().width())
+
+    def scrollContentsBy(self, dx: int, dy: int):
+        super().scrollContentsBy(0, dy)
+
+    def wheelEvent(self, event):
+        if abs(event.angleDelta().x()) > abs(event.angleDelta().y()):
+            event.ignore()
+        else:
+            super().wheelEvent(event)
 
 
 # ── Avatar disk + memory cache ────────────────────────────────────────────────
@@ -62,74 +81,109 @@ class _CollabLoader(QObject):
     """Fetches collaborators on a worker thread, emits list to main thread."""
     finished = pyqtSignal(list)
 
-    def __init__(self, tracker: GitTracker, token: str):
+    def __init__(self, path: str, token: str):
         super().__init__()
-        self._tracker = tracker
-        self._token   = token
+        self._path  = path
+        self._token = token
 
     @pyqtSlot()
     def run(self):
-        self.finished.emit(self._tracker.get_collaborators(self._token))
+        t = GitTracker(self._path)
+        try:
+            t.open()
+            result = t.get_collaborators(self._token)
+        except Exception:
+            result = []
+        finally:
+            t.close()
+        self.finished.emit(result)
 
 
 class _Loader(QObject):
-    finished = pyqtSignal(list, dict, set, set)   # commits, branch_tip_map, local_only, unpushed
+    finished = pyqtSignal(list, dict, set, set, set)  # commits, branch_tip_map, local_only, unpushed, stash_shas
 
-    def __init__(self, tracker: GitTracker):
+    def __init__(self, path: str):
         super().__init__()
-        self._tracker = tracker
+        self._path = path
 
     @pyqtSlot()
     def run(self):
+        t = GitTracker(self._path)
         try:
-            commits, branch_tip_map, local_only = self._tracker.graph_commits()
-            unpushed = self._tracker.get_unpushed_shas()
+            t.open()
+            commits, branch_tip_map, local_only = t.graph_commits()
+            unpushed = t.get_unpushed_shas()
+            from core.git_ops import get_stash_commit_shas
+            stash_shas = get_stash_commit_shas(self._path)
         except Exception:
-            commits, branch_tip_map, local_only, unpushed = [], {}, set(), set()
-        self.finished.emit(commits, branch_tip_map, local_only, unpushed)
+            commits, branch_tip_map, local_only, unpushed, stash_shas = [], {}, set(), set(), set()
+        finally:
+            t.close()
+        self.finished.emit(commits, branch_tip_map, local_only, unpushed, stash_shas)
 
 
 class _CommitDetailWorker(QObject):
     finished = pyqtSignal(object, dict, list, int)   # commit, detail, files, gen
 
-    def __init__(self, tracker: GitTracker, commit, gen: int):
+    def __init__(self, path: str, commit, gen: int):
         super().__init__()
-        self._tracker = tracker
-        self._commit  = commit
-        self._gen     = gen
+        self._path   = path
+        self._commit = commit
+        self._gen    = gen
 
     @pyqtSlot()
     def run(self):
-        detail = self._tracker.commit_detail(self._commit.sha)
-        files  = self._tracker.commit_files(self._commit.sha)
+        t = GitTracker(self._path)
+        try:
+            t.open()
+            detail = t.commit_detail(self._commit.sha)
+            files  = t.commit_files(self._commit.sha)
+        except Exception:
+            detail, files = {}, []
+        finally:
+            t.close()
         self.finished.emit(self._commit, detail, files, self._gen)
 
 
 class _VisibilityWorker(QObject):
     finished = pyqtSignal(str, str)   # url, visibility
 
-    def __init__(self, tracker: GitTracker, token: str):
+    def __init__(self, path: str, token: str):
         super().__init__()
-        self._tracker = tracker
-        self._token   = token
+        self._path  = path
+        self._token = token
 
     @pyqtSlot()
     def run(self):
-        url = self._tracker.remote_url()
-        vis = self._tracker.repo_visibility(self._token)
+        t = GitTracker(self._path)
+        try:
+            t.open()
+            url = t.remote_url()
+            vis = t.repo_visibility(self._token)
+        except Exception:
+            url, vis = "", ""
+        finally:
+            t.close()
         self.finished.emit(url, vis)
 
 
 class _FetchWorker(QObject):
     finished = pyqtSignal(bool)   # True = something changed
 
-    def __init__(self, tracker: GitTracker):
+    def __init__(self, path: str):
         super().__init__()
-        self._tracker = tracker
+        self._path = path
 
     @pyqtSlot()
     def run(self):
-        changed = self._tracker.fetch()
+        t = GitTracker(self._path)
+        try:
+            t.open()
+            changed = t.fetch()
+        except Exception:
+            changed = False
+        finally:
+            t.close()
         self.finished.emit(changed)
 
 
@@ -764,7 +818,10 @@ class _CollabRow(QWidget):
         name_row.setSpacing(5)
         name_row.setContentsMargins(0, 0, 0, 0)
 
-        name_lbl = QLabel(display_name or login)
+        raw_name = display_name or login
+        name_lbl = QLabel(raw_name if len(raw_name) <= 18 else raw_name[:17] + "…")
+        name_lbl.setToolTip(raw_name)
+        name_lbl.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         name_lbl.setStyleSheet(
             f"background: transparent; font-size: 12px; font-weight: 600; color: {COLORS['text_primary']};"
         )
@@ -779,6 +836,7 @@ class _CollabRow(QWidget):
         info.addLayout(name_row)
 
         commits_lbl = QLabel(f"{contributions} commit{'s' if contributions != 1 else ''}")
+        commits_lbl.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         commits_lbl.setStyleSheet(f"background: transparent; font-size: 11px; color: {COLORS['text_muted']};")
 
         info.addWidget(commits_lbl)
@@ -887,7 +945,7 @@ class CollaboratorPanel(QWidget):
         hdr_layout.addWidget(self._toggle_btn)
         root.addWidget(hdr)
 
-        self._scroll = QScrollArea()
+        self._scroll = _VScrollArea()
         scroll = self._scroll
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
@@ -906,7 +964,7 @@ class CollaboratorPanel(QWidget):
             QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
             QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{ background: transparent; }}
         """)
-        scroll.setMaximumHeight(280)
+        scroll.setMaximumHeight(480)
 
         self._container = QWidget()
         self._container.setStyleSheet("background: transparent;")
@@ -1170,7 +1228,7 @@ class _FilterPanel(QWidget):
         self._branch_layout.setContentsMargins(0, 0, 0, 0)
         self._branch_layout.setSpacing(2)
 
-        branch_scroll = QScrollArea()
+        branch_scroll = _VScrollArea()
         branch_scroll.setWidgetResizable(True)
         branch_scroll.setFrameShape(QFrame.NoFrame)
         branch_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
@@ -1204,7 +1262,7 @@ class _FilterPanel(QWidget):
         self._author_layout.setContentsMargins(0, 0, 0, 0)
         self._author_layout.setSpacing(2)
 
-        author_scroll = QScrollArea()
+        author_scroll = _VScrollArea()
         author_scroll.setWidgetResizable(True)
         author_scroll.setFrameShape(QFrame.NoFrame)
         author_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
@@ -1421,17 +1479,11 @@ class CommitViewPage(QWidget):
         self._you_shas: set = set()
         self._last_head_sha: str = ""
         self._collab_cache: dict[str, list[dict]] = {}
-        self._exploring: bool = False
-        self._home_branch: str = ""
-        self._has_stash: bool = False
-        self._stash_id: str = ""
-        self._stash_timer = QTimer(self)
-        self._stash_timer.setInterval(5000)
-        self._stash_timer.timeout.connect(self._refresh_stash_display)
         self._last_commit_shas: tuple = ()
         self._last_branch_tips: dict = {}
         self._last_local_only: set = set()
         self._last_unpushed: set = set()
+        self._inflight: list = []   # keeps (thread, worker) pairs alive until C++ threads finish
 
         self._poll_timer = QTimer()
         self._poll_timer.setInterval(30_000)
@@ -1455,7 +1507,6 @@ class CommitViewPage(QWidget):
         self._panel.file_selected.connect(self._changes_panel.show_file)
         self._changes_panel.panel_toggled.connect(self._reposition_collab)
         self._position_panel.jump_requested.connect(self._canvas.jump_to_commit)
-        self._position_panel.return_requested.connect(self._return_home)
         self._panel.navigate_requested.connect(self._on_navigate)
 
     # ── Public ────────────────────────────────────────────────────────────
@@ -1487,19 +1538,11 @@ class CommitViewPage(QWidget):
         self._changes_panel.hide_panel()
         self._panel.hide_panel()
         self._position_panel.clear()
-        self._exploring = False
-        self._home_branch = ""
-        self._has_stash = False
         self._last_head_sha = ""
         self._header.set_repo("—")
 
     def _stop_all_threads(self):
-        for attr in ("_thread", "_collab_thread", "_fetch_thread",
-                     "_detail_thread", "_vis_thread"):
-            t = getattr(self, attr, None)
-            if t and t.isRunning():
-                t.quit()
-                t.wait(500)
+        # 1. Disconnect all worker signals FIRST so no callbacks fire after this point
         for attr in ("_worker", "_collab_worker", "_fetch_worker",
                      "_detail_worker", "_vis_worker"):
             w = getattr(self, attr, None)
@@ -1508,6 +1551,24 @@ class CommitViewPage(QWidget):
                     w.finished.disconnect()
                 except Exception:
                     pass
+
+        # 2. Quit all threads and move them to _inflight so Python GC
+        #    cannot delete the objects while the C++ thread is still running.
+        for t_attr, w_attr in (
+            ("_thread",        "_worker"),
+            ("_collab_thread", "_collab_worker"),
+            ("_fetch_thread",  "_fetch_worker"),
+            ("_detail_thread", "_detail_worker"),
+            ("_vis_thread",    "_vis_worker"),
+        ):
+            t = getattr(self, t_attr, None)
+            w = getattr(self, w_attr, None)
+            if t and t.isRunning():
+                t.quit()
+                pair = [t, w]
+                self._inflight.append(pair)
+                t.finished.connect(lambda _=None, p=pair: self._inflight.remove(p)
+                                   if p in self._inflight else None)
 
     def load_repo(self, repo_path: str):
         self._stop_all_threads()
@@ -1518,7 +1579,13 @@ class CommitViewPage(QWidget):
         self._commits = []
         self._collaborators = []
         self._you_shas = set()
+        self._last_commit_shas = ()
+        self._last_head_sha    = ""
+        self._last_branch_tips = {}
+        self._last_local_only  = set()
+        self._last_unpushed    = set()
         self._tracker = GitTracker(repo_path)
+        self._panel.set_repo_path(repo_path)
         try:
             self._tracker.open()
         except Exception:
@@ -1535,16 +1602,6 @@ class CommitViewPage(QWidget):
         self._orientation = orientations.get(repo_path, ORIENT_LR)
         self._orient_bar.set_orientation(self._orientation)
 
-        # Restore exploration state if app was closed mid-explore
-        saved = settings_store.get("explore_state")
-        if saved and saved.get("repo_path") == repo_path and saved.get("has_stash"):
-            self._home_branch = saved.get("home_branch", "")
-            self._has_stash   = True
-            self._stash_id    = saved.get("stash_id", "")
-            self._exploring   = True
-            files = get_stash_files(repo_path, self._stash_id)
-            self._position_panel.set_exploring(True, files)
-            self._stash_timer.start()
         has_remote = self._tracker.has_remote()
         if has_remote:
             self._collab_panel.show_loading()
@@ -1558,7 +1615,7 @@ class CommitViewPage(QWidget):
             self._header.set_url(self._tracker.remote_url())   # show URL immediately, badge loads async
             if token:
                 self._vis_thread  = QThread()
-                self._vis_worker  = _VisibilityWorker(self._tracker, token)
+                self._vis_worker  = _VisibilityWorker(self._tracker._path, token)
                 self._vis_worker.moveToThread(self._vis_thread)
                 self._vis_thread.started.connect(self._vis_worker.run)
                 self._vis_worker.finished.connect(self._on_visibility_ready)
@@ -1591,7 +1648,7 @@ class CommitViewPage(QWidget):
             self._loading.raise_()
 
         self._thread = QThread()
-        self._worker = _Loader(self._tracker)
+        self._worker = _Loader(self._tracker._path)
         self._worker.moveToThread(self._thread)
         self._thread.started.connect(self._worker.run)
         self._worker.finished.connect(self._on_loaded)
@@ -1611,7 +1668,7 @@ class CommitViewPage(QWidget):
         if self._fetch_thread and self._fetch_thread.isRunning():
             return
         self._fetch_thread  = QThread()
-        self._fetch_worker  = _FetchWorker(self._tracker)
+        self._fetch_worker  = _FetchWorker(self._tracker._path)
         self._fetch_worker.moveToThread(self._fetch_thread)
         self._fetch_thread.started.connect(self._fetch_worker.run)
         self._fetch_worker.finished.connect(self._on_fetch_done)
@@ -1710,7 +1767,7 @@ class CommitViewPage(QWidget):
         self._load_collaborators()
 
     def _on_loaded(self, commits: list[CommitInfo], branch_tip_map: dict,
-                   local_only: set, unpushed: set):
+                   local_only: set, unpushed: set, stash_shas: set = None):
         if not commits and self._tracker:
             self._make_first_commit()
             return
@@ -1735,15 +1792,15 @@ class CommitViewPage(QWidget):
 
         self._commits  = commits
         self._you_shas = self._compute_you_shas(commits)
+        self._panel.set_stash_shas(stash_shas or set())
         self._update_position_panel(commits)
         self._canvas.load_graph(commits, branch_tip_map,
                                 you_shas=self._you_shas,
                                 local_only_branches=local_only,
                                 unpushed_shas=unpushed,
+                                stash_shas=stash_shas or set(),
                                 orientation=self._orientation,
                                 head_sha=self._last_head_sha)
-        if is_initial and self._last_head_sha:
-            self._canvas.jump_to_commit(self._last_head_sha)
         self._header.set_count(len(commits))
         self._loading.hide()
 
@@ -1814,7 +1871,7 @@ class CommitViewPage(QWidget):
             self._reposition_collab()
 
         self._collab_thread  = QThread()
-        self._collab_worker  = _CollabLoader(self._tracker, token)
+        self._collab_worker  = _CollabLoader(self._tracker._path, token)
         self._collab_worker.moveToThread(self._collab_thread)
         self._collab_thread.started.connect(self._collab_worker.run)
         self._collab_worker.finished.connect(self._on_collabs_loaded)
@@ -1972,6 +2029,7 @@ class CommitViewPage(QWidget):
         if not self._tracker:
             return
 
+
         if self._detail_thread and self._detail_thread.isRunning():
             self._detail_thread.quit()
             # No wait() — let old thread die naturally; gen check discards stale results
@@ -1980,7 +2038,7 @@ class CommitViewPage(QWidget):
         gen = self._detail_gen
 
         thread = QThread()
-        worker = _CommitDetailWorker(self._tracker, commit, gen)
+        worker = _CommitDetailWorker(self._tracker._path, commit, gen)
         worker.moveToThread(thread)
         thread.started.connect(worker.run)
         worker.finished.connect(self._on_commit_detail_ready)
@@ -2019,63 +2077,27 @@ class CommitViewPage(QWidget):
             return
         path = self._tracker._path
 
-        if not self._has_stash and has_uncommitted_changes(path):
-            self._home_branch  = current_branch(path)
-            stashed_files, self._stash_id = create_auto_stash(path)
-            self._has_stash    = bool(stashed_files)
-            self._exploring    = True
-            settings_store.save({"explore_state": {
-                "repo_path":   path,
-                "home_branch": self._home_branch,
-                "has_stash":   self._has_stash,
-                "stash_id":    self._stash_id,
-            }})
-            self._position_panel.set_exploring(True, stashed_files)
-            self._stash_timer.start()
-            self._reposition_position()
+        stash_id = ""
+        if has_uncommitted_changes(path):
+            stashed_files, stash_id = create_auto_stash(path)
+            if not stash_id:
+                self._toast.show_message(
+                    "Couldn't save your unsaved work — try committing or discarding changes first",
+                    duration_ms=6000,
+                )
+                return
             n = len(stashed_files)
             self._toast.show_message(
-                f"Your unsaved work has been saved — {n} file{'s' if n != 1 else ''}"
+                f"Your work has been saved ({n} file{'s' if n != 1 else ''}) — look for the amber dot"
             )
 
-        checkout_commit(path, sha)
-
-    def _return_home(self):
-        if not self._tracker:
+        ok, err = checkout_commit(path, sha)
+        if not ok:
+            if stash_id:
+                pop_auto_stash(path, stash_id)
+            self._toast.show_message(f"Couldn't switch to that commit: {err[:120]}")
             return
-        path = self._tracker._path
-        checkout_branch(path, self._home_branch)
-
-        if self._has_stash:
-            ok = pop_auto_stash(path, self._stash_id)
-            if not ok:
-                # Pop conflicted — abort it and keep stash intact so nothing is lost
-                import subprocess
-                subprocess.run(["git", "checkout", "--ours", "."],
-                               cwd=path, capture_output=True)
-                subprocess.run(["git", "reset", "HEAD"],
-                               cwd=path, capture_output=True)
-                self._toast.show_message(
-                    "Your saved work could not be restored automatically — "
-                    "run  git stash pop  in the terminal.",
-                    duration_ms=8000,
-                )
-                self._has_stash = False
-
-        self._stash_timer.stop()
-        self._exploring = False
-        self._home_branch = ""
-        self._has_stash = False
-        self._stash_id = ""
-        settings_store.save({"explore_state": None})
-        self._position_panel.set_exploring(False)
-        self._reposition_position()
-
-    def _refresh_stash_display(self):
-        if not self._exploring or not self._tracker:
-            return
-        files = get_stash_files(self._tracker._path, self._stash_id)
-        self._position_panel.update_stash_files(files)
+        self._start_load()
 
     def _branch_for_head(self) -> str:
         if not self._tracker:
@@ -2189,3 +2211,4 @@ class CommitViewPage(QWidget):
         if self._toast.isVisible():
             t = self._toast
             t.move((self.width() - t.width()) // 2, self.height() - t.height() - 80)
+

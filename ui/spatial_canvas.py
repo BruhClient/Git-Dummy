@@ -243,13 +243,16 @@ class CommitNode(QGraphicsObject):
 
     clicked = pyqtSignal(object)   # CommitInfo
 
-    def __init__(self, commit: CommitInfo, color: str, is_start: bool = False, is_local_only: bool = False, is_head: bool = False):
+    def __init__(self, commit: CommitInfo, color: str, is_start: bool = False,
+                 is_local_only: bool = False, is_head: bool = False,
+                 has_stash: bool = False):
         super().__init__()
         self._commit        = commit
         self._color         = QColor(color)
         self._is_start      = is_start
         self._is_local_only = is_local_only
         self._is_head       = is_head
+        self._has_stash     = has_stash
         self._r             = START_R if is_start else NODE_R
         self._hovered       = False
         self._selected      = False
@@ -261,7 +264,9 @@ class CommitNode(QGraphicsObject):
     def boundingRect(self) -> QRectF:
         r = self._r + 10
         top = -r - (28 if self._is_head else 0)
-        return QRectF(-r, top, r * 2, r * 2 + (28 if self._is_head else 0))
+        # extra room below for the stash dot
+        extra_bot = 10 if self._has_stash else 0
+        return QRectF(-r, top, r * 2, r * 2 + (28 if self._is_head else 0) + extra_bot)
 
     def paint(self, painter: QPainter, _option, _widget):
         painter.setRenderHint(QPainter.Antialiasing)
@@ -334,6 +339,13 @@ class CommitNode(QGraphicsObject):
             painter.setBrush(QBrush(c))
             painter.setPen(Qt.NoPen)
             painter.drawPolygon(flag)
+
+        # Stash indicator — small amber dot below the node
+        if self._has_stash:
+            amber = QColor("#d69e2e")
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(QBrush(amber))
+            painter.drawEllipse(QPointF(0, r + 5), 3.5, 3.5)
 
     def hoverEnterEvent(self, _e):
         self._hovered = True
@@ -615,6 +627,7 @@ class SpatialCanvas(QGraphicsView):
         self._content_rect: QRectF = QRectF()
         self._you_shas: set = set()
         self._known_authors: set = set()
+        self._stash_shas: set = set()
         self._author_items: dict[str, QGraphicsSimpleTextItem] = {}
         self._head_sha: str = ""
         self._orientation: str = ORIENT_LR
@@ -649,6 +662,7 @@ class SpatialCanvas(QGraphicsView):
         you_shas: set = None,
         local_only_branches: set = None,
         unpushed_shas: set = None,
+        stash_shas: set = None,
         orientation: str = ORIENT_LR,
         head_sha: str = "",
     ):
@@ -674,6 +688,7 @@ class SpatialCanvas(QGraphicsView):
         self._you_shas            = you_shas            or set()
         self._local_only_branches = local_only_branches or set()
         self._unpushed_shas       = unpushed_shas       or set()
+        self._stash_shas          = stash_shas          or set()
 
         if not commits:
             return
@@ -829,7 +844,8 @@ class SpatialCanvas(QGraphicsView):
             node = CommitNode(commit, color,
                               is_start=commit.sha in start_shas,
                               is_local_only=is_local,
-                              is_head=commit.sha == head_sha)
+                              is_head=commit.sha == head_sha,
+                              has_stash=commit.sha in self._stash_shas)
             node.setPos(cx, cy)
             node.clicked.connect(self._on_node_clicked)
             self._scene.addItem(node)
@@ -938,6 +954,8 @@ class SpatialCanvas(QGraphicsView):
 
         if prev_centre.x() or prev_centre.y():
             self.centerOn(prev_centre)
+        elif head_sha and head_sha in self._nodes:
+            self.centerOn(self._nodes[head_sha].scenePos())
         elif orientation == ORIENT_BT:
             self.centerOn(H_PAD, V_PAD + (n - 1) * ROW_H)
         elif orientation == ORIENT_LR:

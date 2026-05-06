@@ -12,6 +12,30 @@ from PyQt5.QtWidgets import (
 )
 from styles.theme import COLORS
 
+
+class _VScrollArea(QScrollArea):
+    """QScrollArea that clamps content to viewport width and blocks horizontal scrolling."""
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        w = self.widget()
+        if w:
+            w.setMaximumWidth(self.viewport().width())
+
+    def scrollContentsBy(self, dx: int, dy: int):
+        super().scrollContentsBy(0, dy)
+
+    def wheelEvent(self, event):
+        if abs(event.angleDelta().x()) > abs(event.angleDelta().y()):
+            event.ignore()
+        else:
+            super().wheelEvent(event)
+
+
+def _trunc(text: str, n: int) -> str:
+    return text if len(text) <= n else text[:n - 1] + "…"
+
+
 # Hi there! The code below is for the detail panel and changes panel in the commit details view.
 
 # This is another area where I had to make some tradeoffs for the sake of shipping a v1 — in this case, the diff rendering.
@@ -471,7 +495,8 @@ class _FileCard(QWidget):
         nb.setSpacing(1)
         nb.setAlignment(Qt.AlignVCenter)
 
-        name_lbl = QLabel(info["name"])
+        name_lbl = QLabel(_trunc(info["name"], 36))
+        name_lbl.setToolTip(info["name"])
         name_lbl.setStyleSheet(
             f"background: transparent; font-size: 12px; font-weight: 600;"
             f" color: {COLORS['text_primary']};"
@@ -480,7 +505,9 @@ class _FileCard(QWidget):
 
         parts = info["path"].split("/")
         if len(parts) > 1:
-            dir_lbl = QLabel("/".join(parts[:-1]))
+            dir_text = "/".join(parts[:-1])
+            dir_lbl = QLabel(_trunc(dir_text, 32))
+            dir_lbl.setToolTip(dir_text)
             dir_lbl.setStyleSheet(
                 f"background: transparent; font-size: 10px; color: {COLORS['text_muted']};"
             )
@@ -623,9 +650,10 @@ class ChangesPanel(QWidget):
         hl.addWidget(close_btn)
         root.addWidget(hdr)
 
-        scroll = QScrollArea()
+        scroll = _VScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         scroll.setStyleSheet(_scrollbar_style(COLORS))
 
         self._content = QWidget()
@@ -869,9 +897,10 @@ class AllChangesPopup(QWidget):
         card_layout.addWidget(hdr)
 
         # Scrollable file sections
-        scroll = QScrollArea()
+        scroll = _VScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         scroll.setStyleSheet(_scrollbar_style(COLORS))
 
         content = QWidget()
@@ -919,7 +948,8 @@ class AllChangesPopup(QWidget):
         dot.setStyleSheet(f"background: transparent; font-size: 9px; color: {color};")
         fhl.addWidget(dot)
 
-        name = QLabel(info["name"])
+        name = QLabel(_trunc(info["name"], 36))
+        name.setToolTip(info["name"])
         name.setStyleSheet(
             f"background: transparent; font-size: 13px; font-weight: 600;"
             f" color: {COLORS['text_primary']};"
@@ -928,7 +958,8 @@ class AllChangesPopup(QWidget):
 
         if "/" in info["path"]:
             path_parts = "/".join(info["path"].split("/")[:-1])
-            path_lbl = QLabel(f"  {path_parts}")
+            path_lbl = QLabel("  " + _trunc(path_parts, 32))
+            path_lbl.setToolTip(path_parts)
             path_lbl.setStyleSheet(
                 f"background: transparent; font-size: 11px; color: {COLORS['text_muted']};"
             )
@@ -1184,7 +1215,7 @@ class DetailPanel(QWidget):
         root.addWidget(header)
 
         # Scrollable content
-        scroll = QScrollArea()
+        scroll = _VScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
@@ -1233,6 +1264,42 @@ class DetailPanel(QWidget):
         """)
         self._goto_btn.clicked.connect(self._on_goto)
         content_layout.addWidget(self._goto_btn)
+
+        # Stash section — shown only when this commit has a saved stash
+        self._stash_bar = QWidget()
+        self._stash_bar.setStyleSheet("background: transparent;")
+        self._stash_bar.hide()
+        sbl = QHBoxLayout(self._stash_bar)
+        sbl.setContentsMargins(0, 0, 0, 0)
+        sbl.setSpacing(6)
+
+        stash_dot = QLabel("●")
+        stash_dot.setFixedWidth(14)
+        stash_dot.setStyleSheet(
+            f"background: transparent; font-size: 8px; color: {COLORS['warning']};"
+        )
+        sbl.addWidget(stash_dot)
+
+        stash_lbl = QLabel("Stashed work saved here")
+        stash_lbl.setStyleSheet(
+            f"background: transparent; font-size: 11px; color: {COLORS['text_muted']};"
+        )
+        sbl.addWidget(stash_lbl)
+        sbl.addStretch()
+
+        self._view_stash_btn = QPushButton("View Stash →")
+        self._view_stash_btn.setCursor(Qt.PointingHandCursor)
+        self._view_stash_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: transparent; border: none;
+                font-size: 10px; color: {COLORS['warning']};
+                padding: 0;
+            }}
+            QPushButton:hover {{ color: {COLORS['text_primary']}; }}
+        """)
+        self._view_stash_btn.clicked.connect(self._open_stash_view)
+        sbl.addWidget(self._view_stash_btn)
+        content_layout.addWidget(self._stash_bar)
 
         content_layout.addWidget(_divider())
 
@@ -1344,10 +1411,18 @@ class DetailPanel(QWidget):
             }}
         """)
 
+    def set_repo_path(self, path: str):
+        self._repo_path = path
+
+    def set_stash_shas(self, shas: set):
+        self._stash_shas = shas
+
     def show_commit(self, commit, detail: dict, avatar_url: str = "",
                     display_author: str = None, files: list = None):
         self._current_sha = commit.sha
         self._refresh_goto_btn()
+        has_stash = commit.sha in getattr(self, "_stash_shas", set())
+        self._stash_bar.setVisible(has_stash)
         shown_name = display_author or commit.author
         self._header_avatar.set_author(commit.author, avatar_url)
         self._header_name.setText(shown_name)
@@ -1364,6 +1439,20 @@ class DetailPanel(QWidget):
 
         if not self._visible:
             self._place(visible=True, animate=True)
+
+    def _open_stash_view(self):
+        from core.git_ops import get_stash_ref_for_commit, get_stash_diff_files
+        repo_path = getattr(self, "_repo_path", "")
+        if not repo_path or not self._current_sha:
+            return
+        stash_ref = get_stash_ref_for_commit(repo_path, self._current_sha)
+        if not stash_ref:
+            return
+        files = get_stash_diff_files(repo_path, stash_ref)
+        if not files:
+            return
+        popup = AllChangesPopup(files, f"Stash at {self._current_sha[:7]}", self.parent())
+        popup.show()
 
     def hide_panel(self):
         if self._visible:

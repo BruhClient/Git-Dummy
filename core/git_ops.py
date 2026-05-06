@@ -36,11 +36,11 @@ def get_stash_files(path: str, stash_id: str = "") -> list[str]:
 
 
 def create_auto_stash(path: str) -> tuple[list[str], str]:
-    """Stash uncommitted changes. Returns (stashed_files, stash_id) or ([], '') on failure."""
+    """Stash uncommitted changes (including untracked files). Returns (stashed_files, stash_id) or ([], '') on failure."""
     import uuid
     stash_id = "gitdummy-autostash-" + uuid.uuid4().hex[:8]
     r = subprocess.run(
-        ["git", "stash", "push", "-m", stash_id],
+        ["git", "stash", "push", "--include-untracked", "-m", stash_id],
         cwd=path, capture_output=True, text=True,
     )
     if r.returncode != 0 or "No local changes" in r.stdout:
@@ -106,6 +106,97 @@ def branch_for_commit(path: str, sha: str) -> str:
         if name and not name.startswith("("):
             return name
     return ""
+
+
+def get_stash_ref_for_commit(path: str, commit_sha: str) -> str:
+    """Return the stash ref (e.g. 'stash@{0}') whose parent is commit_sha, or ''."""
+    r = subprocess.run(
+        ["git", "stash", "list", "--format=%gd %P"],
+        cwd=path, capture_output=True, text=True,
+    )
+    for line in r.stdout.strip().splitlines():
+        parts = line.strip().split()
+        if len(parts) >= 2 and parts[1] == commit_sha:
+            return parts[0]
+    return ""
+
+
+def get_stash_diff_files(path: str, stash_ref: str) -> list[dict]:
+    """Return per-file diff info for a stash, in the same format as commit_files."""
+    r = subprocess.run(
+        ["git", "show", "--format=", "--numstat", stash_ref],
+        cwd=path, capture_output=True, text=True,
+    )
+    patch = subprocess.run(
+        ["git", "stash", "show", "-p", stash_ref],
+        cwd=path, capture_output=True, text=True,
+    )
+
+    # Build a map of file path → diff lines from the patch
+    diff_by_path: dict[str, list] = {}
+    current: list = []
+    current_path = ""
+    for line in patch.stdout.splitlines():
+        if line.startswith("diff --git "):
+            if current_path:
+                diff_by_path[current_path] = current
+            current = []
+            current_path = ""
+        elif line.startswith("+++ b/"):
+            current_path = line[6:]
+        elif line.startswith("--- a/") or line.startswith("+++ /dev/null"):
+            pass
+        elif current_path:
+            if line.startswith("+") and not line.startswith("+++"):
+                current.append(("added",   line[1:]))
+            elif line.startswith("-") and not line.startswith("---"):
+                current.append(("removed", line[1:]))
+            elif line.startswith("@@"):
+                current.append(("hunk",    line))
+            elif line.startswith(" "):
+                current.append(("context", line[1:]))
+    if current_path:
+        diff_by_path[current_path] = current
+
+    result = []
+    for line in r.stdout.strip().splitlines():
+        if not line.strip():
+            continue
+        parts = line.split("\t")
+        if len(parts) < 3:
+            continue
+        ins_s, dels_s, fpath = parts[0], parts[1], parts[2]
+        is_binary = ins_s == "-"
+        try:
+            ins  = int(ins_s)  if not is_binary else 0
+            dels = int(dels_s) if not is_binary else 0
+        except ValueError:
+            ins = dels = 0
+        lines = diff_by_path.get(fpath, [])
+        result.append({
+            "path":       fpath,
+            "name":       fpath.split("/")[-1],
+            "status":     "modified",
+            "insertions": ins,
+            "deletions":  dels,
+            "is_binary":  is_binary,
+            "lines":      lines,
+        })
+    return result
+
+
+def get_stash_commit_shas(path: str) -> set[str]:
+    """Return the set of commit SHAs that have a stash sitting on top of them."""
+    r = subprocess.run(
+        ["git", "stash", "list", "--format=%P"],
+        cwd=path, capture_output=True, text=True,
+    )
+    shas = set()
+    for line in r.stdout.strip().splitlines():
+        parts = line.strip().split()
+        if parts:
+            shas.add(parts[0])
+    return shas
 
 
 def init_repo(path: str, user_name: str = "", user_email: str = "") -> tuple[bool, str]:
