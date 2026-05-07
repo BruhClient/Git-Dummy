@@ -1435,7 +1435,8 @@ class DetailPanel(QWidget):
             self._place(visible=True, animate=True)
 
     def _populate_stash_files(self):
-        from core.git_ops import get_stash_ref_for_commit, get_stash_diff_files
+        from core.git_ops import (get_stash_ref_for_commit, get_stash_diff_files,
+                                  has_uncommitted_changes, get_working_dir_diff_files)
         repo_path = getattr(self, "_repo_path", "")
         if not repo_path or not self._current_sha:
             return
@@ -1448,11 +1449,17 @@ class DetailPanel(QWidget):
                 w.setParent(None)
 
         stash_ref = get_stash_ref_for_commit(repo_path, self._current_sha)
-        if not stash_ref:
+        is_head   = self._current_sha == getattr(self, "_head_sha", "")
+
+        if stash_ref:
+            files = get_stash_diff_files(repo_path, stash_ref)
+        elif is_head and has_uncommitted_changes(repo_path):
+            # No saved stash yet — show live working-directory diff instead.
+            files = get_working_dir_diff_files(repo_path)
+        else:
             self._stash_section.hide()
             return
 
-        files = get_stash_diff_files(repo_path, stash_ref)
         n = len(files)
         self._stash_label.setText(f"UNCOMMITTED  —  {n} file{'s' if n != 1 else ''}")
         self._view_stash_btn.setVisible(n > 0)

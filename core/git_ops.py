@@ -208,6 +208,68 @@ def get_stash_diff_files(path: str, stash_ref: str) -> list[dict]:
     return result
 
 
+def get_working_dir_diff_files(path: str) -> list[dict]:
+    """Return per-file diff info for the current dirty working directory (staged + unstaged)."""
+    r = subprocess.run(
+        ["git", "diff", "HEAD", "--numstat"],
+        cwd=path, capture_output=True, text=True,
+    )
+    patch = subprocess.run(
+        ["git", "diff", "HEAD"],
+        cwd=path, capture_output=True, text=True,
+    )
+
+    diff_by_path: dict[str, list] = {}
+    current: list = []
+    current_path = ""
+    for line in patch.stdout.splitlines():
+        if line.startswith("diff --git "):
+            if current_path:
+                diff_by_path[current_path] = current
+            current = []
+            current_path = ""
+        elif line.startswith("+++ b/"):
+            current_path = line[6:]
+        elif line.startswith("--- a/") or line.startswith("+++ /dev/null"):
+            pass
+        elif current_path:
+            if line.startswith("+") and not line.startswith("+++"):
+                current.append(("added",   line[1:]))
+            elif line.startswith("-") and not line.startswith("---"):
+                current.append(("removed", line[1:]))
+            elif line.startswith("@@"):
+                current.append(("hunk",    line))
+            elif line.startswith(" "):
+                current.append(("context", line[1:]))
+    if current_path:
+        diff_by_path[current_path] = current
+
+    result = []
+    for line in r.stdout.strip().splitlines():
+        if not line.strip():
+            continue
+        parts = line.split("\t")
+        if len(parts) < 3:
+            continue
+        ins_s, dels_s, fpath = parts[0], parts[1], parts[2]
+        is_binary = ins_s == "-"
+        try:
+            ins  = int(ins_s)  if not is_binary else 0
+            dels = int(dels_s) if not is_binary else 0
+        except ValueError:
+            ins = dels = 0
+        result.append({
+            "path":       fpath,
+            "name":       fpath.split("/")[-1],
+            "status":     "modified",
+            "insertions": ins,
+            "deletions":  dels,
+            "is_binary":  is_binary,
+            "lines":      diff_by_path.get(fpath, []),
+        })
+    return result
+
+
 def get_stash_commit_shas(path: str) -> set[str]:
     """Return the set of commit SHAs that have a stash sitting on top of them."""
     r = subprocess.run(

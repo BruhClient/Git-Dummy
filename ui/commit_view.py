@@ -95,8 +95,14 @@ class _Loader(QObject):
             t.open()
             commits, branch_tip_map, local_only = t.graph_commits()
             unpushed = t.get_unpushed_shas()
-            from core.git_ops import get_stash_commit_shas
+            from core.git_ops import get_stash_commit_shas, has_uncommitted_changes
             stash_shas = get_stash_commit_shas(self._path)
+            # Always mark HEAD with the dot when the working tree is dirty,
+            # even before the user has navigated anywhere (no stash yet).
+            if has_uncommitted_changes(self._path):
+                head = t.head_sha()
+                if head:
+                    stash_shas = stash_shas | {head}
         except Exception:
             commits, branch_tip_map, local_only, unpushed, stash_shas = [], {}, set(), set(), set()
         finally:
