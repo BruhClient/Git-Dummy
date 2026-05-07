@@ -175,6 +175,22 @@ class _FetchWorker(QObject):
         self.finished.emit(changed)
 
 
+class _UncommittedRefreshWorker(QObject):
+    """Lightweight background poll: dirty-state check + live diff."""
+    finished = pyqtSignal(bool, list)   # dirty, files
+
+    def __init__(self, path: str):
+        super().__init__()
+        self._path = path
+
+    @pyqtSlot()
+    def run(self):
+        from core.git_ops import has_uncommitted_changes, get_working_dir_diff_files
+        dirty = has_uncommitted_changes(self._path)
+        files = get_working_dir_diff_files(self._path) if dirty else []
+        self.finished.emit(dirty, files)
+
+
 class _NavigateWorker(QObject):
     """Runs stash-save / checkout / stash-restore on a background thread."""
     finished = pyqtSignal(bool, str)   # ok, error_message
@@ -1507,7 +1523,10 @@ class CommitViewPage(QWidget):
         self._vis_thread:       Optional[QThread] = None
         self._navigate_thread:  Optional[QThread] = None
         self._navigate_worker   = None
-        self._navigating:  bool = False
+        self._navigating:       bool = False
+        self._last_dirty:       bool = False
+        self._uncommitted_thread: Optional[QThread] = None
+        self._uncommitted_worker  = None
         self._commits: list = []
         self._collaborators: list = []
         self._you_shas: set = set()
@@ -1523,6 +1542,10 @@ class CommitViewPage(QWidget):
         self._poll_timer = QTimer()
         self._poll_timer.setInterval(30_000)
         self._poll_timer.timeout.connect(self._poll_remote)
+
+        self._uncommitted_timer = QTimer()
+        self._uncommitted_timer.setInterval(2_000)
+        self._uncommitted_timer.timeout.connect(self._poll_uncommitted)
 
         # Filesystem watcher — instant detection of any .git change
         self._fs_watcher = QFileSystemWatcher()
@@ -1569,6 +1592,7 @@ class CommitViewPage(QWidget):
         self._last_unpushed = set()
         self._user = {}
         self._poll_timer.stop()
+        self._uncommitted_timer.stop()
         self._reload_debounce.stop()
         self._teardown_fs_watcher()
         self._canvas.load_graph([], {})
@@ -1598,7 +1622,8 @@ class CommitViewPage(QWidget):
             ("_fetch_thread",    "_fetch_worker"),
             ("_detail_thread",   "_detail_worker"),
             ("_vis_thread",      "_vis_worker"),
-            ("_navigate_thread", "_navigate_worker"),
+            ("_navigate_thread",    "_navigate_worker"),
+            ("_uncommitted_thread", "_uncommitted_worker"),
         ):
             t = getattr(self, t_attr, None)
             w = getattr(self, w_attr, None)
@@ -1671,6 +1696,8 @@ class CommitViewPage(QWidget):
         self._poll_timer.stop()
         if has_remote:
             self._poll_timer.start()
+        self._last_dirty = False
+        self._uncommitted_timer.start()
         self._setup_fs_watcher(self._tracker._repo.git_dir)
         self._start_load(initial=True)
         self._load_collaborators()
@@ -2157,6 +2184,38 @@ class CommitViewPage(QWidget):
                 self._toast.show_message(f"Couldn't switch to that commit: {err[:120]}")
             return
         self._start_load()
+
+    def _poll_uncommitted(self):
+        if not self._tracker or self._navigating:
+            return
+        if self._uncommitted_thread and self._uncommitted_thread.isRunning():
+            return
+        self._uncommitted_thread = QThread()
+        self._uncommitted_worker = _UncommittedRefreshWorker(self._tracker._path)
+        self._uncommitted_worker.moveToThread(self._uncommitted_thread)
+        self._uncommitted_thread.started.connect(self._uncommitted_worker.run)
+        self._uncommitted_worker.finished.connect(self._on_uncommitted_done)
+        self._uncommitted_worker.finished.connect(self._uncommitted_thread.quit)
+        self._uncommitted_thread.start()
+
+    def _on_uncommitted_done(self, dirty: bool, files: list):
+        if not self._tracker:
+            return
+        head_sha = self._tracker.head_sha()
+
+        if dirty != self._last_dirty:
+            # Dirty state flipped — do a full reload so the amber dot updates.
+            self._last_dirty = dirty
+            self._start_load()
+            # Panel will be refreshed by the next _on_loaded call below.
+            return
+
+        # Dirty state unchanged — just push the new diff into the panel if it
+        # is currently open and showing HEAD, without a full graph rebuild.
+        if dirty and self._panel._visible:
+            panel_sha = getattr(self._panel, "_current_sha", "")
+            if panel_sha == head_sha:
+                self._panel.update_uncommitted_files(files)
 
     def _branch_for_head(self) -> str:
         if not self._tracker:

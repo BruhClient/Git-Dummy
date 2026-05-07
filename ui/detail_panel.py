@@ -678,7 +678,7 @@ class ChangesPanel(QWidget):
         self._title.setToolTip(info["name"])
 
         is_stash = source == "stash"
-        badge_text  = "UNCOMMITTED" if is_stash else "CHANGE"
+        badge_text  = "UNSAVED" if is_stash else "CHANGE"
         badge_color = COLORS["warning"] if is_stash else COLORS["accent"]
         badge_bg    = "rgba(214,158,46,0.12)" if is_stash else COLORS["accent_dim"]
         self._source_badge.setText(badge_text)
@@ -1247,7 +1247,7 @@ class DetailPanel(QWidget):
         stash_hl.setContentsMargins(0, 0, 0, 0)
         stash_hl.setSpacing(0)
 
-        self._stash_label = QLabel("UNCOMMITTED")
+        self._stash_label = QLabel("UNSAVED")
         self._stash_label.setStyleSheet(
             f"background: transparent; font-size: 10px; font-weight: 600;"
             f" color: {COLORS['warning']}; letter-spacing: 0.07em;"
@@ -1461,9 +1461,32 @@ class DetailPanel(QWidget):
             return
 
         n = len(files)
-        self._stash_label.setText(f"UNCOMMITTED  —  {n} file{'s' if n != 1 else ''}")
+        self._stash_label.setText(f"UNSAVED  —  {n} file{'s' if n != 1 else ''}")
         self._view_stash_btn.setVisible(n > 0)
         self._stash_data = files
+
+        self._stash_cards: list[_FileCard] = []
+        for info in files:
+            card = _FileCard(info)
+            card.file_clicked.connect(self._on_stash_card_clicked)
+            self._stash_files_layout.addWidget(card)
+            self._stash_cards.append(card)
+
+    def update_uncommitted_files(self, files: list):
+        """Push a fresh live diff into the UNCOMMITTED section without re-opening the panel."""
+        if not files:
+            return
+        while self._stash_files_layout.count():
+            item = self._stash_files_layout.takeAt(0)
+            w = item.widget()
+            if w:
+                w.setParent(None)
+
+        n = len(files)
+        self._stash_label.setText(f"UNSAVED  —  {n} file{'s' if n != 1 else ''}")
+        self._view_stash_btn.setVisible(n > 0)
+        self._stash_data = files
+        self._stash_section.show()
 
         self._stash_cards: list[_FileCard] = []
         for info in files:
@@ -1476,7 +1499,7 @@ class DetailPanel(QWidget):
         files = getattr(self, "_stash_data", [])
         if not files:
             return
-        popup = AllChangesPopup(files, f"Uncommitted at {self._current_sha[:7]}", self.parent())
+        popup = AllChangesPopup(files, f"Unsaved at {self._current_sha[:7]}", self.parent())
         popup.show()
 
     def hide_panel(self):
