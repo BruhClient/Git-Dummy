@@ -664,6 +664,7 @@ class SpatialCanvas(QGraphicsView):
         stash_shas: set = None,
         orientation: str = ORIENT_LR,
         head_sha: str = "",
+        is_initial: bool = False,
     ):
         prev_centre = self.mapToScene(self.viewport().rect().center())
 
@@ -951,7 +952,7 @@ class SpatialCanvas(QGraphicsView):
             content_h + CANVAS_PAD * 2,
         )
 
-        if prev_centre.x() or prev_centre.y():
+        if not is_initial and (prev_centre.x() or prev_centre.y()):
             self.centerOn(prev_centre)
         elif head_sha and head_sha in self._nodes:
             self.centerOn(self._nodes[head_sha].scenePos())
@@ -976,16 +977,9 @@ class SpatialCanvas(QGraphicsView):
 
     def _update_author_item(self, item, sha: str, commit):
         is_you = sha in self._you_shas
-        if is_you:
-            item.setText("You")
-            item.setVisible(True)
-        elif not self._known_authors or commit.author in self._known_authors:
-            raw = commit.author
-            item.setText(raw if len(raw) <= 22 else raw[:20] + "…")
-            item.setVisible(True)
-        else:
-            item.setVisible(False)
-            return
+        raw = "You" if is_you else commit.author
+        item.setText(raw if len(raw) <= 8 else raw[:7] + "…")
+        item.setVisible(True)
         if self._orientation in (ORIENT_LR, ORIENT_RL) and sha in self._positions:
             cx, cy = self._positions[sha]
             max_w = ROW_H - 8
@@ -1002,8 +996,7 @@ class SpatialCanvas(QGraphicsView):
             commit = next((c for c in self._commits if c.sha == sha), None)
             if commit is None:
                 continue
-            raw = "You" if sha in you_shas else commit.author
-            item.setText(raw if len(raw) <= 22 else raw[:20] + "…")
+            self._update_author_item(item, sha, commit)
 
     def set_known_authors(self, known: set[str]):
         """Dim author labels for commits whose author isn't a known collaborator."""

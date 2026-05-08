@@ -1880,7 +1880,8 @@ class CommitViewPage(QWidget):
                                 unpushed_shas=unpushed,
                                 stash_shas=stash_shas,
                                 orientation=self._orientation,
-                                head_sha=self._last_head_sha)
+                                head_sha=self._last_head_sha,
+                                is_initial=is_initial)
         self._header.set_count(len(commits))
         self._loading.hide()
 
