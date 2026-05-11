@@ -206,7 +206,7 @@ class _NavigateWorker(QObject):
         from core.git_ops import (
             has_uncommitted_changes, get_stash_ref_for_commit,
             drop_stash, create_auto_stash, pop_auto_stash,
-            checkout_commit, apply_stash,
+            checkout_commit, apply_stash, reset_hard,
         )
         path = self._path
         sha  = self._sha
@@ -231,7 +231,13 @@ class _NavigateWorker(QObject):
 
         target_ref = get_stash_ref_for_commit(path, sha)
         if target_ref:
-            apply_stash(path, target_ref)
+            if not apply_stash(path, target_ref):
+                # Stash had conflicts — abort the partial apply so the index
+                # isn't left with unmerged paths (which would break the next
+                # navigation attempt with an "auto-save-failed" error).
+                reset_hard(path)
+                self.finished.emit(True, "stash-conflict")
+                return
 
         self.finished.emit(True, "")
 
@@ -2183,7 +2189,13 @@ class CommitViewPage(QWidget):
                 )
             else:
                 self._toast.show_message(f"Couldn't switch to that commit: {err[:120]}")
+            self._start_load()
             return
+        if err == "stash-conflict":
+            self._toast.show_message(
+                "Switched to snapshot — saved changes couldn't be restored (conflict).",
+                duration_ms=6000,
+            )
         self._start_load()
 
     def _poll_uncommitted(self):

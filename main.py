@@ -3,6 +3,29 @@ import os
 
 sys.path.insert(0, os.path.dirname(__file__))
 
+# Qt converts QT_QPA_PLATFORM_PLUGIN_PATH through the Windows ANSI codepage,
+# which can't encode emoji. Use GetShortPathNameW to get an ASCII-safe 8.3
+# path before handing it to Qt.
+def _qt_plugins_path() -> str:
+    try:
+        import PyQt5 as _p
+        path = os.path.join(os.path.dirname(_p.__file__), "Qt5", "plugins")
+        if not os.path.isdir(path):
+            path = os.path.join(os.path.dirname(_p.__file__), "Qt", "plugins")
+        if sys.platform == "win32":
+            import ctypes
+            buf = ctypes.create_unicode_buffer(512)
+            ctypes.windll.kernel32.GetShortPathNameW(path, buf, 512)
+            if buf.value:
+                return buf.value
+        return path
+    except Exception:
+        return ""
+
+_p = _qt_plugins_path()
+if _p:
+    os.environ["QT_QPA_PLATFORM_PLUGIN_PATH"] = _p
+
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QApplication, QStackedWidget
 

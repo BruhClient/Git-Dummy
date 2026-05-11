@@ -93,6 +93,15 @@ def drop_stash(path: str, stash_ref: str) -> bool:
     return r.returncode == 0
 
 
+def reset_hard(path: str) -> bool:
+    """Reset index and working tree to HEAD, aborting any partial stash apply."""
+    r = subprocess.run(
+        ["git", "reset", "--hard", "HEAD"],
+        cwd=path, capture_output=True, text=True,
+    )
+    return r.returncode == 0
+
+
 def checkout_commit(path: str, sha: str) -> tuple[bool, str]:
     r = subprocess.run(
         ["git", "checkout", sha],
