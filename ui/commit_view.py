@@ -1600,6 +1600,7 @@ class _TabBar(QWidget):
 
 class CommitViewPage(QWidget):
     _op_done        = pyqtSignal(bool, str, str, str, bool)  # ok, err, success_msg, fail_prefix, close_panel
+    _auto_pulled    = pyqtSignal(list)                       # list of branch names pulled
     _push_done_sig  = pyqtSignal(bool, str, str)             # ok, err, branch
     _create_done_sig= pyqtSignal(bool, str, str)             # ok, err, branch_name
     _stash_done_sig = pyqtSignal(bool, str)                  # ok, success_msg
@@ -1644,8 +1645,7 @@ class CommitViewPage(QWidget):
         self._changes_panel = ChangesPanel(self)
         self._changes_panel.raise_()
 
-        self._collab_panel = CollaboratorPanel(self)
-        self._collab_panel.raise_()
+
 
         self._position_panel = PositionPanel(self)
         self._position_panel.raise_()
@@ -1699,6 +1699,7 @@ class CommitViewPage(QWidget):
 
         self._settings_loaded = False
         self._op_done.connect(self._on_branch_op_done)
+        self._auto_pulled.connect(self._on_auto_pulled)
         self._push_done_sig.connect(self._on_push_done)
         self._create_done_sig.connect(self._on_branch_create_done)
         self._stash_done_sig.connect(self._on_clear_stash_done)
@@ -1735,6 +1736,7 @@ class CommitViewPage(QWidget):
         self._last_stash_shas: set = set()
         self._local_tip_shas:   set  = set()
         self._local_tip_branch: dict = {}
+        self._remote_tip_shas:  set  = set()
         self._branch_head_shas: set  = set()
         self._panel_op_active:  bool = False
         self._inflight: list = []   # keeps (thread, worker) pairs alive until C++ threads finish
@@ -1764,7 +1766,6 @@ class CommitViewPage(QWidget):
         self._panel.stash_file_selected.connect(
             lambda info: self._changes_panel.show_file(info, source="stash")
         )
-        self._changes_panel.panel_toggled.connect(self._reposition_collab)
         self._position_panel.jump_requested.connect(self._canvas.jump_to_commit)
         self._panel.navigate_requested.connect(self._on_navigate)
         self._panel.branch_create_requested.connect(self._on_branch_create)
@@ -1800,7 +1801,6 @@ class CommitViewPage(QWidget):
         self._reload_debounce.stop()
         self._teardown_fs_watcher()
         self._canvas.load_graph([], {})
-        self._collab_panel.hide()
         self._changes_panel.hide_panel()
         self._panel.hide_panel()
         self._position_panel.clear()
@@ -2090,20 +2090,40 @@ class CommitViewPage(QWidget):
         self._you_shas = self._compute_you_shas(commits)
         self._panel.set_stash_shas(stash_shas)
         self._update_position_panel(commits)
-        # Red-dot display: remote tips are source of truth, local fallback.
-        remote_head_shas: set[str] = set()
+        # Show a red dot on ALL branch tips — both local and remote.
+        # When diverged, both tips get a dot; actions only on local tips.
+        self._remote_tip_shas: set[str] = set()
         try:
             if self._tracker and self._tracker.has_remote():
                 for rem in self._tracker._repo.remotes:
                     for ref in rem.refs:
                         if not ref.remote_head.upper().startswith("HEAD"):
-                            remote_head_shas.add(ref.commit.hexsha)
+                            self._remote_tip_shas.add(ref.commit.hexsha)
         except Exception:
             pass
-        branch_head_shas = remote_head_shas if remote_head_shas else self._local_tip_shas
 
-        # Action buttons: union of remote + local so local-only branches get actions too.
-        self._branch_head_shas = branch_head_shas | self._local_tip_shas
+        # Only show the hollow ring (local tip) when local is AHEAD of or equal
+        # to remote — never when behind (auto-pull handles that case).
+        commit_order = {c.sha: i for i, c in enumerate(commits)}
+        remote_branch_sha: dict[str, str] = {}
+        for sha in self._remote_tip_shas:
+            for name in branch_tip_map.get(sha, []):
+                remote_branch_sha[name] = sha
+
+        local_tip_visible: set[str] = set()
+        for sha, name in self._local_tip_branch.items():
+            remote_sha = remote_branch_sha.get(name)
+            if remote_sha is None:
+                local_tip_visible.add(sha)          # local-only branch, always show
+            elif commit_order.get(sha, 10**9) <= commit_order.get(remote_sha, 10**9):
+                local_tip_visible.add(sha)          # local is same or ahead
+
+        all_tips = local_tip_visible | self._remote_tip_shas
+        branch_head_shas       = all_tips or self._local_tip_shas  # red dot
+        self._branch_head_shas = self._local_tip_shas              # actions (local only)
+
+        # Auto fast-forward pull any local branch that is strictly behind remote
+        self._trigger_auto_pull(commits)
 
         self._canvas.load_graph(commits, branch_tip_map,
                                 you_shas=self._you_shas,
@@ -2113,7 +2133,8 @@ class CommitViewPage(QWidget):
                                 orientation=self._orientation,
                                 head_sha=self._last_head_sha,
                                 is_initial=is_initial,
-                                branch_head_shas=branch_head_shas)
+                                local_tip_shas=local_tip_visible,
+                                remote_tip_shas=self._remote_tip_shas)
         self._header.set_count(len(commits))
         self._loading.hide()
 
@@ -2189,15 +2210,6 @@ class CommitViewPage(QWidget):
         self._collab_worker.finished.connect(self._on_collabs_loaded)
         self._collab_worker.finished.connect(self._collab_thread.quit)
         self._collab_thread.start()
-
-    def _reposition_collab(self, _=None):
-        margin = 16
-        cp = self._collab_panel
-        cp.adjustSize()
-        detail_offset  = DETAIL_PANEL_W if self._panel._visible else 0
-        changes_offset = CHANGES_W if self._changes_panel._visible else 0
-        cp.move(self.width() - detail_offset - changes_offset - cp.PANEL_W - margin,
-                self._header.height() + margin)
 
     def _on_collabs_loaded(self, collabs: list[dict]):
         login = self._user.get("login", "")
@@ -2313,6 +2325,43 @@ class CommitViewPage(QWidget):
         else:
             self._toast.show_message("Failed.", kind="error", duration_ms=6000)
 
+    def _trigger_auto_pull(self, commits: list):
+        """Pull any local branch that is strictly behind its remote (fast-forward only)."""
+        if not self._tracker or self._panel_op_active or not self._tracker.has_remote():
+            return
+        commit_order = {c.sha: i for i, c in enumerate(commits)}
+        local_branch_sha  = {name: sha for sha, name in self._local_tip_branch.items()}
+        remote_branch_sha: dict[str, str] = {}
+        try:
+            for rem in self._tracker._repo.remotes:
+                for ref in rem.refs:
+                    if not ref.remote_head.upper().startswith("HEAD"):
+                        remote_branch_sha[ref.remote_head] = ref.commit.hexsha
+        except Exception:
+            return
+        pull_needed = [
+            name for name, lsha in local_branch_sha.items()
+            if (rsha := remote_branch_sha.get(name))
+            and rsha != lsha
+            and (rsha not in commit_order                               # remote ahead, not yet fetched
+                 or commit_order[rsha] < commit_order.get(lsha, 10**9))# remote ahead in graph
+        ]
+        if not pull_needed:
+            return
+        from core.git_ops import pull_ff
+        path = self._tracker._path
+        def _run():
+            pulled = [b for b in pull_needed if pull_ff(path, b)[0]]
+            if pulled:
+                self._auto_pulled.emit(pulled)
+        import threading as _t
+        _t.Thread(target=_run, daemon=True).start()
+
+    def _on_auto_pulled(self, branches: list):
+        names = ", ".join(branches)
+        self._toast.show_message(f"Auto-pulled: {names}", kind="success", duration_ms=4000)
+        self._start_load()
+
     def _on_push_branch(self, branch: str):
         if not self._tracker or self._panel_op_active:
             return
@@ -2336,7 +2385,12 @@ class CommitViewPage(QWidget):
             self._panel.set_push_state(False)
             self._start_load()
         else:
-            msg = "Timed out." if err == "timed_out" else f"Push failed: {err[:120]}"
+            if err == "timed_out":
+                msg = "Timed out."
+            elif err == "merge_conflict":
+                msg = "Merge conflict — resolve manually and try again."
+            else:
+                msg = f"Push failed: {err[:120]}"
             self._toast.show_message(msg, kind="error", duration_ms=6000)
         self._panel.unlock_actions()
 
@@ -2392,6 +2446,7 @@ class CommitViewPage(QWidget):
                 self._panel.hide_panel()
                 self._last_branch_tips = {}
                 self._last_head_sha    = ""
+                self._last_stash_shas  = set()
             self._start_load()
         else:
             msg = "Timed out." if err == "timed_out" else f"{fail_prefix}: {err[:120]}"

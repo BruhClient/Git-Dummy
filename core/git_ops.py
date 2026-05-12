@@ -340,8 +340,35 @@ def get_stash_list_id(path: str) -> str:
     return r.stdout.strip()
 
 
+def pull_ff(path: str, branch: str) -> tuple[bool, str]:
+    """Fast-forward a local branch to its remote without needing to check it out."""
+    return _run(path, ["git", "fetch", "origin", f"{branch}:{branch}"], timeout=30)
+
+
 def push_branch(path: str, branch: str) -> tuple[bool, str]:
-    return _run(path, ["git", "push", "-u", "origin", branch], timeout=60)
+    ok, err = _run(path, ["git", "push", "-u", "origin", branch], timeout=60)
+    if ok:
+        return True, ""
+
+    # Non-fast-forward: remote has commits we don't have — fetch and merge.
+    if "non-fast-forward" in err or "rejected" in err:
+        ok2, err2 = _run(path, ["git", "fetch", "origin"], timeout=30)
+        if not ok2:
+            return False, err2
+
+        ok3, err3 = _run(path, ["git", "merge", f"origin/{branch}"], timeout=30)
+        if not ok3:
+            # Abort merge to leave repo clean, then surface a clear error.
+            subprocess.run(["git", "merge", "--abort"],
+                           cwd=path, capture_output=True, text=True, timeout=10)
+            if "conflict" in err3.lower() or "CONFLICT" in err3:
+                return False, "merge_conflict"
+            return False, err3
+
+        # Merge succeeded — push now.
+        return _run(path, ["git", "push", "-u", "origin", branch], timeout=60)
+
+    return False, err
 
 
 def discard_all_changes(path: str) -> tuple[bool, str]:
@@ -364,11 +391,22 @@ def _run(path: str, cmd: list, timeout: int = 30) -> tuple[bool, str]:
 
 
 def hard_revert_to(path: str, branch: str, target_sha: str) -> tuple[bool, str]:
-    for cmd in (["git", "checkout", branch],
-                ["git", "reset", "--hard", target_sha]):
-        ok, err = _run(path, cmd)
+    try:
+        cur = subprocess.run(["git", "branch", "--show-current"],
+                             cwd=path, capture_output=True, text=True, timeout=5)
+        current = cur.stdout.strip()
+    except Exception:
+        current = ""
+    if current != branch:
+        ok, err = _run(path, ["git", "checkout", branch])
         if not ok:
             return False, err
+    ok, err = _run(path, ["git", "reset", "--hard", target_sha])
+    if not ok:
+        return False, err
+    # Force-push so remote matches the new local position.
+    subprocess.run(["git", "push", "--force", "origin", branch],
+                   cwd=path, capture_output=True, text=True, timeout=30)
     return True, ""
 
 
@@ -376,8 +414,21 @@ def soft_revert_to(path: str, branch: str, tip_sha: str, parent_sha: str = "") -
     target = parent_sha if parent_sha else f"{tip_sha}^"
     short  = parent_sha[:7] if parent_sha else "prev"
     msg    = f"reverted to {short}"
-    for cmd in (["git", "checkout", branch],
-                ["git", "checkout", target, "--", "."],
+
+    # Only checkout the branch if not already on it — avoids spurious
+    # "behind origin" errors when the branch is checked out but unpulled.
+    try:
+        cur = subprocess.run(["git", "branch", "--show-current"],
+                             cwd=path, capture_output=True, text=True, timeout=5)
+        current = cur.stdout.strip()
+    except Exception:
+        current = ""
+    if current != branch:
+        ok, err = _run(path, ["git", "checkout", branch])
+        if not ok:
+            return False, err
+
+    for cmd in (["git", "checkout", target, "--", "."],
                 ["git", "add", "-A"],
                 ["git", "commit", "-m", msg]):
         ok, err = _run(path, cmd)

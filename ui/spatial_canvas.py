@@ -92,10 +92,17 @@ def _compute_lanes(
         None,
     )
 
-    primary_tip = next(
-        (sha for sha, names in branch_tip_map.items() if primary and primary in names),
-        None,
-    )
+    # When multiple tips share the same branch name (local ahead of remote),
+    # pick the topologically newest one (lowest index = child before parent).
+    commit_index = {c.sha: i for i, c in enumerate(commits)}
+    if primary:
+        primary_candidates = [sha for sha, names in branch_tip_map.items()
+                              if primary in names]
+        primary_tip = min(primary_candidates,
+                          key=lambda s: commit_index.get(s, 10**9),
+                          default=None)
+    else:
+        primary_tip = None
 
     # ── Pre-seed ALL branch tips into dedicated lanes ─────────────────────
     # This is the key fix: if only the primary is pre-seeded, feature commits
@@ -145,9 +152,10 @@ def _compute_lanes(
 
         parents = commit.parents
         if not parents:
-            lanes[lane_idx] = None          # root commit — close this lane
+            lanes[lane_idx] = None
         else:
-            lanes[lane_idx] = parents[0]    # continue tracking first parent
+            parent0 = parents[0]
+            lanes[lane_idx] = parent0
             for p in parents[1:]:           # open extra lanes for merge parents
                 if not any(s == p for s in lanes):
                     free = next((i for i, s in enumerate(lanes) if s is None), None)
@@ -245,7 +253,8 @@ class CommitNode(QGraphicsObject):
 
     def __init__(self, commit: CommitInfo, color: str, is_start: bool = False,
                  is_local_only: bool = False, is_head: bool = False,
-                 has_stash: bool = False, is_branch_head: bool = False):
+                 has_stash: bool = False,
+                 is_local_tip: bool = False, is_remote_tip: bool = False):
         super().__init__()
         self._commit          = commit
         self._color           = QColor(color)
@@ -253,7 +262,8 @@ class CommitNode(QGraphicsObject):
         self._is_local_only   = is_local_only
         self._is_head         = is_head
         self._has_stash       = has_stash
-        self._is_branch_head  = is_branch_head
+        self._is_local_tip    = is_local_tip
+        self._is_remote_tip   = is_remote_tip
         self._r             = START_R if is_start else NODE_R
         self._hovered       = False
         self._selected      = False
@@ -264,10 +274,10 @@ class CommitNode(QGraphicsObject):
 
     def boundingRect(self) -> QRectF:
         r = self._r + 10
-        top = -r - (28 if self._is_head else 0)
+        top = -r - 8
         # extra room below for the stash dot
         extra_bot = 10 if self._has_stash else 0
-        return QRectF(-r, top, r * 2, r * 2 + (28 if self._is_head else 0) + extra_bot)
+        return QRectF(-r - 8, top, (r + 8) * 2, r * 2 + 16 + extra_bot)
 
     def paint(self, painter: QPainter, _option, _widget):
         painter.setRenderHint(QPainter.Antialiasing)
@@ -304,26 +314,11 @@ class CommitNode(QGraphicsObject):
             painter.drawEllipse(QPointF(0, 0), r + 4, r + 4)
 
         # HEAD pin
+
         if self._is_head:
-            accent = QColor(COLORS["accent"])
-            grad = QRadialGradient(QPointF(0, 0), r + 18)
-            glow = QColor(accent); glow.setAlpha(80)
-            grad.setColorAt(0, glow); grad.setColorAt(1, QColor(0, 0, 0, 0))
-            painter.setPen(Qt.NoPen)
-            painter.setBrush(QBrush(grad))
-            painter.drawEllipse(QPointF(0, 0), r + 18, r + 18)
             painter.setBrush(Qt.NoBrush)
-            painter.setPen(QPen(accent, 2.5))
-            painter.drawEllipse(QPointF(0, 0), r + 6, r + 6)
-            white = QColor("white"); white.setAlpha(200)
-            painter.setPen(QPen(white, 1.5))
-            painter.drawEllipse(QPointF(0, 0), r + 9, r + 9)
-            pin_tip_y = -r - 4; pin_base_y = -r - 22
-            painter.setPen(QPen(accent, 2))
-            painter.drawLine(QPointF(0, pin_base_y + 10), QPointF(0, pin_tip_y))
-            pin = QPolygonF([QPointF(-8, pin_base_y), QPointF(8, pin_base_y), QPointF(0, pin_base_y + 10)])
-            painter.setBrush(QBrush(accent)); painter.setPen(Qt.NoPen)
-            painter.drawPolygon(pin)
+            painter.setPen(QPen(QColor(COLORS["danger"]), 2.5))
+            painter.drawEllipse(QPointF(0, 0), r + 5, r + 5)
 
         # Start node — flag pole + triangle above in branch colour
         if self._is_start:
@@ -348,11 +343,6 @@ class CommitNode(QGraphicsObject):
             painter.setBrush(QBrush(amber))
             painter.drawEllipse(QPointF(0, r + 5), 3.5, 3.5)
 
-        # Dev: branch-head indicator — small red dot above the node
-        if self._is_branch_head:
-            painter.setPen(Qt.NoPen)
-            painter.setBrush(QBrush(QColor("#e53e3e")))
-            painter.drawEllipse(QPointF(0, -r - 5), 3.5, 3.5)
 
     def hoverEnterEvent(self, _e):
         self._hovered = True
@@ -672,7 +662,8 @@ class SpatialCanvas(QGraphicsView):
         orientation: str = ORIENT_LR,
         head_sha: str = "",
         is_initial: bool = False,
-        branch_head_shas: set = None,
+        local_tip_shas: set = None,
+        remote_tip_shas: set = None,
     ):
         prev_centre = self.mapToScene(self.viewport().rect().center())
 
@@ -696,8 +687,9 @@ class SpatialCanvas(QGraphicsView):
         self._you_shas            = you_shas            or set()
         self._local_only_branches = local_only_branches or set()
         self._unpushed_shas       = unpushed_shas       or set()
-        self._stash_shas          = stash_shas          or set()
-        self._branch_head_shas    = branch_head_shas    or set()
+        self._stash_shas        = stash_shas      or set()
+        self._local_tip_shas_c  = local_tip_shas  or set()
+        self._remote_tip_shas_c = remote_tip_shas or set()
 
         if not commits:
             return
@@ -842,72 +834,38 @@ class SpatialCanvas(QGraphicsView):
         start_shas = {c.sha for c in lane_bottom.values()}
 
         # ── 3. Nodes ───────────────────────────────────────────────────────
+        # Build branch-name → colour from lane_branch first (covers all lanes),
+        # then from tip commits (lane 0 / primary is always first, setting the
+        # authoritative colour before other lanes for the same branch name).
+        branch_name_color: dict[str, str] = {}
+        for ln in sorted(lane_branch):           # lane 0 first → primary wins
+            bname = lane_branch[ln]
+            if bname and bname not in branch_name_color:
+                branch_name_color[bname] = _lane_color(ln)
+
         for commit in commits:
             cx, cy      = positions[commit.sha]
             lane        = lane_map.get(commit.sha, 0)
             branch_name = lane_branch.get(lane, "")
             is_local    = (branch_name in self._local_only_branches
                            or commit.sha in self._unpushed_shas)
-            color       = _lane_color(lane)
+            tip_names   = branch_tip_map.get(commit.sha, [])
+            branch_key  = tip_names[0] if tip_names else branch_name
+            color       = branch_name_color.get(branch_key, _lane_color(lane))
             self._node_colors[commit.sha] = color
             node = CommitNode(commit, color,
                               is_start=commit.sha in start_shas,
                               is_local_only=is_local,
                               is_head=commit.sha == head_sha,
                               has_stash=commit.sha in self._stash_shas,
-                              is_branch_head=commit.sha in self._branch_head_shas)
+                              is_local_tip=commit.sha in self._local_tip_shas_c,
+                              is_remote_tip=commit.sha in self._remote_tip_shas_c)
             node.setPos(cx, cy)
             node.clicked.connect(self._on_node_clicked)
             self._scene.addItem(node)
             self._nodes[commit.sha] = node
 
-        # ── 4. Branch labels ───────────────────────────────────────────────
-        name_to_color: dict[str, str] = {
-            name: _lane_color(lane) for lane, name in lane_branch.items()
-        }
-
-        lane_top: dict[int, tuple[float, float]] = {}
-        for commit in commits:
-            lane = lane_map.get(commit.sha, 0)
-            cx, cy = positions[commit.sha]
-            if lane not in lane_top:
-                lane_top[lane] = (cx, cy)
-            else:
-                ex, ey = lane_top[lane]
-                if orientation == ORIENT_LR and cx > ex:
-                    lane_top[lane] = (cx, cy)
-                elif orientation == ORIENT_RL and cx < ex:
-                    lane_top[lane] = (cx, cy)
-                elif orientation == ORIENT_BT and cy > ey:
-                    lane_top[lane] = (cx, cy)
-                elif orientation == ORIENT_TB and cy < ey:
-                    lane_top[lane] = (cx, cy)
-
-        for lane, (cx, cy) in lane_top.items():
-            primary = lane_branch.get(lane, "")
-            if not primary:
-                continue
-            tip_sha = next(
-                (sha for sha, names in branch_tip_map.items() if primary in names), None
-            )
-            names = branch_tip_map.get(tip_sha, [primary]) if tip_sha else [primary]
-            if orientation in (ORIENT_LR, ORIENT_RL):
-                y_off = cy - NODE_R - 6
-                for name in reversed(names):
-                    color = name_to_color.get(name) or _lane_color(lane)
-                    label = BranchLabel(name, color)
-                    y_off -= label.boundingRect().height()
-                    label.setPos(cx - label.boundingRect().width() / 2, y_off)
-                    self._scene.addItem(label)
-                    y_off -= 4
-            else:
-                x_off = cx + NODE_R + 10
-                for name in names:
-                    color = name_to_color.get(name) or _lane_color(lane)
-                    label = BranchLabel(name, color)
-                    label.setPos(x_off, cy)
-                    self._scene.addItem(label)
-                    x_off += label.boundingRect().width() + 6
+        # ── 4. Branch labels — removed ────────────────────────────────────
 
         # ── 5. Commit info text (date + author) ────────────────────────────
         date_font   = QFont("Inter, Segoe UI", 8)
