@@ -245,14 +245,15 @@ class CommitNode(QGraphicsObject):
 
     def __init__(self, commit: CommitInfo, color: str, is_start: bool = False,
                  is_local_only: bool = False, is_head: bool = False,
-                 has_stash: bool = False):
+                 has_stash: bool = False, is_branch_head: bool = False):
         super().__init__()
-        self._commit        = commit
-        self._color         = QColor(color)
-        self._is_start      = is_start
-        self._is_local_only = is_local_only
-        self._is_head       = is_head
-        self._has_stash     = has_stash
+        self._commit          = commit
+        self._color           = QColor(color)
+        self._is_start        = is_start
+        self._is_local_only   = is_local_only
+        self._is_head         = is_head
+        self._has_stash       = has_stash
+        self._is_branch_head  = is_branch_head
         self._r             = START_R if is_start else NODE_R
         self._hovered       = False
         self._selected      = False
@@ -346,6 +347,12 @@ class CommitNode(QGraphicsObject):
             painter.setPen(Qt.NoPen)
             painter.setBrush(QBrush(amber))
             painter.drawEllipse(QPointF(0, r + 5), 3.5, 3.5)
+
+        # Dev: branch-head indicator — small red dot above the node
+        if self._is_branch_head:
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(QBrush(QColor("#e53e3e")))
+            painter.drawEllipse(QPointF(0, -r - 5), 3.5, 3.5)
 
     def hoverEnterEvent(self, _e):
         self._hovered = True
@@ -665,6 +672,7 @@ class SpatialCanvas(QGraphicsView):
         orientation: str = ORIENT_LR,
         head_sha: str = "",
         is_initial: bool = False,
+        branch_head_shas: set = None,
     ):
         prev_centre = self.mapToScene(self.viewport().rect().center())
 
@@ -689,6 +697,7 @@ class SpatialCanvas(QGraphicsView):
         self._local_only_branches = local_only_branches or set()
         self._unpushed_shas       = unpushed_shas       or set()
         self._stash_shas          = stash_shas          or set()
+        self._branch_head_shas    = branch_head_shas    or set()
 
         if not commits:
             return
@@ -845,7 +854,8 @@ class SpatialCanvas(QGraphicsView):
                               is_start=commit.sha in start_shas,
                               is_local_only=is_local,
                               is_head=commit.sha == head_sha,
-                              has_stash=commit.sha in self._stash_shas)
+                              has_stash=commit.sha in self._stash_shas,
+                              is_branch_head=commit.sha in self._branch_head_shas)
             node.setPos(cx, cy)
             node.clicked.connect(self._on_node_clicked)
             self._scene.addItem(node)

@@ -1160,45 +1160,108 @@ class _ExploreBanner(QWidget):
 # ── Toast notification ────────────────────────────────────────────────────────
 
 class _Toast(QWidget):
+    _STYLES = {
+        "loading": (COLORS["warning"],  "⏳"),
+        "success": (COLORS["accent"],   "✓"),
+        "error":   (COLORS["danger"],   "✕"),
+        "info":    (COLORS["text_muted"],"ℹ"),
+    }
+    _MARGIN = 20
+
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.setObjectName("toastWidget")
         self.setAttribute(Qt.WA_StyledBackground, True)
         self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
-        self.setStyleSheet(f"""
-            background: {COLORS['bg_card']};
-            border: 1px solid {COLORS['warning']}80;
-            border-radius: 8px;
-        """)
+        self.setMaximumWidth(340)
         self.hide()
 
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(14, 10, 14, 10)
-        layout.setSpacing(8)
+        from PyQt5.QtWidgets import QGraphicsOpacityEffect
+        self._opacity = QGraphicsOpacityEffect(self)
+        self._opacity.setOpacity(1.0)
+        self.setGraphicsEffect(self._opacity)
 
-        icon = QLabel("📦")
-        icon.setStyleSheet("background: transparent; font-size: 14px;")
-        layout.addWidget(icon)
+        self._slide = QPropertyAnimation(self, b"pos")
+        self._slide.setDuration(260)
+        self._slide.setEasingCurve(QEasingCurve.OutCubic)
+
+        self._fade = QPropertyAnimation(self._opacity, b"opacity")
+        self._fade.setDuration(220)
+        self._fade.setEasingCurve(QEasingCurve.InCubic)
+        self._fade.finished.connect(self.hide)
+
+        self._timer = QTimer()
+        self._timer.setSingleShot(True)
+        self._timer.timeout.connect(self._dismiss)
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(14, 11, 14, 11)
+        layout.setSpacing(10)
+
+        self._icon_lbl = QLabel("")
+        self._icon_lbl.setStyleSheet("background: transparent; font-size: 14px;")
+        layout.addWidget(self._icon_lbl)
 
         self._msg = QLabel("")
+        self._msg.setWordWrap(True)
         self._msg.setStyleSheet(
             f"background: transparent; font-size: 12px; color: {COLORS['text_primary']};"
         )
         layout.addWidget(self._msg)
 
-        self._timer = QTimer()
-        self._timer.setSingleShot(True)
-        self._timer.timeout.connect(self.hide)
-
-    def show_message(self, text: str, duration_ms: int = 3000):
+    def show_message(self, text: str, kind: str = "info", duration_ms: int = 4000):
+        color, icon = self._STYLES.get(kind, self._STYLES["info"])
+        self._icon_lbl.setText(icon)
+        self._icon_lbl.setStyleSheet(f"background: transparent; font-size: 14px; color: {color};")
         self._msg.setText(text)
+        self.setStyleSheet(f"""
+            #toastWidget {{
+                background: {COLORS['bg_card']};
+                border: 1px solid {color}60;
+                border-radius: 10px;
+            }}
+        """)
         self.adjustSize()
+        self._position_target()
+        self._opacity.setOpacity(1.0)
+        self._fade.stop()
+        self._slide.stop()
+
         if self.parent():
             p = self.parent()
-            self.move((p.width() - self.width()) // 2,
-                      p.height() - self.height() - 80)
-        self.raise_()
-        self.show()
-        self._timer.start(duration_ms)
+            off_x = p.width()
+            target = self._target_pos()
+            self.move(off_x, target.y())
+            self.raise_()
+            self.show()
+            self._slide.setStartValue(self.pos())
+            self._slide.setEndValue(target)
+            self._slide.start()
+
+        self._timer.stop()
+        if duration_ms > 0:
+            self._timer.start(duration_ms)
+
+    def _target_pos(self):
+        from PyQt5.QtCore import QPoint
+        if not self.parent():
+            return QPoint(0, 0)
+        p = self.parent()
+        return QPoint(p.width() - self.width() - self._MARGIN,
+                      p.height() - self.height() - self._MARGIN)
+
+    def _position_target(self):
+        if self.isVisible():
+            self.move(self._target_pos())
+
+    def _dismiss(self):
+        self._fade.setStartValue(1.0)
+        self._fade.setEndValue(0.0)
+        self._fade.start()
+
+    def reposition(self):
+        if self.isVisible():
+            self.move(self._target_pos())
 
 
 # ── Filter panel ──────────────────────────────────────────────────────────────
@@ -1536,6 +1599,11 @@ class _TabBar(QWidget):
 
 
 class CommitViewPage(QWidget):
+    _op_done        = pyqtSignal(bool, str, str, str, bool)  # ok, err, success_msg, fail_prefix, close_panel
+    _push_done_sig  = pyqtSignal(bool, str, str)             # ok, err, branch
+    _create_done_sig= pyqtSignal(bool, str, str)             # ok, err, branch_name
+    _stash_done_sig = pyqtSignal(bool, str)                  # ok, success_msg
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self._tracker: Optional[GitTracker] = None
@@ -1630,6 +1698,10 @@ class CommitViewPage(QWidget):
         self._loading.hide()
 
         self._settings_loaded = False
+        self._op_done.connect(self._on_branch_op_done)
+        self._push_done_sig.connect(self._on_push_done)
+        self._create_done_sig.connect(self._on_branch_create_done)
+        self._stash_done_sig.connect(self._on_clear_stash_done)
 
         self._orientation: str = ORIENT_LR
         self._author_display_map: dict[str, str] = {}
@@ -1661,6 +1733,10 @@ class CommitViewPage(QWidget):
         self._last_local_only: set = set()
         self._last_unpushed: set = set()
         self._last_stash_shas: set = set()
+        self._local_tip_shas:   set  = set()
+        self._local_tip_branch: dict = {}
+        self._branch_head_shas: set  = set()
+        self._panel_op_active:  bool = False
         self._inflight: list = []   # keeps (thread, worker) pairs alive until C++ threads finish
 
         self._poll_timer = QTimer()
@@ -1691,6 +1767,12 @@ class CommitViewPage(QWidget):
         self._changes_panel.panel_toggled.connect(self._reposition_collab)
         self._position_panel.jump_requested.connect(self._canvas.jump_to_commit)
         self._panel.navigate_requested.connect(self._on_navigate)
+        self._panel.branch_create_requested.connect(self._on_branch_create)
+        self._panel.push_requested.connect(self._on_push_branch)
+        self._panel.clear_stash_requested.connect(self._on_clear_stash)
+        self._panel.hard_revert_requested.connect(self._on_hard_revert)
+        self._panel.soft_revert_requested.connect(self._on_soft_revert)
+        self._panel.delete_branch_requested.connect(self._on_delete_branch)
 
     # ── Public ────────────────────────────────────────────────────────────
 
@@ -1907,7 +1989,7 @@ class CommitViewPage(QWidget):
             return
         if os.path.exists(path) and path not in self._fs_watcher.files():
             self._fs_watcher.addPath(path)
-        if self._navigating:
+        if self._navigating or self._panel_op_active:
             return
         self._header.set_operation(self._tracker.operation_in_progress())
         self._reload_debounce.start()
@@ -1918,7 +2000,7 @@ class CommitViewPage(QWidget):
         if not os.path.isdir(self._tracker._path):
             self._teardown_fs_watcher()
             return
-        if self._navigating:
+        if self._navigating or self._panel_op_active:
             return
         self._header.set_operation(self._tracker.operation_in_progress())
         self._reload_debounce.start()
@@ -1974,7 +2056,19 @@ class CommitViewPage(QWidget):
 
         stash_shas = stash_shas or set()
 
-        # Skip full rebuild when nothing has changed
+        # Always rebuild local tip map — must run before the early-return guard
+        # so it stays current even when the commit graph itself hasn't changed.
+        self._local_tip_shas   = set()
+        self._local_tip_branch = {}
+        try:
+            for b in self._tracker._repo.branches:
+                sha = b.commit.hexsha
+                self._local_tip_shas.add(sha)
+                self._local_tip_branch[sha] = b.name
+        except Exception:
+            pass
+
+        # Skip full canvas rebuild when nothing has changed
         if (new_shas == self._last_commit_shas
                 and branch_tip_map == self._last_branch_tips
                 and local_only == self._last_local_only
@@ -1996,6 +2090,21 @@ class CommitViewPage(QWidget):
         self._you_shas = self._compute_you_shas(commits)
         self._panel.set_stash_shas(stash_shas)
         self._update_position_panel(commits)
+        # Red-dot display: remote tips are source of truth, local fallback.
+        remote_head_shas: set[str] = set()
+        try:
+            if self._tracker and self._tracker.has_remote():
+                for rem in self._tracker._repo.remotes:
+                    for ref in rem.refs:
+                        if not ref.remote_head.upper().startswith("HEAD"):
+                            remote_head_shas.add(ref.commit.hexsha)
+        except Exception:
+            pass
+        branch_head_shas = remote_head_shas if remote_head_shas else self._local_tip_shas
+
+        # Action buttons: union of remote + local so local-only branches get actions too.
+        self._branch_head_shas = branch_head_shas | self._local_tip_shas
+
         self._canvas.load_graph(commits, branch_tip_map,
                                 you_shas=self._you_shas,
                                 local_only_branches=local_only,
@@ -2003,7 +2112,8 @@ class CommitViewPage(QWidget):
                                 stash_shas=stash_shas,
                                 orientation=self._orientation,
                                 head_sha=self._last_head_sha,
-                                is_initial=is_initial)
+                                is_initial=is_initial,
+                                branch_head_shas=branch_head_shas)
         self._header.set_count(len(commits))
         self._loading.hide()
 
@@ -2168,6 +2278,150 @@ class CommitViewPage(QWidget):
                     self._user.get("access_token", ""),
                 )
                 self._settings_loaded = True
+
+    def _on_clear_stash(self, sha: str, stash_ref: str):
+        if not self._tracker:
+            return
+        path = self._tracker._path
+        if stash_ref:
+            self._toast.show_message("Clearing stash…", kind="loading")
+            def _run():
+                try:
+                    from core.git_ops import drop_stash
+                    ok = drop_stash(path, stash_ref)
+                    err = "" if ok else "drop failed"
+                except Exception as exc:
+                    ok, err = False, str(exc)
+                self._stash_done_sig.emit(ok, "Stash cleared.")
+        else:
+            self._toast.show_message("Discarding changes…", kind="loading")
+            def _run():
+                try:
+                    from core.git_ops import discard_all_changes
+                    ok, _ = discard_all_changes(path)
+                except Exception as exc:
+                    ok = False
+                self._stash_done_sig.emit(ok, "Changes discarded.")
+        import threading as _threading
+        _threading.Thread(target=_run, daemon=True).start()
+
+    def _on_clear_stash_done(self, ok: bool, success_msg: str):
+        if ok:
+            self._toast.show_message(success_msg, kind="success")
+            self._panel.refresh_stash_section()
+            self._start_load()
+        else:
+            self._toast.show_message("Failed.", kind="error", duration_ms=6000)
+
+    def _on_push_branch(self, branch: str):
+        if not self._tracker or self._panel_op_active:
+            return
+        self._panel_op_active = True
+        self._reload_debounce.stop()
+        path = self._tracker._path
+        def _run():
+            try:
+                from core.git_ops import push_branch
+                ok, err = push_branch(path, branch)
+            except Exception as exc:
+                ok, err = False, str(exc)
+            self._push_done_sig.emit(ok, err, branch)
+        import threading as _threading
+        _threading.Thread(target=_run, daemon=True).start()
+
+    def _on_push_done(self, ok: bool, err: str, branch: str):
+        self._panel_op_active = False
+        if ok:
+            self._toast.show_message(f"'{branch}' pushed to remote.", kind="success")
+            self._panel.set_push_state(False)
+            self._start_load()
+        else:
+            msg = "Timed out." if err == "timed_out" else f"Push failed: {err[:120]}"
+            self._toast.show_message(msg, kind="error", duration_ms=6000)
+        self._panel.unlock_actions()
+
+    def _on_hard_revert(self, branch: str, target_sha: str):
+        self._run_branch_op(
+            lambda p: __import__("core.git_ops", fromlist=["hard_revert_to"]).hard_revert_to(p, branch, target_sha),
+            success_msg=f"Hard reverted '{branch}'.",
+            fail_prefix="Hard revert failed",
+            start_msg=f"Hard reverting '{branch}'…",
+        )
+
+    def _on_soft_revert(self, branch: str, tip_sha: str, parent_sha: str):
+        self._run_branch_op(
+            lambda p: __import__("core.git_ops", fromlist=["soft_revert_to"]).soft_revert_to(p, branch, tip_sha, parent_sha),
+            success_msg=f"Soft reverted '{branch}'.",
+            fail_prefix="Soft revert failed",
+            start_msg=f"Soft reverting '{branch}'…",
+        )
+
+    def _on_delete_branch(self, branch: str, parent_sha: str):
+        self._run_branch_op(
+            lambda p: __import__("core.git_ops", fromlist=["delete_branch_full"]).delete_branch_full(p, branch, parent_sha),
+            success_msg=f"Branch '{branch}' deleted.",
+            fail_prefix="Delete failed",
+            close_panel=True,
+            start_msg=f"Deleting '{branch}'…",
+        )
+
+    def _run_branch_op(self, op, success_msg: str, fail_prefix: str,
+                       close_panel: bool = False, start_msg: str = ""):
+        if not self._tracker or self._panel_op_active:
+            return
+        self._panel_op_active = True
+        # Suppress watcher reloads while the op runs — intermediate git
+        # checkout/add steps would otherwise trigger a mid-op canvas rebuild.
+        self._reload_debounce.stop()
+        path = self._tracker._path
+        def _run():
+            try:
+                ok, err = op(path)
+            except Exception as exc:
+                ok, err = False, str(exc)
+            self._op_done.emit(ok, err, success_msg, fail_prefix, close_panel)
+        import threading as _threading
+        _threading.Thread(target=_run, daemon=True).start()
+
+    def _on_branch_op_done(self, ok: bool, err: str, success_msg: str,
+                           fail_prefix: str, close_panel: bool):
+        self._panel_op_active = False
+        if ok:
+            self._toast.show_message(success_msg, kind="success", duration_ms=5000)
+            if close_panel:
+                self._panel.hide_panel()
+                self._last_branch_tips = {}
+                self._last_head_sha    = ""
+            self._start_load()
+        else:
+            msg = "Timed out." if err == "timed_out" else f"{fail_prefix}: {err[:120]}"
+            self._toast.show_message(msg, kind="error", duration_ms=6000)
+        self._panel.unlock_actions()
+
+    def _on_branch_create(self, sha: str, branch_name: str):
+        if not self._tracker or self._panel_op_active:
+            return
+        self._panel_op_active = True
+        self._reload_debounce.stop()
+        path = self._tracker._path
+        def _run():
+            try:
+                from core.git_ops import create_branch_with_commit
+                ok, err = create_branch_with_commit(path, branch_name, sha)
+            except Exception as exc:
+                ok, err = False, str(exc)
+            self._create_done_sig.emit(ok, err, branch_name)
+        import threading as _threading
+        _threading.Thread(target=_run, daemon=True).start()
+
+    def _on_branch_create_done(self, ok: bool, err: str, branch_name: str):
+        self._panel_op_active = False
+        if ok:
+            self._toast.show_message(f"Branch '{branch_name}' created.", kind="success")
+            self._start_load()
+        else:
+            self._toast.show_message(f"Failed: {err[:120]}", kind="error", duration_ms=6000)
+        self._panel.unlock_actions()
 
     def _on_pr_requested(self):
         self._tab_bar.select("schema")
@@ -2344,6 +2598,40 @@ class CommitViewPage(QWidget):
         else:
             display_author = ""   # not a known collaborator — show "—"
         self._panel.show_commit(commit, detail, collab.get("avatar_url", ""), display_author, files)
+        can_push = (commit.sha in self._last_unpushed or
+                    commit.branch in self._last_local_only)
+        self._panel.set_push_state(can_push, commit.branch)
+
+        # Commit actions — follow same source of truth as the red dot.
+        # Suppress all actions while another operation is in progress.
+        is_head = commit.sha in self._branch_head_shas and not self._panel_op_active
+        # Use the real git branch name for this tip, not the lane algo's assignment
+        branch     = self._local_tip_branch.get(commit.sha, commit.branch)
+        has_parent = len(commit.parents) > 0
+        parent_sha = commit.parents[0] if commit.parents else ""
+        # "Main" = default branch by name, OR any branch that exists on remote
+        is_main = branch in ("main", "master")
+
+        # "First of branch": parent belongs to a different branch (the branch point).
+        # If parent isn't in the canvas at all, default to True — the branch
+        # diverges from outside our graph window, so it's effectively a new branch.
+        is_first = not has_parent
+        if has_parent and branch:
+            parent_commit = next((c for c in self._commits if c.sha == parent_sha), None)
+            if parent_commit is None:
+                is_first = True   # parent outside graph — treat as first
+            else:
+                parent_branch = self._local_tip_branch.get(parent_sha, "") or parent_commit.branch
+                is_first = bool(parent_branch) and parent_branch != branch
+
+        self._panel.set_commit_actions(
+            branch=branch,
+            parent_sha=parent_sha,
+            has_parent=has_parent,
+            is_first_of_branch=is_first,
+            is_main=is_main,
+            is_head=is_head,
+        )
 
     def _on_detail_thread_done(self, thread: QThread):
         if self._detail_thread is thread:
@@ -2371,25 +2659,29 @@ class CommitViewPage(QWidget):
 
     def _on_navigate_done(self, ok: bool, err: str):
         self._navigating = False
+        self._panel.unlock_actions()
         if not ok:
             if err == "auto-save-failed":
                 self._toast.show_message(
                     "Couldn't auto-save your changes. Commit them first, then retry.",
-                    duration_ms=7000,
+                    kind="error", duration_ms=7000,
                 )
             else:
-                self._toast.show_message(f"Couldn't switch to that commit: {err[:120]}")
+                self._toast.show_message(
+                    f"Couldn't switch to that commit: {err[:120]}",
+                    kind="error",
+                )
             self._start_load()
             return
         if err == "stash-conflict":
             self._toast.show_message(
                 "Switched to snapshot — saved changes couldn't be restored (conflict).",
-                duration_ms=6000,
+                kind="error", duration_ms=6000,
             )
         self._start_load()
 
     def _poll_uncommitted(self):
-        if not self._tracker or self._navigating:
+        if not self._tracker or self._navigating or self._panel_op_active:
             return
         if self._uncommitted_thread and self._uncommitted_thread.isRunning():
             return
@@ -2537,7 +2829,5 @@ class CommitViewPage(QWidget):
             self._reposition_position()
         if self._filter_panel.isVisible():
             self._reposition_filter()
-        if self._toast.isVisible():
-            t = self._toast
-            t.move((self.width() - t.width()) // 2, self.height() - t.height() - 80)
+        self._toast.reposition()
 

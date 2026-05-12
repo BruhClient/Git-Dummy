@@ -1136,7 +1136,13 @@ class DetailPanel(QWidget):
     panel_toggled        = pyqtSignal(bool)
     file_selected        = pyqtSignal(dict)
     stash_file_selected  = pyqtSignal(dict)
-    navigate_requested   = pyqtSignal(str)   # commit sha
+    navigate_requested      = pyqtSignal(str)        # commit sha
+    branch_create_requested = pyqtSignal(str, str)   # sha, branch_name
+    push_requested          = pyqtSignal(str)          # branch name
+    clear_stash_requested   = pyqtSignal(str, str)    # commit sha, stash_ref
+    hard_revert_requested   = pyqtSignal(str, str)   # branch, target_sha
+    soft_revert_requested   = pyqtSignal(str, str, str)   # branch, tip_sha, parent_sha
+    delete_branch_requested = pyqtSignal(str, str)    # branch name, parent sha
 
     def __init__(self, parent: QWidget):
         super().__init__(parent)
@@ -1261,6 +1267,72 @@ class DetailPanel(QWidget):
         self._goto_btn.clicked.connect(self._on_goto)
         content_layout.addWidget(self._goto_btn)
 
+        self._branch_btn = QPushButton("＋  Create new branch")
+        self._branch_btn.setCursor(Qt.PointingHandCursor)
+        self._branch_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: transparent;
+                border: 1px solid {COLORS['border']};
+                border-radius: 8px;
+                color: {COLORS['text_secondary']};
+                font-size: 12px; font-weight: 600; padding: 9px 16px;
+            }}
+            QPushButton:hover {{
+                border-color: {COLORS['accent']};
+                color: {COLORS['accent']};
+            }}
+        """)
+        self._branch_btn.clicked.connect(self._on_create_branch)
+        content_layout.addWidget(self._branch_btn)
+
+        self._push_btn = QPushButton("↑  Upload to remote")
+        self._push_btn.setCursor(Qt.PointingHandCursor)
+        self._push_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: transparent;
+                border: 1px solid {COLORS['border']};
+                border-radius: 8px;
+                color: {COLORS['text_secondary']};
+                font-size: 12px; font-weight: 600; padding: 9px 16px;
+            }}
+            QPushButton:hover {{
+                border-color: {COLORS['accent']};
+                color: {COLORS['accent']};
+            }}
+        """)
+        self._push_btn.clicked.connect(self._on_push)
+        self._push_btn.hide()
+        content_layout.addWidget(self._push_btn)
+
+        def _action_style(color: str) -> str:
+            return (f"QPushButton {{ background: transparent;"
+                    f" border: 1px solid {color}; border-radius: 8px;"
+                    f" color: {color}; font-size: 12px; font-weight: 600; padding: 9px 16px; }}"
+                    f"QPushButton:hover {{ background: {color}; color: white; }}"
+                    f"QPushButton:disabled {{ border-color: {COLORS['border']};"
+                    f" color: {COLORS['text_muted']}; }}")
+
+        self._hard_revert_btn = QPushButton("↩  Hard Revert")
+        self._hard_revert_btn.setCursor(Qt.PointingHandCursor)
+        self._hard_revert_btn.setStyleSheet(_action_style(COLORS["warning"]))
+        self._hard_revert_btn.clicked.connect(self._on_hard_revert)
+        self._hard_revert_btn.hide()
+        content_layout.addWidget(self._hard_revert_btn)
+
+        self._soft_revert_btn = QPushButton("↩  Soft Revert")
+        self._soft_revert_btn.setCursor(Qt.PointingHandCursor)
+        self._soft_revert_btn.setStyleSheet(_action_style(COLORS["text_secondary"]))
+        self._soft_revert_btn.clicked.connect(self._on_soft_revert)
+        self._soft_revert_btn.hide()
+        content_layout.addWidget(self._soft_revert_btn)
+
+        self._delete_branch_btn = QPushButton("Delete Branch")
+        self._delete_branch_btn.setCursor(Qt.PointingHandCursor)
+        self._delete_branch_btn.setStyleSheet(_action_style(COLORS["danger"]))
+        self._delete_branch_btn.clicked.connect(self._on_delete_branch)
+        self._delete_branch_btn.hide()
+        content_layout.addWidget(self._delete_branch_btn)
+
         # Stash section — shown only when this commit has a saved stash
         self._stash_section = QWidget()
         self._stash_section.setStyleSheet("background: transparent;")
@@ -1296,6 +1368,20 @@ class DetailPanel(QWidget):
         self._view_stash_btn.hide()
         self._view_stash_btn.clicked.connect(self._open_stash_view)
         stash_hl.addWidget(self._view_stash_btn)
+
+        self._clear_stash_btn = QPushButton("Clear")
+        self._clear_stash_btn.setCursor(Qt.PointingHandCursor)
+        self._clear_stash_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: transparent; border: none;
+                font-size: 10px; color: {COLORS['danger']};
+                padding: 0 0 0 10px;
+            }}
+            QPushButton:hover {{ color: {COLORS['text_primary']}; }}
+        """)
+        self._clear_stash_btn.hide()
+        self._clear_stash_btn.clicked.connect(self._on_clear_stash)
+        stash_hl.addWidget(self._clear_stash_btn)
         stash_vl.addWidget(stash_hdr)
 
         self._stash_files_container = QWidget()
@@ -1403,9 +1489,117 @@ class DetailPanel(QWidget):
             card.set_selected(False)
         self._selected_card = None
 
+    def lock_actions(self):
+        for btn in (self._goto_btn, self._branch_btn, self._push_btn,
+                    self._hard_revert_btn, self._soft_revert_btn,
+                    self._delete_branch_btn):
+            btn.setEnabled(False)
+
+    def unlock_actions(self):
+        self._refresh_goto_btn()   # restores goto text + enabled state
+        self._branch_btn.setEnabled(True)
+        for btn in (self._push_btn, self._hard_revert_btn,
+                    self._soft_revert_btn, self._delete_branch_btn):
+            if btn.isVisible():
+                btn.setEnabled(True)
+
+    def set_commit_actions(self, branch: str, parent_sha: str,
+                            has_parent: bool, is_first_of_branch: bool,
+                            is_main: bool, is_head: bool):
+        """Show the appropriate action buttons for the currently displayed commit."""
+        self._action_branch     = branch
+        self._action_parent_sha = parent_sha
+
+        if not is_head:
+            self._delete_branch_btn.hide()
+            self._hard_revert_btn.hide()
+            self._soft_revert_btn.hide()
+            return
+
+        if is_first_of_branch:
+            show = not is_main and bool(branch)
+            self._delete_branch_btn.setVisible(show)
+            self._delete_branch_btn.setEnabled(show)
+            self._hard_revert_btn.hide()
+            self._soft_revert_btn.hide()
+        else:
+            self._delete_branch_btn.hide()
+            show = has_parent and bool(branch)
+            self._hard_revert_btn.setVisible(show)
+            self._hard_revert_btn.setEnabled(show)
+            self._soft_revert_btn.setVisible(show)
+            self._soft_revert_btn.setEnabled(show)
+
     def _on_goto(self):
         if getattr(self, "_current_sha", None):
+            self.lock_actions()
             self.navigate_requested.emit(self._current_sha)
+
+    def _on_create_branch(self):
+        from PyQt5.QtWidgets import QInputDialog
+        sha = getattr(self, "_current_sha", None)
+        if not sha:
+            return
+        name, ok = QInputDialog.getText(self, "Create branch", "Branch name:")
+        name = name.strip()
+        if ok and name:
+            self.lock_actions()
+            self.branch_create_requested.emit(sha, name)
+
+    def set_push_state(self, can_push: bool, branch: str = ""):
+        self._push_branch = branch
+        self._push_btn.setVisible(can_push)
+        self._push_btn.setEnabled(can_push)
+
+    def _on_push(self):
+        branch = getattr(self, "_push_branch", "")
+        if branch:
+            self.lock_actions()
+            self.push_requested.emit(branch)
+
+    def _on_hard_revert(self):
+        from PyQt5.QtWidgets import QMessageBox
+        branch = getattr(self, "_action_branch", "")
+        sha    = getattr(self, "_action_parent_sha", "")
+        if not branch or not sha:
+            return
+        ans = QMessageBox.question(
+            self, "Hard Revert",
+            f"Hard revert '{branch}'? This permanently discards the latest commit and cannot be undone.",
+            QMessageBox.Yes | QMessageBox.Cancel,
+        )
+        if ans == QMessageBox.Yes:
+            self.lock_actions()
+            self.hard_revert_requested.emit(branch, sha)
+
+    def _on_soft_revert(self):
+        branch = getattr(self, "_action_branch", "")
+        tip    = getattr(self, "_current_sha", "")
+        parent = getattr(self, "_action_parent_sha", "")
+        if branch and tip:
+            self.lock_actions()
+            self.soft_revert_requested.emit(branch, tip, parent)
+
+    def _on_delete_branch(self):
+        from PyQt5.QtWidgets import QMessageBox
+        branch = getattr(self, "_action_branch", "")
+        if not branch:
+            return
+        ans = QMessageBox.question(
+            self, "Delete branch",
+            f"Delete '{branch}' locally and from remote?",
+            QMessageBox.Yes | QMessageBox.Cancel,
+        )
+        if ans == QMessageBox.Yes:
+            self.lock_actions()
+            parent_sha = getattr(self, "_action_parent_sha", "")
+            self.delete_branch_requested.emit(branch, parent_sha)
+
+    def _on_clear_stash(self):
+        sha       = getattr(self, "_current_sha", "")
+        stash_ref = getattr(self, "_stash_ref", "")
+        if sha and stash_ref:
+            self.clear_stash_requested.emit(sha, stash_ref)
 
     def set_head_sha(self, head_sha: str):
         self._head_sha = head_sha
@@ -1479,11 +1673,11 @@ class DetailPanel(QWidget):
 
         stash_ref = get_stash_ref_for_commit(repo_path, self._current_sha)
         is_head   = self._current_sha == getattr(self, "_head_sha", "")
+        self._stash_ref = stash_ref  # store so Clear button can use it
 
         if stash_ref:
             files = get_stash_diff_files(repo_path, stash_ref)
         elif is_head and has_uncommitted_changes(repo_path):
-            # No saved stash yet — show live working-directory diff instead.
             files = get_working_dir_diff_files(repo_path)
         else:
             self._stash_section.hide()
@@ -1492,6 +1686,8 @@ class DetailPanel(QWidget):
         n = len(files)
         self._stash_label.setText(f"UNSAVED  —  {n} file{'s' if n != 1 else ''}")
         self._view_stash_btn.setVisible(n > 0)
+        # Clear shown for saved stashes AND live uncommitted changes
+        self._clear_stash_btn.setVisible(n > 0)
         self._stash_data = files
 
         for info in files:

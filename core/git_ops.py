@@ -340,6 +340,77 @@ def get_stash_list_id(path: str) -> str:
     return r.stdout.strip()
 
 
+def push_branch(path: str, branch: str) -> tuple[bool, str]:
+    return _run(path, ["git", "push", "-u", "origin", branch], timeout=60)
+
+
+def discard_all_changes(path: str) -> tuple[bool, str]:
+    for cmd in (["git", "reset", "--hard", "HEAD"], ["git", "clean", "-fd"]):
+        ok, err = _run(path, cmd)
+        if not ok:
+            return False, err
+    return True, ""
+
+
+def _run(path: str, cmd: list, timeout: int = 30) -> tuple[bool, str]:
+    """Run a git command with a timeout. Returns (ok, error_message)."""
+    try:
+        r = subprocess.run(cmd, cwd=path, capture_output=True, text=True, timeout=timeout)
+        if r.returncode != 0:
+            return False, r.stderr.strip() or r.stdout.strip()
+        return True, ""
+    except subprocess.TimeoutExpired:
+        return False, "timed_out"
+
+
+def hard_revert_to(path: str, branch: str, target_sha: str) -> tuple[bool, str]:
+    for cmd in (["git", "checkout", branch],
+                ["git", "reset", "--hard", target_sha]):
+        ok, err = _run(path, cmd)
+        if not ok:
+            return False, err
+    return True, ""
+
+
+def soft_revert_to(path: str, branch: str, tip_sha: str, parent_sha: str = "") -> tuple[bool, str]:
+    target = parent_sha if parent_sha else f"{tip_sha}^"
+    short  = parent_sha[:7] if parent_sha else "prev"
+    msg    = f"reverted to {short}"
+    for cmd in (["git", "checkout", branch],
+                ["git", "checkout", target, "--", "."],
+                ["git", "add", "-A"],
+                ["git", "commit", "-m", msg]):
+        ok, err = _run(path, cmd)
+        if not ok:
+            return False, err
+    return True, ""
+
+
+def delete_branch_full(path: str, branch: str, fallback_sha: str = "") -> tuple[bool, str]:
+    cur = subprocess.run(["git", "branch", "--show-current"],
+                         cwd=path, capture_output=True, text=True, timeout=10)
+    if cur.stdout.strip() == branch:
+        ok, err = _run(path, ["git", "checkout", fallback_sha or "HEAD~1"])
+        if not ok:
+            return False, err
+    ok, err = _run(path, ["git", "branch", "-D", branch])
+    if not ok:
+        return False, err
+    # Best-effort remote delete — ignore failure if branch was local-only
+    subprocess.run(["git", "push", "origin", "--delete", branch],
+                   cwd=path, capture_output=True, text=True, timeout=30)
+    return True, ""
+
+
+def create_branch_with_commit(path: str, branch_name: str, from_sha: str) -> tuple[bool, str]:
+    for cmd in (["git", "checkout", "-b", branch_name, from_sha],
+                ["git", "commit", "--allow-empty", "-m", f"created branch {branch_name}"]):
+        ok, err = _run(path, cmd)
+        if not ok:
+            return False, err
+    return True, ""
+
+
 def init_repo(path: str, user_name: str = "", user_email: str = "") -> tuple[bool, str]:
     try:
         r = subprocess.run(["git", "init", "-b", "main"], cwd=path, capture_output=True, text=True)
