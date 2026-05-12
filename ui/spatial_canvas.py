@@ -975,6 +975,20 @@ class SpatialCanvas(QGraphicsView):
                 self._author_items[commit.sha].setOpacity(0.0 if dim else 1.0)
         self.viewport_changed.emit()
 
+    def set_pr_highlight(self, active_shas: set[str]):
+        """PR hover: keep active_shas bright, dim everything else. Empty set restores filter."""
+        if not active_shas:
+            self.apply_commit_filter(self._dimmed_shas)
+            return
+        for commit in self._commits:
+            keep    = commit.sha in active_shas
+            opacity = 1.0 if keep else 0.08
+            if commit.sha in self._nodes:
+                self._nodes[commit.sha].setOpacity(opacity)
+            if commit.sha in self._author_items:
+                self._author_items[commit.sha].setOpacity(1.0 if keep else 0.0)
+        self.viewport_changed.emit()
+
     def _update_author_item(self, item, sha: str, commit):
         is_you = sha in self._you_shas
         raw = "You" if is_you else commit.author

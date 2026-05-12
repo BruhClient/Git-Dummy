@@ -219,6 +219,7 @@ def get_stash_diff_files(path: str, stash_ref: str) -> list[dict]:
 
 def get_working_dir_diff_files(path: str) -> list[dict]:
     """Return per-file diff info for the current dirty working directory (staged + unstaged)."""
+    import os as _os
     r = subprocess.run(
         ["git", "diff", "HEAD", "--numstat"],
         cwd=path, capture_output=True, text=True,
@@ -254,6 +255,8 @@ def get_working_dir_diff_files(path: str) -> list[dict]:
         diff_by_path[current_path] = current
 
     result = []
+    seen_paths: set[str] = set()
+
     for line in r.stdout.strip().splitlines():
         if not line.strip():
             continue
@@ -267,15 +270,50 @@ def get_working_dir_diff_files(path: str) -> list[dict]:
             dels = int(dels_s) if not is_binary else 0
         except ValueError:
             ins = dels = 0
+        status = "deleted" if dels > 0 and ins == 0 else "modified"
         result.append({
             "path":       fpath,
             "name":       fpath.split("/")[-1],
-            "status":     "modified",
+            "status":     status,
             "insertions": ins,
             "deletions":  dels,
             "is_binary":  is_binary,
             "lines":      diff_by_path.get(fpath, []),
         })
+        seen_paths.add(fpath)
+
+    # Include untracked (new) files that git diff HEAD misses entirely
+    untracked = subprocess.run(
+        ["git", "ls-files", "--others", "--exclude-standard"],
+        cwd=path, capture_output=True, text=True,
+    )
+    for fpath in untracked.stdout.strip().splitlines():
+        fpath = fpath.strip()
+        if not fpath or fpath in seen_paths:
+            continue
+        abs_path = _os.path.join(path, fpath.replace("/", _os.sep))
+        lines: list = []
+        ins = 0
+        is_binary = False
+        try:
+            with open(abs_path, "r", encoding="utf-8", errors="replace") as f:
+                for i, raw in enumerate(f):
+                    if i >= 500:
+                        break
+                    lines.append(("added", raw.rstrip("\n")))
+                    ins += 1
+        except Exception:
+            is_binary = True
+        result.append({
+            "path":       fpath,
+            "name":       fpath.split("/")[-1],
+            "status":     "added",
+            "insertions": ins,
+            "deletions":  0,
+            "is_binary":  is_binary,
+            "lines":      lines,
+        })
+
     return result
 
 
@@ -291,6 +329,15 @@ def get_stash_commit_shas(path: str) -> set[str]:
         if parts:
             shas.add(parts[0])
     return shas
+
+
+def get_stash_list_id(path: str) -> str:
+    """Return a cheap fingerprint of the current stash list for change detection."""
+    r = subprocess.run(
+        ["git", "stash", "list", "--format=%H"],
+        cwd=path, capture_output=True, text=True,
+    )
+    return r.stdout.strip()
 
 
 def init_repo(path: str, user_name: str = "", user_email: str = "") -> tuple[bool, str]:

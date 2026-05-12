@@ -4,11 +4,11 @@ import hashlib
 import re
 import threading
 
-from PyQt5.QtCore import Qt, QPropertyAnimation, QEasingCurve, QRect, QPoint, pyqtSignal
+from PyQt5.QtCore import Qt, QPropertyAnimation, QEasingCurve, QRect, QPoint, QTimer, pyqtSignal
 from PyQt5.QtGui import QPainter, QColor, QBrush, QPen, QPainterPath, QPixmap, QFont
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QScrollArea, QFrame, QSizePolicy,
+    QScrollArea, QFrame, QSizePolicy, QGraphicsOpacityEffect,
 )
 from styles.theme import COLORS
 
@@ -455,6 +455,34 @@ class _DiffLine(QWidget):
             f" font-size: 11px; color: {fg}; padding-left: 10px;"
         )
         layout.addWidget(lbl)
+
+
+def _fade_in(widget: QWidget, duration: int = 300):
+    effect = QGraphicsOpacityEffect(widget)
+    widget.setGraphicsEffect(effect)
+    anim = QPropertyAnimation(effect, b"opacity", widget)
+    anim.setDuration(duration)
+    anim.setStartValue(0.0)
+    anim.setEndValue(1.0)
+    anim.setEasingCurve(QEasingCurve.OutCubic)
+    anim.start()
+    widget._fade_anim = anim
+
+
+def _fade_out_and_remove(widget: QWidget, layout, duration: int = 250):
+    effect = QGraphicsOpacityEffect(widget)
+    widget.setGraphicsEffect(effect)
+    anim = QPropertyAnimation(effect, b"opacity", widget)
+    anim.setDuration(duration)
+    anim.setStartValue(1.0)
+    anim.setEndValue(0.0)
+    anim.setEasingCurve(QEasingCurve.InCubic)
+    def _remove():
+        layout.removeWidget(widget)
+        widget.setParent(None)
+    anim.finished.connect(_remove)
+    anim.start()
+    widget._fade_anim = anim
 
 
 class _FileCard(QWidget):
@@ -1441,12 +1469,13 @@ class DetailPanel(QWidget):
         if not repo_path or not self._current_sha:
             return
 
-        # Clear existing cards
+        # Clear existing cards (panel is opening fresh — no removal animation needed)
         while self._stash_files_layout.count():
             item = self._stash_files_layout.takeAt(0)
             w = item.widget()
             if w:
                 w.setParent(None)
+        self._stash_cards_by_path: dict[str, _FileCard] = {}
 
         stash_ref = get_stash_ref_for_commit(repo_path, self._current_sha)
         is_head   = self._current_sha == getattr(self, "_head_sha", "")
@@ -1465,35 +1494,92 @@ class DetailPanel(QWidget):
         self._view_stash_btn.setVisible(n > 0)
         self._stash_data = files
 
-        self._stash_cards: list[_FileCard] = []
         for info in files:
             card = _FileCard(info)
             card.file_clicked.connect(self._on_stash_card_clicked)
             self._stash_files_layout.addWidget(card)
-            self._stash_cards.append(card)
+            _fade_in(card)
+            self._stash_cards_by_path[info["path"]] = card
 
     def update_uncommitted_files(self, files: list):
-        """Push a fresh live diff into the UNCOMMITTED section without re-opening the panel."""
-        if not files:
-            return
-        while self._stash_files_layout.count():
-            item = self._stash_files_layout.takeAt(0)
-            w = item.widget()
-            if w:
-                w.setParent(None)
+        """Diff the live working-dir list against current cards, fading in new ones and fading out removed ones."""
+        old_cards: dict[str, _FileCard] = getattr(self, "_stash_cards_by_path", {})
+        new_paths = {f["path"] for f in files}
+
+        # Fade out cards whose files are gone
+        for path, card in list(old_cards.items()):
+            if path not in new_paths:
+                _fade_out_and_remove(card, self._stash_files_layout)
+                del old_cards[path]
+
+        # Fade in cards for newly appeared files
+        for info in files:
+            path = info["path"]
+            if path not in old_cards:
+                card = _FileCard(info)
+                card.file_clicked.connect(self._on_stash_card_clicked)
+                self._stash_files_layout.addWidget(card)
+                _fade_in(card)
+                old_cards[path] = card
+
+        self._stash_cards_by_path = old_cards
+        self._stash_data = files
 
         n = len(files)
         self._stash_label.setText(f"UNSAVED  —  {n} file{'s' if n != 1 else ''}")
         self._view_stash_btn.setVisible(n > 0)
-        self._stash_data = files
-        self._stash_section.show()
+        if files:
+            self._stash_section.show()
+        else:
+            QTimer.singleShot(260, lambda: self._stash_section.hide() if not self._stash_data else None)
 
-        self._stash_cards: list[_FileCard] = []
+    def refresh_stash_section(self):
+        """Re-query stash/working-dir state and animate cards in/out. Called when stash list changes."""
+        from core.git_ops import (get_stash_ref_for_commit, get_stash_diff_files,
+                                  has_uncommitted_changes, get_working_dir_diff_files)
+        repo_path = getattr(self, "_repo_path", "")
+        if not repo_path or not self._current_sha:
+            return
+
+        stash_ref = get_stash_ref_for_commit(repo_path, self._current_sha)
+        is_head   = self._current_sha == getattr(self, "_head_sha", "")
+
+        if stash_ref:
+            files = get_stash_diff_files(repo_path, stash_ref)
+        elif is_head and has_uncommitted_changes(repo_path):
+            files = get_working_dir_diff_files(repo_path)
+        else:
+            files = []
+
+        old_cards: dict[str, _FileCard] = getattr(self, "_stash_cards_by_path", {})
+        new_paths = {f["path"] for f in files}
+
+        for path, card in list(old_cards.items()):
+            if path not in new_paths:
+                _fade_out_and_remove(card, self._stash_files_layout)
+                del old_cards[path]
+
         for info in files:
-            card = _FileCard(info)
-            card.file_clicked.connect(self._on_stash_card_clicked)
-            self._stash_files_layout.addWidget(card)
-            self._stash_cards.append(card)
+            path = info["path"]
+            if path not in old_cards:
+                card = _FileCard(info)
+                card.file_clicked.connect(self._on_stash_card_clicked)
+                self._stash_files_layout.addWidget(card)
+                _fade_in(card)
+                old_cards[path] = card
+
+        self._stash_cards_by_path = old_cards
+        self._stash_data = files
+
+        n = len(files)
+        if files:
+            self._stash_label.setText(f"UNSAVED  —  {n} file{'s' if n != 1 else ''}")
+            self._view_stash_btn.setVisible(True)
+            self._stash_section.show()
+        else:
+            self._view_stash_btn.setVisible(False)
+            # Delay hiding until fade-out animations finish
+            QTimer.singleShot(260, lambda: self._stash_section.hide() if not self._stash_data else None)
 
     def _open_stash_view(self):
         files = getattr(self, "_stash_data", [])

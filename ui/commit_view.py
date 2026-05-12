@@ -9,9 +9,10 @@ import threading
 
 from PyQt5.QtCore import Qt, QThread, QObject, QTimer, QFileSystemWatcher, pyqtSlot, pyqtSignal
 from PyQt5.QtGui import QPainter, QColor, QBrush, QPen, QPixmap, QPainterPath, QFont
+from PyQt5.QtCore import QRect, QPropertyAnimation, QEasingCurve
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QScrollArea, QFrame, QLineEdit, QCheckBox,
+    QScrollArea, QFrame, QLineEdit, QCheckBox, QStackedWidget, QSizePolicy,
 )
 from styles.theme import COLORS
 from core.git_tracker import GitTracker, CommitInfo
@@ -25,6 +26,8 @@ from core import collab_cache
 from ui.spatial_canvas import SpatialCanvas, MiniMap, ORIENT_TB, ORIENT_BT, ORIENT_LR, ORIENT_RL
 from ui.detail_panel import DetailPanel, ChangesPanel, PANEL_W as DETAIL_PANEL_W, CHANGES_W, _VScrollArea
 from ui.position_panel import PositionPanel
+from ui.settings_panel import SettingsPanel
+from ui.pr_panel import PullRequestsPanel
 
 
 # ── Avatar disk + memory cache ────────────────────────────────────────────────
@@ -176,8 +179,8 @@ class _FetchWorker(QObject):
 
 
 class _UncommittedRefreshWorker(QObject):
-    """Lightweight background poll: dirty-state check + live diff."""
-    finished = pyqtSignal(bool, list)   # dirty, files
+    """Lightweight background poll: dirty-state check + live diff + stash fingerprint."""
+    finished = pyqtSignal(bool, list, str)   # dirty, files, stash_id
 
     def __init__(self, path: str):
         super().__init__()
@@ -185,10 +188,11 @@ class _UncommittedRefreshWorker(QObject):
 
     @pyqtSlot()
     def run(self):
-        from core.git_ops import has_uncommitted_changes, get_working_dir_diff_files
+        from core.git_ops import has_uncommitted_changes, get_working_dir_diff_files, get_stash_list_id
         dirty = has_uncommitted_changes(self._path)
         files = get_working_dir_diff_files(self._path) if dirty else []
-        self.finished.emit(dirty, files)
+        stash_id = get_stash_list_id(self._path)
+        self.finished.emit(dirty, files, stash_id)
 
 
 class _NavigateWorker(QObject):
@@ -575,7 +579,16 @@ class _Header(QWidget):
         name_block.addWidget(self._url)
 
         layout.addLayout(name_block)
-        layout.addStretch()
+        layout.addStretch(1)
+
+        self._center = QWidget()
+        self._center.setStyleSheet("background: transparent;")
+        self._center_layout = QHBoxLayout(self._center)
+        self._center_layout.setContentsMargins(0, 0, 0, 0)
+        self._center_layout.setSpacing(0)
+        layout.addWidget(self._center)
+
+        layout.addStretch(1)
 
         self._op_badge = QLabel("")
         self._op_badge.setStyleSheet(f"""
@@ -589,6 +602,9 @@ class _Header(QWidget):
         self._count = QLabel("")
         self._count.setStyleSheet(f"background: transparent; font-size: 12px; color: {COLORS['text_muted']};")
         layout.addWidget(self._count)
+
+    def set_center(self, widget: QWidget):
+        self._center_layout.addWidget(widget)
 
     def set_repo(self, name: str):
         self._name.setText(name)
@@ -665,10 +681,11 @@ class ZoomBar(QWidget):
         layout = QHBoxLayout(self)
         layout.setContentsMargins(6, 0, 6, 0)
         layout.setSpacing(0)
+        layout.setAlignment(Qt.AlignVCenter)
 
         self._minus = QPushButton("−")
         self._minus.setStyleSheet(self._BTN)
-        self._minus.setFixedSize(40, 40)
+        self._minus.setFixedSize(34, 34)
         self._minus.setCursor(Qt.PointingHandCursor)
         self._minus.setToolTip("Zoom out")
         self._minus.clicked.connect(canvas.zoom_out)
@@ -684,7 +701,7 @@ class ZoomBar(QWidget):
 
         self._plus = QPushButton("+")
         self._plus.setStyleSheet(self._BTN)
-        self._plus.setFixedSize(40, 40)
+        self._plus.setFixedSize(34, 34)
         self._plus.setCursor(Qt.PointingHandCursor)
         self._plus.setToolTip("Zoom in")
         self._plus.clicked.connect(canvas.zoom_in)
@@ -1446,6 +1463,78 @@ class _OrientBar(QWidget):
 
 # ── Page ──────────────────────────────────────────────────────────────────────
 
+class _TabBar(QWidget):
+    tab_changed = pyqtSignal(str)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setStyleSheet("background: transparent;")
+        self._active = "schema"
+        self._buttons: dict[str, QPushButton] = {}
+
+        hl = QHBoxLayout(self)
+        hl.setContentsMargins(16, 0, 16, 0)
+        hl.setSpacing(0)
+        for key, label in [("schema", "Schema"), ("settings", "Settings")]:
+            btn = QPushButton(label)
+            btn.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
+            btn.setCursor(Qt.PointingHandCursor)
+            btn.setCheckable(True)
+            btn.setChecked(key == "schema")
+            btn.setStyleSheet(self._btn_style(key == "schema"))
+            btn.clicked.connect(lambda _, k=key: self._select(k))
+            hl.addWidget(btn)
+            self._buttons[key] = btn
+        hl.addStretch()
+
+        self._indicator = QWidget(self)
+        self._indicator.setFixedHeight(2)
+        self._indicator.setStyleSheet(f"background: {COLORS['accent']};")
+        self._ind_anim = QPropertyAnimation(self._indicator, b"geometry")
+        self._ind_anim.setDuration(200)
+        self._ind_anim.setEasingCurve(QEasingCurve.OutCubic)
+        QTimer.singleShot(0, self._place_indicator)
+
+    def _btn_style(self, active: bool) -> str:
+        color  = COLORS["text_primary"] if active else COLORS["text_muted"]
+        weight = "600" if active else "400"
+        return (f"QPushButton {{ background: transparent; border: none;"
+                f" font-size: 13px; font-weight: {weight}; color: {color};"
+                f" padding: 0 20px; }}"
+                f"QPushButton:hover {{ color: {COLORS['text_primary']}; }}")
+
+    def _select(self, key: str):
+        if key == self._active:
+            return
+        self._active = key
+        for k, btn in self._buttons.items():
+            btn.setChecked(k == key)
+            btn.setStyleSheet(self._btn_style(k == key))
+        self._place_indicator(animate=True)
+        self.tab_changed.emit(key)
+
+    def _place_indicator(self, animate: bool = False):
+        btn = self._buttons.get(self._active)
+        if not btn:
+            return
+        g = btn.geometry()
+        target = QRect(g.x(), self.height() - 2, g.width(), 2)
+        if animate:
+            self._ind_anim.stop()
+            self._ind_anim.setStartValue(self._indicator.geometry())
+            self._ind_anim.setEndValue(target)
+            self._ind_anim.start()
+        else:
+            self._indicator.setGeometry(target)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._place_indicator()
+
+    def select(self, key: str):
+        self._select(key)
+
+
 class CommitViewPage(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -1467,8 +1556,19 @@ class CommitViewPage(QWidget):
         self._no_remote_banner.hide()
         layout.addWidget(self._no_remote_banner)
 
+        self._tab_bar = _TabBar()
+        self._tab_bar.tab_changed.connect(self._switch_tab)
+        self._header.set_center(self._tab_bar)
+
+        self._content_stack = QStackedWidget()
+        layout.addWidget(self._content_stack)
+
         self._canvas = SpatialCanvas()
-        layout.addWidget(self._canvas)
+        self._content_stack.addWidget(self._canvas)   # index 0 — Schema
+
+        self._settings_panel = SettingsPanel()
+        self._settings_panel.protection_changed.connect(self._on_protection_changed)
+        self._content_stack.addWidget(self._settings_panel)  # index 1 — Settings
 
         self._panel    = DetailPanel(self)
         self._panel.raise_()
@@ -1512,15 +1612,32 @@ class CommitViewPage(QWidget):
         self._filter_btn.clicked.connect(self.toggle_filter_panel)
         self._filter_btn.raise_()
 
+        self._pr_float_btn = QPushButton("○  Pull Requests", self)
+        self._pr_float_btn.setFixedHeight(34)
+        self._pr_float_btn.setCursor(Qt.PointingHandCursor)
+        self._pr_float_btn.setStyleSheet(self._pr_btn_style(False))
+        self._pr_float_btn.clicked.connect(self._on_pr_requested)
+        self._pr_float_btn.raise_()
+
+        self._pr_panel = PullRequestsPanel(self)
+        self._pr_panel.pr_hovered.connect(self._canvas.set_pr_highlight)
+        self._pr_panel.pr_cleared.connect(lambda: self._canvas.set_pr_highlight(set()))
+        self._pr_panel.close_requested.connect(lambda: self._tab_bar.select("schema"))
+        self._pr_panel.raise_()
+
         self._loading = _LoadingOverlay(self)
         self._toast   = _Toast(self)
         self._loading.hide()
+
+        self._settings_loaded = False
 
         self._orientation: str = ORIENT_LR
         self._author_display_map: dict[str, str] = {}
         self._filter_rebuilding: bool = False
 
         self._user: dict = {}
+        self._protection_enabled: bool = False
+        self._pr_panel_loaded:   bool = False
         self._collab_thread:    Optional[QThread] = None
         self._collab_worker     = None
         self._fetch_thread:     Optional[QThread] = None
@@ -1531,6 +1648,7 @@ class CommitViewPage(QWidget):
         self._navigate_worker   = None
         self._navigating:       bool = False
         self._last_dirty:       bool = False
+        self._last_stash_id:    str  = ""
         self._uncommitted_thread: Optional[QThread] = None
         self._uncommitted_worker  = None
         self._commits: list = []
@@ -1565,8 +1683,6 @@ class CommitViewPage(QWidget):
         self._reload_debounce.timeout.connect(self._start_load)
         self._canvas.commit_clicked.connect(self._on_commit_clicked)
         self._canvas.contributor_badge_clicked.connect(self._on_collaborator_clicked)
-        self._collab_panel.collaborator_clicked.connect(self._on_collaborator_clicked)
-        self._panel.panel_toggled.connect(self._reposition_collab)
         self._panel.panel_toggled.connect(lambda v: self._changes_panel.hide_panel() if not v else None)
         self._panel.file_selected.connect(self._changes_panel.show_file)
         self._panel.stash_file_selected.connect(
@@ -1678,12 +1794,11 @@ class CommitViewPage(QWidget):
         self._orientation = orientations.get(repo_path, ORIENT_LR)
         self._orient_bar.set_orientation(self._orientation)
 
+        self._settings_loaded    = False
+        self._protection_enabled = False
+        self._pr_panel_loaded    = False
+        self._on_protection_changed(False)
         has_remote = self._tracker.has_remote()
-        if has_remote:
-            self._collab_panel.show_loading()
-            self._reposition_collab()
-        else:
-            self._collab_panel.hide()
         self._no_remote_banner.set_repo_name(self._tracker.repo_name)
         self._no_remote_banner.setVisible(not has_remote)
         token = self._user.get("access_token", "")
@@ -1702,7 +1817,8 @@ class CommitViewPage(QWidget):
         self._poll_timer.stop()
         if has_remote:
             self._poll_timer.start()
-        self._last_dirty = False
+        self._last_dirty    = False
+        self._last_stash_id = ""
         self._uncommitted_timer.start()
         self._setup_fs_watcher(self._tracker._repo.git_dir)
         self._start_load(initial=True)
@@ -1954,8 +2070,7 @@ class CommitViewPage(QWidget):
             self._collab_thread.wait()
 
         if not (cache_key and collab_cache.get(cache_key)[0] is not None):
-            self._collab_panel.show_loading()
-            self._reposition_collab()
+            pass  # collab panel moved to settings tab
 
         self._collab_thread  = QThread()
         self._collab_worker  = _CollabLoader(self._tracker._path, token)
@@ -1994,11 +2109,84 @@ class CommitViewPage(QWidget):
                 self._collab_cache[cache_key] = collabs
                 collab_cache.save(cache_key, collabs)
 
+        is_owner = bool(owner) and self._user.get("login", "") == owner
+        token = self._user.get("access_token", "")
+        if not self._settings_loaded and self._tracker:
+            self._settings_panel.setup(self._tracker, self._user, is_owner, token)
+            self._settings_loaded = True
+        self._settings_panel.load_collaborators(collabs)
+
         if self._commits:
             self._place_contributor_badges()
+
+    @staticmethod
+    def _pr_btn_style(protected: bool) -> str:
+        if protected:
+            return (f"QPushButton {{ background: {COLORS['accent_dim']};"
+                    f" border: 1px solid {COLORS['accent']}; border-radius: 8px;"
+                    f" color: {COLORS['accent']}; font-size: 12px; font-weight: 600;"
+                    f" padding: 0 12px; }}"
+                    f"QPushButton:hover {{ background: {COLORS['accent']};"
+                    f" color: {COLORS['text_on_accent']}; }}")
+        return (f"QPushButton {{ background: {COLORS['bg_card']};"
+                f" border: 1px solid {COLORS['border']}; border-radius: 8px;"
+                f" color: {COLORS['text_muted']}; font-size: 12px; font-weight: 600;"
+                f" padding: 0 12px; }}"
+                f"QPushButton:hover {{ color: {COLORS['text_primary']};"
+                f" background: {COLORS['bg_hover']}; }}")
+
+    def _on_protection_changed(self, enabled: bool):
+        self._protection_enabled = enabled
+        self._pr_float_btn.setText("●  Pull Requests" if enabled else "○  Pull Requests")
+        self._pr_float_btn.setStyleSheet(self._pr_btn_style(enabled))
+        self._pr_panel.set_protection(enabled)
+
+    def _switch_tab(self, tab: str):
+        if tab == "schema":
+            self._content_stack.setCurrentIndex(0)
+            for w in [self._zoom_bar, self._minimap, self._orient_bar,
+                      self._filter_btn, self._pr_float_btn]:
+                w.show()
+            if getattr(self, "_pos_panel_was_visible", False):
+                self._position_panel.show()
         else:
-            self._collab_panel.load(collabs)
-            self._reposition_collab()
+            self._pos_panel_was_visible = self._position_panel.isVisible()
+            self._content_stack.setCurrentIndex(1)
+            for w in [self._zoom_bar, self._minimap, self._orient_bar,
+                      self._filter_btn, self._filter_panel, self._position_panel,
+                      self._pr_float_btn]:
+                w.hide()
+            self._panel.hide_panel()
+            self._changes_panel.hide_panel()
+            self._pr_panel.hide_panel()
+            # Initialise settings if collabs haven't loaded yet (e.g. no remote)
+            if not self._settings_loaded and self._tracker:
+                owner    = self._tracker.repo_owner()
+                is_owner = bool(owner) and self._user.get("login", "") == owner
+                self._settings_panel.setup(
+                    self._tracker, self._user, is_owner,
+                    self._user.get("access_token", ""),
+                )
+                self._settings_loaded = True
+
+    def _on_pr_requested(self):
+        self._tab_bar.select("schema")
+        self._switch_tab("schema")
+        if self._tracker:
+            if not self._pr_panel_loaded:
+                owner  = self._tracker.repo_owner()
+                is_own = self._user.get("login", "") == owner
+                self._pr_panel.load(
+                    self._tracker, self._user, is_own,
+                    self._user.get("access_token", ""),
+                    self._commits,
+                )
+                self._pr_panel_loaded = True
+            else:
+                # Panel already has PRs — just refresh the commit list for hover
+                self._pr_panel.update_commits(self._commits)
+        self._pr_panel.set_protection(self._protection_enabled)
+        self._pr_panel.show_panel()
 
     @staticmethod
     def _alpha(s: str) -> str:
@@ -2090,8 +2278,7 @@ class CommitViewPage(QWidget):
         self._filter_panel.set_authors(collab_names)
         self._filter_rebuilding = False
 
-        self._collab_panel.load(enriched)
-        self._reposition_collab()
+        self._settings_panel.load_collaborators(enriched)
         self._canvas.load_contributor_avatars(badge_data)
 
     def _on_collaborator_clicked(self, login: str):
@@ -2119,7 +2306,10 @@ class CommitViewPage(QWidget):
 
         if self._detail_thread and self._detail_thread.isRunning():
             self._detail_thread.quit()
-            # No wait() — let old thread die naturally; gen check discards stale results
+            # Park in _inflight so Python doesn't GC the wrapper while C++ thread is live
+            pair = [self._detail_thread, self._detail_worker]
+            self._inflight.append(pair)
+            self._detail_thread.finished.connect(lambda p=pair: self._drop_inflight(p))
 
         self._detail_gen += 1
         gen = self._detail_gen
@@ -2208,27 +2398,34 @@ class CommitViewPage(QWidget):
         self._uncommitted_worker.moveToThread(self._uncommitted_thread)
         self._uncommitted_thread.started.connect(self._uncommitted_worker.run)
         self._uncommitted_worker.finished.connect(self._on_uncommitted_done)
-        self._uncommitted_worker.finished.connect(self._uncommitted_thread.quit)
+        self._uncommitted_worker.finished.connect(lambda *_: self._uncommitted_thread.quit())
         self._uncommitted_thread.start()
 
-    def _on_uncommitted_done(self, dirty: bool, files: list):
+    def _on_uncommitted_done(self, dirty: bool, files: list, stash_id: str):
         if not self._tracker:
             return
         head_sha = self._tracker.head_sha()
 
-        if dirty != self._last_dirty:
-            # Dirty state flipped — do a full reload so the amber dot updates.
+        stash_changed = stash_id != self._last_stash_id
+        dirty_changed = dirty != self._last_dirty
+        if stash_changed:
+            self._last_stash_id = stash_id
+        if dirty_changed:
             self._last_dirty = dirty
-            self._start_load()
-            # Panel will be refreshed by the next _on_loaded call below.
-            return
 
-        # Dirty state unchanged — just push the new diff into the panel if it
-        # is currently open and showing HEAD, without a full graph rebuild.
-        if dirty and self._panel._visible:
+        # Trigger a graph rebuild whenever state changes (updates amber dots etc.)
+        if dirty_changed or stash_changed:
+            self._start_load()
+
+        # Always push the current file list into the panel if it is open and
+        # showing HEAD — this handles additions, removals, and going fully clean.
+        if self._panel._visible:
             panel_sha = getattr(self._panel, "_current_sha", "")
             if panel_sha == head_sha:
                 self._panel.update_uncommitted_files(files)
+            elif stash_changed:
+                # Non-HEAD commit — only refresh if its stash entry changed
+                self._panel.refresh_stash_section()
 
     def _branch_for_head(self) -> str:
         if not self._tracker:
@@ -2331,10 +2528,11 @@ class CommitViewPage(QWidget):
         fb.adjustSize()
         fb.move(margin + mm.MAP_W + margin + zb.width() + margin + ob.width() + margin,
                 self.height() - fb.height() - margin)
-        cp = self._collab_panel
-        detail_offset = DETAIL_PANEL_W if self._panel._visible else 0
-        cp.move(self.width() - detail_offset - cp.PANEL_W - margin,
-                self._header.height() + margin)
+        self._pr_panel.reposition()
+        pb = self._pr_float_btn
+        pb.adjustSize()
+        pb.move(margin + mm.MAP_W + margin + zb.width() + margin + ob.width() + margin + fb.width() + margin,
+                self.height() - pb.height() - margin)
         if self._position_panel.isVisible():
             self._reposition_position()
         if self._filter_panel.isVisible():
