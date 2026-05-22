@@ -4288,6 +4288,12 @@ class CommitViewPage(QWidget):
 
     # ── Resize ────────────────────────────────────────────────────────────
 
+    def mousePressEvent(self, event):
+        if (self._github_connect_dialog.isVisible() and
+                not self._github_connect_dialog.geometry().contains(event.pos())):
+            self._github_connect_dialog.hide()
+        super().mousePressEvent(event)
+
     def resizeEvent(self, event):
         super().resizeEvent(event)
         self._panel.reposition()
@@ -4299,8 +4305,6 @@ class CommitViewPage(QWidget):
             self._pull_dirty_dialog.setGeometry(self.rect())
         if self._navigate_dirty_dialog.isVisible():
             self._navigate_dirty_dialog.setGeometry(self.rect())
-        if self._github_connect_dialog.isVisible():
-            self._github_connect_dialog.setGeometry(self.rect())
         if self._merge_conflict_dialog.isVisible():
             self._merge_conflict_dialog.setGeometry(self.rect())
         margin = 16

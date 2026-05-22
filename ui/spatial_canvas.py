@@ -254,7 +254,8 @@ class CommitNode(QGraphicsObject):
     def __init__(self, commit: CommitInfo, color: str, is_start: bool = False,
                  is_local_only: bool = False, is_head: bool = False,
                  has_stash: bool = False,
-                 is_local_tip: bool = False, is_remote_tip: bool = False):
+                 is_local_tip: bool = False, is_remote_tip: bool = False,
+                 is_action_head: bool = False):
         super().__init__()
         self._commit          = commit
         self._color           = QColor(color)
@@ -264,6 +265,7 @@ class CommitNode(QGraphicsObject):
         self._has_stash       = has_stash
         self._is_local_tip    = is_local_tip
         self._is_remote_tip   = is_remote_tip
+        self._is_action_head  = is_action_head
         self._r             = START_R if is_start else NODE_R
         self._hovered       = False
         self._selected      = False
@@ -274,10 +276,11 @@ class CommitNode(QGraphicsObject):
 
     def boundingRect(self) -> QRectF:
         r = self._r + 10
-        top = -r - 8
-        # extra room below for the stash dot
+        # Flag pole tip sits at -self._r - 20; include it with margin
+        extra_top = 14 if self._is_start else 0
         extra_bot = 10 if self._has_stash else 0
-        return QRectF(-r - 8, top, (r + 8) * 2, r * 2 + 16 + extra_bot)
+        top = -r - 8 - extra_top
+        return QRectF(-r - 8, top, (r + 8) * 2, r * 2 + 16 + extra_top + extra_bot)
 
     def paint(self, painter: QPainter, _option, _widget):
         painter.setRenderHint(QPainter.Antialiasing)
@@ -342,6 +345,12 @@ class CommitNode(QGraphicsObject):
             painter.setPen(Qt.NoPen)
             painter.setBrush(QBrush(amber))
             painter.drawEllipse(QPointF(0, r + 5), 3.5, 3.5)
+
+        # Debug: action-head indicator — small red dot to the right
+        if self._is_action_head:
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(QBrush(QColor("#ef4444")))
+            painter.drawEllipse(QPointF(r + 6, 0), 4, 4)
 
 
     def hoverEnterEvent(self, _e):
@@ -664,6 +673,7 @@ class SpatialCanvas(QGraphicsView):
         is_initial: bool = False,
         local_tip_shas: set = None,
         remote_tip_shas: set = None,
+        action_head_shas: set = None,
     ):
         prev_centre = self.mapToScene(self.viewport().rect().center())
 
@@ -688,8 +698,9 @@ class SpatialCanvas(QGraphicsView):
         self._local_only_branches = local_only_branches or set()
         self._unpushed_shas       = unpushed_shas       or set()
         self._stash_shas        = stash_shas      or set()
-        self._local_tip_shas_c  = local_tip_shas  or set()
-        self._remote_tip_shas_c = remote_tip_shas or set()
+        self._local_tip_shas_c  = local_tip_shas    or set()
+        self._remote_tip_shas_c = remote_tip_shas   or set()
+        self._action_head_shas  = action_head_shas  or set()
 
         if not commits:
             return
@@ -832,6 +843,14 @@ class SpatialCanvas(QGraphicsView):
             self._scene.addItem(EdgeItem(cx, cy, px, py, _lane_color(lane), dashed=True))
 
         start_shas = {c.sha for c in lane_bottom.values()}
+        # Guarantee every branch lane has a start marker — if a lane's bottom
+        # commit wasn't captured (e.g. single-commit branch, orientation edge
+        # case), fall back to marking the branch-tip commit itself.
+        for tip_sha, names in branch_tip_map.items():
+            if tip_sha in positions:
+                tip_lane = lane_map.get(tip_sha)
+                if tip_lane is not None and lane_bottom.get(tip_lane) is None:
+                    start_shas.add(tip_sha)
 
         # ── 3. Nodes ───────────────────────────────────────────────────────
         # Build branch-name → colour from lane_branch first (covers all lanes),
@@ -859,7 +878,8 @@ class SpatialCanvas(QGraphicsView):
                               is_head=commit.sha == head_sha,
                               has_stash=commit.sha in self._stash_shas,
                               is_local_tip=commit.sha in self._local_tip_shas_c,
-                              is_remote_tip=commit.sha in self._remote_tip_shas_c)
+                              is_remote_tip=commit.sha in self._remote_tip_shas_c,
+                              is_action_head=commit.sha in self._action_head_shas)
             node.setPos(cx, cy)
             node.clicked.connect(self._on_node_clicked)
             self._scene.addItem(node)

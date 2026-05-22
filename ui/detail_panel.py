@@ -9,6 +9,7 @@ from PyQt5.QtGui import QPainter, QColor, QBrush, QPen, QPainterPath, QPixmap, Q
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QScrollArea, QFrame, QSizePolicy, QGraphicsOpacityEffect,
+    QDialog, QLineEdit,
 )
 from styles.theme import COLORS
 
@@ -1128,6 +1129,109 @@ class AllChangesPopup(QWidget):
         super().keyPressEvent(event)
 
 
+class _CommitMessageDialog(QDialog):
+    """Dark-themed single-line input dialog (commit message, branch name, etc.)."""
+
+    def __init__(self, parent=None, title: str = "Save Changes",
+                 placeholder: str = "Commit message…"):
+        super().__init__(parent)
+        self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setFixedWidth(420)
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+
+        card = QWidget()
+        card.setObjectName("cmCard")
+        card.setAttribute(Qt.WA_StyledBackground, True)
+        card.setStyleSheet(f"""
+            #cmCard {{
+                background: {COLORS['bg_card']};
+                border: 1px solid {COLORS['border']};
+                border-radius: 12px;
+            }}
+        """)
+        vl = QVBoxLayout(card)
+        vl.setContentsMargins(24, 20, 24, 20)
+        vl.setSpacing(14)
+
+        title_lbl = QLabel(title)
+        title_lbl.setStyleSheet(
+            f"font-size: 15px; font-weight: 700; color: {COLORS['text_primary']};"
+            f" background: transparent;"
+        )
+        vl.addWidget(title_lbl)
+
+        self._input = QLineEdit()
+        self._input.setPlaceholderText(placeholder)
+        self._input.setStyleSheet(f"""
+            QLineEdit {{
+                background: {COLORS['bg_primary']};
+                border: 1px solid {COLORS['border']};
+                border-radius: 8px;
+                color: {COLORS['text_primary']};
+                font-size: 13px;
+                padding: 9px 12px;
+            }}
+            QLineEdit:focus {{ border-color: {COLORS['accent']}; }}
+        """)
+        self._input.returnPressed.connect(self._on_save)
+        vl.addWidget(self._input)
+
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(8)
+
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.setFixedHeight(38)
+        cancel_btn.setCursor(Qt.PointingHandCursor)
+        cancel_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: transparent;
+                border: 1px solid {COLORS['border']};
+                border-radius: 8px;
+                color: {COLORS['text_secondary']};
+                font-size: 12px; font-weight: 600;
+            }}
+            QPushButton:hover {{ border-color: {COLORS['text_secondary']}; }}
+        """)
+        cancel_btn.clicked.connect(self.reject)
+
+        save_btn = QPushButton("Save")
+        save_btn.setFixedHeight(38)
+        save_btn.setCursor(Qt.PointingHandCursor)
+        save_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: {COLORS['accent']};
+                border: none;
+                border-radius: 8px;
+                color: #000;
+                font-size: 12px; font-weight: 700;
+            }}
+            QPushButton:hover {{ background: {COLORS.get('accent_hover', COLORS['accent'])}; }}
+            QPushButton:disabled {{ background: {COLORS['border']}; color: {COLORS['text_muted']}; }}
+        """)
+        save_btn.clicked.connect(self._on_save)
+
+        btn_row.addWidget(cancel_btn)
+        btn_row.addWidget(save_btn)
+        vl.addLayout(btn_row)
+
+        root.addWidget(card)
+
+    def _on_save(self):
+        if self._input.text().strip():
+            self.accept()
+
+    def get_message(self) -> str:
+        return self._input.text().strip()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._input.clear()
+        self._input.setFocus()
+
+
 class DetailPanel(QWidget):
     """
     Slides in from the right edge of its parent when show_commit() is called.
@@ -1139,6 +1243,9 @@ class DetailPanel(QWidget):
     navigate_requested      = pyqtSignal(str)        # commit sha
     branch_create_requested = pyqtSignal(str, str)   # sha, branch_name
     push_requested          = pyqtSignal(str)          # branch name
+    pull_requested          = pyqtSignal(str)          # branch name
+    merge_requested         = pyqtSignal(str, str)    # source_branch, target_branch
+    save_stash_requested    = pyqtSignal(str, str, str, str)  # commit sha, stash_ref, message, branch
     clear_stash_requested   = pyqtSignal(str, str)    # commit sha, stash_ref
     hard_revert_requested   = pyqtSignal(str, str)   # branch, target_sha
     soft_revert_requested   = pyqtSignal(str, str, str)   # branch, tip_sha, parent_sha
@@ -1304,6 +1411,25 @@ class DetailPanel(QWidget):
         self._push_btn.hide()
         content_layout.addWidget(self._push_btn)
 
+        self._pull_btn = QPushButton("↓  Pull latest")
+        self._pull_btn.setCursor(Qt.PointingHandCursor)
+        self._pull_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: transparent;
+                border: 1px solid {COLORS['border']};
+                border-radius: 8px;
+                color: {COLORS['text_secondary']};
+                font-size: 12px; font-weight: 600; padding: 9px 16px;
+            }}
+            QPushButton:hover {{
+                border-color: {COLORS['accent']};
+                color: {COLORS['accent']};
+            }}
+        """)
+        self._pull_btn.clicked.connect(self._on_pull)
+        self._pull_btn.hide()
+        content_layout.addWidget(self._pull_btn)
+
         def _action_style(color: str) -> str:
             return (f"QPushButton {{ background: transparent;"
                     f" border: 1px solid {color}; border-radius: 8px;"
@@ -1311,6 +1437,20 @@ class DetailPanel(QWidget):
                     f"QPushButton:hover {{ background: {color}; color: white; }}"
                     f"QPushButton:disabled {{ border-color: {COLORS['border']};"
                     f" color: {COLORS['text_muted']}; }}")
+
+        self._save_stash_btn = QPushButton("Save Changes")
+        self._save_stash_btn.setCursor(Qt.PointingHandCursor)
+        self._save_stash_btn.setStyleSheet(_action_style(COLORS["accent"]))
+        self._save_stash_btn.clicked.connect(self._on_save_stash)
+        self._save_stash_btn.hide()
+        content_layout.addWidget(self._save_stash_btn)
+
+        self._clear_stash_btn = QPushButton("Clear Changes")
+        self._clear_stash_btn.setCursor(Qt.PointingHandCursor)
+        self._clear_stash_btn.setStyleSheet(_action_style(COLORS["danger"]))
+        self._clear_stash_btn.clicked.connect(self._on_clear_stash)
+        self._clear_stash_btn.hide()
+        content_layout.addWidget(self._clear_stash_btn)
 
         self._hard_revert_btn = QPushButton("↩  Hard Revert")
         self._hard_revert_btn.setCursor(Qt.PointingHandCursor)
@@ -1325,6 +1465,46 @@ class DetailPanel(QWidget):
         self._soft_revert_btn.clicked.connect(self._on_soft_revert)
         self._soft_revert_btn.hide()
         content_layout.addWidget(self._soft_revert_btn)
+
+        # Merge row: [⇢ Merge into] [combo ▾]
+        from PyQt5.QtWidgets import QComboBox
+        self._merge_row = QWidget()
+        self._merge_row.setStyleSheet("background: transparent;")
+        merge_hl = QHBoxLayout(self._merge_row)
+        merge_hl.setContentsMargins(0, 0, 0, 0)
+        merge_hl.setSpacing(8)
+        self._merge_btn = QPushButton("⇢  Merge into")
+        self._merge_btn.setCursor(Qt.PointingHandCursor)
+        self._merge_btn.setFixedHeight(38)
+        self._merge_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: transparent; border: 1px solid {COLORS['border']};
+                border-radius: 8px; color: {COLORS['text_secondary']};
+                font-size: 12px; font-weight: 600; padding: 0 12px;
+            }}
+            QPushButton:hover {{ border-color: {COLORS['accent']}; color: {COLORS['accent']}; }}
+            QPushButton:disabled {{ color: {COLORS['text_muted']}; }}
+        """)
+        self._merge_btn.clicked.connect(self._on_merge)
+        merge_hl.addWidget(self._merge_btn)
+        self._merge_combo = QComboBox()
+        self._merge_combo.setFixedHeight(38)
+        self._merge_combo.setStyleSheet(f"""
+            QComboBox {{
+                background: {COLORS['bg_card']}; border: 1px solid {COLORS['border']};
+                border-radius: 8px; color: {COLORS['text_primary']};
+                font-size: 12px; padding: 0 10px; font-family: monospace;
+            }}
+            QComboBox:disabled {{ color: {COLORS['text_muted']}; }}
+            QComboBox::drop-down {{ border: none; width: 24px; }}
+            QComboBox QAbstractItemView {{
+                background: {COLORS['bg_card']}; border: 1px solid {COLORS['border']};
+                color: {COLORS['text_primary']}; selection-background-color: {COLORS['bg_hover']};
+            }}
+        """)
+        merge_hl.addWidget(self._merge_combo, 1)
+        self._merge_row.hide()
+        content_layout.addWidget(self._merge_row)
 
         self._delete_branch_btn = QPushButton("Delete Branch")
         self._delete_branch_btn.setCursor(Qt.PointingHandCursor)
@@ -1369,19 +1549,6 @@ class DetailPanel(QWidget):
         self._view_stash_btn.clicked.connect(self._open_stash_view)
         stash_hl.addWidget(self._view_stash_btn)
 
-        self._clear_stash_btn = QPushButton("Clear")
-        self._clear_stash_btn.setCursor(Qt.PointingHandCursor)
-        self._clear_stash_btn.setStyleSheet(f"""
-            QPushButton {{
-                background: transparent; border: none;
-                font-size: 10px; color: {COLORS['danger']};
-                padding: 0 0 0 10px;
-            }}
-            QPushButton:hover {{ color: {COLORS['text_primary']}; }}
-        """)
-        self._clear_stash_btn.hide()
-        self._clear_stash_btn.clicked.connect(self._on_clear_stash)
-        stash_hl.addWidget(self._clear_stash_btn)
         stash_vl.addWidget(stash_hdr)
 
         self._stash_files_container = QWidget()
@@ -1491,24 +1658,81 @@ class DetailPanel(QWidget):
 
     def lock_actions(self):
         for btn in (self._goto_btn, self._branch_btn, self._push_btn,
-                    self._hard_revert_btn, self._soft_revert_btn,
-                    self._delete_branch_btn):
+                    self._pull_btn, self._merge_btn, self._hard_revert_btn,
+                    self._soft_revert_btn, self._delete_branch_btn,
+                    self._save_stash_btn, self._clear_stash_btn):
             btn.setEnabled(False)
+        self._merge_combo.setEnabled(False)
 
     def unlock_actions(self):
-        self._refresh_goto_btn()   # restores goto text + enabled state
+        self._refresh_goto_btn()
         self._branch_btn.setEnabled(True)
-        for btn in (self._push_btn, self._hard_revert_btn,
-                    self._soft_revert_btn, self._delete_branch_btn):
+        self._merge_combo.setEnabled(True)
+        self._merge_btn.setEnabled(True)
+        # _save_stash_btn and _clear_stash_btn are excluded here — their
+        # visibility is managed solely by update_uncommitted_files /
+        # refresh_stash_section, not by the lock/unlock cycle.
+        for btn in (self._push_btn, self._pull_btn,
+                    self._hard_revert_btn, self._soft_revert_btn,
+                    self._delete_branch_btn):
             if btn.isVisible():
                 btn.setEnabled(True)
 
+    def set_merge_state(self, show: bool, source_branch: str, all_branches: list):
+        self._merge_source = source_branch
+        self._merge_row.setVisible(show)
+        if show:
+            self._merge_combo.clear()
+            for b in [b for b in all_branches if b != source_branch]:
+                self._merge_combo.addItem(b)
+            for preferred in ("main", "master"):
+                idx = self._merge_combo.findText(preferred)
+                if idx >= 0:
+                    self._merge_combo.setCurrentIndex(idx)
+                    break
+
+    def _on_merge(self):
+        current_branch  = getattr(self, "_merge_source", "")   # branch we're on
+        incoming_branch = self._merge_combo.currentText()       # branch to merge in
+        if current_branch and incoming_branch:
+            self.lock_actions()
+            # source = branch being merged in, target = branch being merged into
+            self.merge_requested.emit(incoming_branch, current_branch)
+
+    def set_pull_state(self, can_pull: bool, branch: str):
+        self._pull_branch = branch
+        self._pull_btn.setVisible(can_pull)
+        self._pull_btn.setEnabled(can_pull)
+
+    def _on_pull(self):
+        branch = getattr(self, "_pull_branch", "")
+        if branch:
+            self.lock_actions()
+            self.pull_requested.emit(branch)
+
+    def _on_save_stash(self):
+        sha       = getattr(self, "_current_sha", "")
+        stash_ref = getattr(self, "_stash_ref", "")
+        if not sha:
+            return
+        dlg = _CommitMessageDialog(self)
+        if dlg.exec_() != _CommitMessageDialog.Accepted:
+            return
+        msg = dlg.get_message()
+        if not msg:
+            return
+        branch = getattr(self, "_action_branch", "")
+        self.lock_actions()
+        self.save_stash_requested.emit(sha, stash_ref, msg, branch)
+
     def set_commit_actions(self, branch: str, parent_sha: str,
                             has_parent: bool, is_first_of_branch: bool,
-                            is_main: bool, is_head: bool):
+                            is_main: bool, is_head: bool,
+                            is_merge_commit: bool = False):
         """Show the appropriate action buttons for the currently displayed commit."""
-        self._action_branch     = branch
-        self._action_parent_sha = parent_sha
+        self._action_branch          = branch
+        self._action_parent_sha      = parent_sha
+        self._action_is_merge_commit = is_merge_commit
 
         if not is_head:
             self._delete_branch_btn.hide()
@@ -1516,19 +1740,23 @@ class DetailPanel(QWidget):
             self._soft_revert_btn.hide()
             return
 
+        # Delete Branch only makes sense when the head IS the branch's first
+        # unique commit (branch just started, one commit).  Once a branch has
+        # grown past that point, or the head is a merge commit, hide it.
+        show_delete = not is_main and bool(branch) and is_first_of_branch and not is_merge_commit
+        self._delete_branch_btn.setVisible(show_delete)
+        self._delete_branch_btn.setEnabled(show_delete)
+
         if is_first_of_branch:
-            show = not is_main and bool(branch)
-            self._delete_branch_btn.setVisible(show)
-            self._delete_branch_btn.setEnabled(show)
             self._hard_revert_btn.hide()
             self._soft_revert_btn.hide()
         else:
-            self._delete_branch_btn.hide()
-            show = has_parent and bool(branch)
-            self._hard_revert_btn.setVisible(show)
-            self._hard_revert_btn.setEnabled(show)
-            self._soft_revert_btn.setVisible(show)
-            self._soft_revert_btn.setEnabled(show)
+            show_hard = has_parent and bool(branch)
+            show_soft = show_hard   # same rule as hard revert — show on all heads
+            self._hard_revert_btn.setVisible(show_hard)
+            self._hard_revert_btn.setEnabled(show_hard)
+            self._soft_revert_btn.setVisible(show_soft)
+            self._soft_revert_btn.setEnabled(show_soft)
 
     def _on_goto(self):
         if getattr(self, "_current_sha", None):
@@ -1536,13 +1764,15 @@ class DetailPanel(QWidget):
             self.navigate_requested.emit(self._current_sha)
 
     def _on_create_branch(self):
-        from PyQt5.QtWidgets import QInputDialog
         sha = getattr(self, "_current_sha", None)
         if not sha:
             return
-        name, ok = QInputDialog.getText(self, "Create branch", "Branch name:")
-        name = name.strip()
-        if ok and name:
+        dlg = _CommitMessageDialog(self, title="Create Branch",
+                                   placeholder="Branch name…")
+        if dlg.exec_() != _CommitMessageDialog.Accepted:
+            return
+        name = dlg.get_message()
+        if name:
             self.lock_actions()
             self.branch_create_requested.emit(sha, name)
 
@@ -1559,15 +1789,21 @@ class DetailPanel(QWidget):
 
     def _on_hard_revert(self):
         from PyQt5.QtWidgets import QMessageBox
-        branch = getattr(self, "_action_branch", "")
-        sha    = getattr(self, "_action_parent_sha", "")
+        branch   = getattr(self, "_action_branch", "")
+        sha      = getattr(self, "_action_parent_sha", "")
+        is_merge = getattr(self, "_action_is_merge_commit", False)
         if not branch or not sha:
             return
-        ans = QMessageBox.question(
-            self, "Hard Revert",
-            f"Hard revert '{branch}'? This permanently discards the latest commit and cannot be undone.",
-            QMessageBox.Yes | QMessageBox.Cancel,
-        )
+        if is_merge:
+            title = "Undo Merge"
+            body  = (f"Undo the merge on '{branch}'?\n\n"
+                     f"This resets '{branch}' to its state before the merge. "
+                     f"The merge commit will be removed and this cannot be undone.")
+        else:
+            title = "Hard Revert"
+            body  = (f"Hard revert '{branch}'? "
+                     f"This permanently discards the latest commit and cannot be undone.")
+        ans = QMessageBox.question(self, title, body, QMessageBox.Yes | QMessageBox.Cancel)
         if ans == QMessageBox.Yes:
             self.lock_actions()
             self.hard_revert_requested.emit(branch, sha)
@@ -1598,7 +1834,8 @@ class DetailPanel(QWidget):
     def _on_clear_stash(self):
         sha       = getattr(self, "_current_sha", "")
         stash_ref = getattr(self, "_stash_ref", "")
-        if sha and stash_ref:
+        if sha:
+            self.lock_actions()
             self.clear_stash_requested.emit(sha, stash_ref)
 
     def set_head_sha(self, head_sha: str):
@@ -1635,6 +1872,10 @@ class DetailPanel(QWidget):
                     display_author: str = None, files: list = None):
         self._current_sha = commit.sha
         self._refresh_goto_btn()
+        # Reset save/clear buttons — the poll will re-show them if this
+        # commit actually has unsaved changes.
+        self._save_stash_btn.hide()
+        self._clear_stash_btn.hide()
         has_stash = commit.sha in getattr(self, "_stash_shas", set())
         self._stash_section.setVisible(has_stash)
         if has_stash:
@@ -1686,8 +1927,8 @@ class DetailPanel(QWidget):
         n = len(files)
         self._stash_label.setText(f"UNSAVED  —  {n} file{'s' if n != 1 else ''}")
         self._view_stash_btn.setVisible(n > 0)
-        # Clear shown for saved stashes AND live uncommitted changes
         self._clear_stash_btn.setVisible(n > 0)
+        self._save_stash_btn.setVisible(n > 0)
         self._stash_data = files
 
         for info in files:
@@ -1698,8 +1939,9 @@ class DetailPanel(QWidget):
             self._stash_cards_by_path[info["path"]] = card
 
     def update_uncommitted_files(self, files: list):
-        """Diff the live working-dir list against current cards, fading in new ones and fading out removed ones."""
-        old_cards: dict[str, _FileCard] = getattr(self, "_stash_cards_by_path", {})
+        """Diff live working-dir list against current cards: add new, remove gone, refresh changed."""
+        old_cards: dict[str, _FileCard]    = getattr(self, "_stash_cards_by_path", {})
+        old_info:  dict[str, dict]         = getattr(self, "_stash_info_by_path",  {})
         new_paths = {f["path"] for f in files}
 
         # Fade out cards whose files are gone
@@ -1707,16 +1949,39 @@ class DetailPanel(QWidget):
             if path not in new_paths:
                 _fade_out_and_remove(card, self._stash_files_layout)
                 del old_cards[path]
+                old_info.pop(path, None)
 
-        # Fade in cards for newly appeared files
+        # Add new cards; replace existing ones whose stats changed
         for info in files:
             path = info["path"]
+            prev = old_info.get(path)
+            stats_changed = (prev is None or
+                             prev.get("insertions") != info.get("insertions") or
+                             prev.get("deletions")  != info.get("deletions")  or
+                             prev.get("status")     != info.get("status"))
             if path not in old_cards:
                 card = _FileCard(info)
                 card.file_clicked.connect(self._on_stash_card_clicked)
                 self._stash_files_layout.addWidget(card)
                 _fade_in(card)
                 old_cards[path] = card
+                old_info[path]  = info
+            elif stats_changed:
+                # Replace card in-place with updated info
+                old_card = old_cards[path]
+                idx = self._stash_files_layout.indexOf(old_card)
+                old_card.setParent(None)
+                card = _FileCard(info)
+                card.file_clicked.connect(self._on_stash_card_clicked)
+                if idx >= 0:
+                    self._stash_files_layout.insertWidget(idx, card)
+                else:
+                    self._stash_files_layout.addWidget(card)
+                old_cards[path] = card
+                old_info[path]  = info
+
+        self._stash_cards_by_path = old_cards
+        self._stash_info_by_path  = old_info
 
         self._stash_cards_by_path = old_cards
         self._stash_data = files
@@ -1724,6 +1989,10 @@ class DetailPanel(QWidget):
         n = len(files)
         self._stash_label.setText(f"UNSAVED  —  {n} file{'s' if n != 1 else ''}")
         self._view_stash_btn.setVisible(n > 0)
+        self._clear_stash_btn.setVisible(n > 0)
+        self._clear_stash_btn.setEnabled(n > 0)
+        self._save_stash_btn.setVisible(n > 0)
+        self._save_stash_btn.setEnabled(n > 0)
         if files:
             self._stash_section.show()
         else:
@@ -1738,11 +2007,12 @@ class DetailPanel(QWidget):
             return
 
         stash_ref = get_stash_ref_for_commit(repo_path, self._current_sha)
-        is_head   = self._current_sha == getattr(self, "_head_sha", "")
 
         if stash_ref:
             files = get_stash_diff_files(repo_path, stash_ref)
-        elif is_head and has_uncommitted_changes(repo_path):
+        elif has_uncommitted_changes(repo_path):
+            # Show live working-tree changes regardless of whether _head_sha
+            # is current — it can be stale after branch switches.
             files = get_working_dir_diff_files(repo_path)
         else:
             files = []
@@ -1771,10 +2041,15 @@ class DetailPanel(QWidget):
         if files:
             self._stash_label.setText(f"UNSAVED  —  {n} file{'s' if n != 1 else ''}")
             self._view_stash_btn.setVisible(True)
+            self._clear_stash_btn.setVisible(True)
+            self._clear_stash_btn.setEnabled(True)
+            self._save_stash_btn.setVisible(True)
+            self._save_stash_btn.setEnabled(True)
             self._stash_section.show()
         else:
             self._view_stash_btn.setVisible(False)
-            # Delay hiding until fade-out animations finish
+            self._clear_stash_btn.setVisible(False)
+            self._save_stash_btn.setVisible(False)
             QTimer.singleShot(260, lambda: self._stash_section.hide() if not self._stash_data else None)
 
     def _open_stash_view(self):

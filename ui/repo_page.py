@@ -5,11 +5,12 @@ import os
 import re
 import threading
 
-from PyQt5.QtCore import Qt, pyqtSignal, QObject
+from PyQt5.QtCore import Qt, pyqtSignal, QObject, QThread
 from PyQt5.QtGui import QPainter, QColor, QPen, QBrush, QPainterPath, QPixmap, QFont
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QFileDialog, QScrollArea, QFrame, QSizePolicy, QMessageBox,
+    QLineEdit, QDialog, QGraphicsOpacityEffect,
 )
 from styles.theme import COLORS, BTN_PRIMARY
 from core import repo_store
@@ -339,6 +340,188 @@ class MissingRepoCard(QWidget):
         layout.addWidget(rm_btn)
 
 
+# ── Clone dialog ──────────────────────────────────────────────────────────────
+
+class _CloneWorker(QObject):
+    finished = pyqtSignal(bool, str, str)   # ok, error, cloned_path
+
+    def __init__(self, url: str, dest: str):
+        super().__init__()
+        self._url  = url
+        self._dest = dest
+
+    def run(self):
+        from core.git_ops import clone_repo
+        ok, err, path = clone_repo(self._url, self._dest)
+        self.finished.emit(ok, err, path)
+
+
+class CloneDialog(QDialog):
+    """Small dialog to clone a remote repo into a chosen folder."""
+
+    cloned = pyqtSignal(str)   # emits the cloned repo path on success
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setFixedWidth(440)
+        self._thread = None
+        self._worker = None
+        self._dest   = os.path.expanduser("~")
+        self._setup_ui()
+
+    def _setup_ui(self):
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+
+        card = QWidget()
+        card.setStyleSheet(f"""
+            background: {COLORS['bg_card']};
+            border: 1px solid {COLORS['border']};
+            border-radius: 12px;
+        """)
+        vl = QVBoxLayout(card)
+        vl.setContentsMargins(24, 24, 24, 24)
+        vl.setSpacing(16)
+
+        title = QLabel("Connect to a repo")
+        title.setStyleSheet(f"font-size: 16px; font-weight: 700; color: {COLORS['text_primary']}; background: transparent;")
+        vl.addWidget(title)
+
+        # URL input
+        url_label = QLabel("Repository URL")
+        url_label.setStyleSheet(f"font-size: 12px; color: {COLORS['text_muted']}; background: transparent;")
+        vl.addWidget(url_label)
+
+        self._url_input = QLineEdit()
+        self._url_input.setPlaceholderText("https://github.com/user/repo.git")
+        self._url_input.setStyleSheet(f"""
+            QLineEdit {{
+                background: {COLORS['bg_primary']}; border: 1px solid {COLORS['border']};
+                border-radius: 8px; color: {COLORS['text_primary']};
+                font-size: 13px; padding: 8px 12px;
+            }}
+            QLineEdit:focus {{ border-color: {COLORS['accent']}; }}
+        """)
+        vl.addWidget(self._url_input)
+
+        # Destination folder
+        dest_label = QLabel("Save to folder")
+        dest_label.setStyleSheet(f"font-size: 12px; color: {COLORS['text_muted']}; background: transparent;")
+        vl.addWidget(dest_label)
+
+        dest_row = QHBoxLayout()
+        dest_row.setSpacing(8)
+        self._dest_label = QLabel(self._dest)
+        self._dest_label.setStyleSheet(f"""
+            background: {COLORS['bg_primary']}; border: 1px solid {COLORS['border']};
+            border-radius: 8px; color: {COLORS['text_secondary']};
+            font-size: 12px; padding: 8px 12px;
+        """)
+        self._dest_label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self._dest_label.setFixedHeight(36)
+        dest_row.addWidget(self._dest_label)
+
+        browse_btn = QPushButton("Browse")
+        browse_btn.setFixedSize(72, 36)
+        browse_btn.setCursor(Qt.PointingHandCursor)
+        browse_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: {COLORS['bg_primary']}; border: 1px solid {COLORS['border']};
+                border-radius: 8px; color: {COLORS['text_secondary']};
+                font-size: 12px; font-weight: 600;
+            }}
+            QPushButton:hover {{ border-color: {COLORS['accent']}; color: {COLORS['accent']}; }}
+        """)
+        browse_btn.clicked.connect(self._pick_dest)
+        dest_row.addWidget(browse_btn)
+        vl.addLayout(dest_row)
+
+        self._error_label = QLabel("")
+        self._error_label.setStyleSheet(f"font-size: 12px; color: {COLORS['danger']}; background: transparent;")
+        self._error_label.hide()
+        vl.addWidget(self._error_label)
+
+        # Buttons
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(8)
+
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.setFixedHeight(40)
+        cancel_btn.setCursor(Qt.PointingHandCursor)
+        cancel_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: transparent; border: 1px solid {COLORS['border']};
+                border-radius: 8px; color: {COLORS['text_secondary']};
+                font-size: 13px; font-weight: 600;
+            }}
+            QPushButton:hover {{ border-color: {COLORS['text_secondary']}; }}
+        """)
+        cancel_btn.clicked.connect(self.reject)
+        btn_row.addWidget(cancel_btn)
+
+        self._clone_btn = QPushButton("Clone")
+        self._clone_btn.setFixedHeight(40)
+        self._clone_btn.setCursor(Qt.PointingHandCursor)
+        self._clone_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: {COLORS['accent']}; border: none;
+                border-radius: 8px; color: white;
+                font-size: 13px; font-weight: 700;
+            }}
+            QPushButton:hover {{ background: {COLORS.get('accent_hover', COLORS['accent'])}; }}
+            QPushButton:disabled {{ background: {COLORS['border']}; color: {COLORS['text_muted']}; }}
+        """)
+        self._clone_btn.clicked.connect(self._start_clone)
+        btn_row.addWidget(self._clone_btn)
+        vl.addLayout(btn_row)
+
+        root.addWidget(card)
+
+    def _pick_dest(self):
+        folder = QFileDialog.getExistingDirectory(self, "Choose parent folder", self._dest)
+        if folder:
+            self._dest = folder
+            self._dest_label.setText(folder)
+
+    def _start_clone(self):
+        url = self._url_input.text().strip()
+        if not url:
+            self._show_error("Please enter a repository URL.")
+            return
+        self._error_label.hide()
+        self._clone_btn.setEnabled(False)
+        self._clone_btn.setText("Cloning…")
+
+        self._thread = QThread()
+        self._worker = _CloneWorker(url, self._dest)
+        self._worker.moveToThread(self._thread)
+        self._thread.started.connect(self._worker.run)
+        self._worker.finished.connect(self._on_done)
+        self._worker.finished.connect(self._thread.quit)
+        self._thread.finished.connect(self._on_thread_done)
+        self._thread.start()
+
+    def _on_done(self, ok: bool, err: str, path: str):
+        if ok:
+            self.cloned.emit(path)
+            self.accept()
+        else:
+            self._show_error(err[:160] if err else "Clone failed.")
+            self._clone_btn.setEnabled(True)
+            self._clone_btn.setText("Clone")
+
+    def _on_thread_done(self):
+        self._thread = None
+        self._worker = None
+
+    def _show_error(self, msg: str):
+        self._error_label.setText(msg)
+        self._error_label.show()
+        self.adjustSize()
+
+
 # ── Repo page ─────────────────────────────────────────────────────────────────
 
 class RepoPage(QWidget):
@@ -365,11 +548,30 @@ class RepoPage(QWidget):
         root.setContentsMargins(40, 32, 40, 32)
         root.setSpacing(0)
 
+        header_row = QHBoxLayout()
+        header_row.setSpacing(12)
+
         title = QLabel("Your Projects")
         title.setStyleSheet(
             f"background: transparent; font-size: 22px; font-weight: 700; color: {COLORS['text_primary']};"
         )
-        root.addWidget(title)
+        header_row.addWidget(title)
+        header_row.addStretch()
+
+        clone_btn = QPushButton("⇩  Connect to repo")
+        clone_btn.setFixedHeight(36)
+        clone_btn.setCursor(Qt.PointingHandCursor)
+        clone_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: transparent; border: 1px solid {COLORS['border']};
+                border-radius: 8px; color: {COLORS['text_secondary']};
+                font-size: 13px; font-weight: 600; padding: 0 14px;
+            }}
+            QPushButton:hover {{ border-color: {COLORS['accent']}; color: {COLORS['accent']}; }}
+        """)
+        clone_btn.clicked.connect(self._open_clone_dialog)
+        header_row.addWidget(clone_btn)
+        root.addLayout(header_row)
         root.addSpacing(4)
 
         sub = QLabel("Drop a project folder below, or browse to add it.")
@@ -486,6 +688,15 @@ class RepoPage(QWidget):
         self._refresh_cards()
 
     # ── internals ────────────────────────────────────────────────────────────
+
+    def _open_clone_dialog(self):
+        dlg = CloneDialog(self)
+        dlg.cloned.connect(self._on_cloned)
+        dlg.exec_()
+
+    def _on_cloned(self, path: str):
+        self.add_repo(path)
+        self.repo_selected.emit(path)
 
     def _pick_folder(self):
         folder = QFileDialog.getExistingDirectory(
