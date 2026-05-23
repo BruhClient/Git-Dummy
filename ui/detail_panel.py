@@ -1728,11 +1728,17 @@ class DetailPanel(QWidget):
     def set_commit_actions(self, branch: str, parent_sha: str,
                             has_parent: bool, is_first_of_branch: bool,
                             is_main: bool, is_head: bool,
-                            is_merge_commit: bool = False):
+                            is_merge_commit: bool = False,
+                            branch_depth: int = 0):
         """Show the appropriate action buttons for the currently displayed commit."""
         self._action_branch          = branch
         self._action_parent_sha      = parent_sha
         self._action_is_merge_commit = is_merge_commit
+
+        # Hard limit: no branching beyond depth 2 (main → level-1 → level-2).
+        can_branch = branch_depth < 2
+        self._branch_btn.setVisible(can_branch)
+        self._branch_btn.setEnabled(can_branch)
 
         if not is_head:
             self._delete_branch_btn.hide()

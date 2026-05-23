@@ -104,27 +104,17 @@ def _compute_lanes(
     else:
         primary_tip = None
 
-    # ── Pre-seed ALL branch tips into dedicated lanes ─────────────────────
-    # This is the key fix: if only the primary is pre-seeded, feature commits
-    # that appear after a merge point (no lane waiting for them) get thrown
-    # into a fresh lane — different from where the pre-merge feature commits
-    # landed — so the same branch visually splits in two.
-    # By pre-seeding every branch tip upfront each branch owns one lane for
-    # the entire traversal.
-    seen_tips: set[str] = set()
-    ordered_tips: list[str] = []
-
+    # ── Seed only lane 0 with the primary tip; allocate all others lazily ─
+    # Branches get a lane only when first encountered — either as a merge
+    # parent (parents[1:] loop below) or as an unmerged tip that appears
+    # early in topo order and hits the "not expected" path.
+    # This keeps lane indices compact so merge lines span only as many lanes
+    # as there are concurrently active branches, not the total branch count.
+    lanes: list[Optional[str]] = []
     if primary_tip:
-        ordered_tips.append(primary_tip)
-        seen_tips.add(primary_tip)
+        lanes.append(primary_tip)
 
-    for sha in branch_tip_map:
-        if sha not in seen_tips:
-            ordered_tips.append(sha)
-            seen_tips.add(sha)
-
-    lanes: list[Optional[str]] = list(ordered_tips)   # lane i starts waiting for ordered_tips[i]
-
+    lane_branch: dict[int, str] = {}
     assignment: dict[str, int] = {}
 
     for commit in commits:
@@ -144,6 +134,12 @@ def _compute_lanes(
 
         assignment[sha] = lane_idx
 
+        # Record branch name when a branch tip is first assigned to a lane
+        if sha in branch_tip_map and lane_idx not in lane_branch:
+            names = branch_tip_map[sha]
+            preferred = next((n for n in names if n == primary), names[0])
+            lane_branch[lane_idx] = preferred
+
         # Free stale entries: when a branch merges into another, multiple
         # lanes can end up pointing at the same parent SHA — clean them up
         for i in range(len(lanes)):
@@ -155,31 +151,71 @@ def _compute_lanes(
             lanes[lane_idx] = None
         else:
             parent0 = parents[0]
-            lanes[lane_idx] = parent0
+            # If the first parent is an unprocessed branch tip, don't let the
+            # current lane inherit it — that would place two different branches
+            # in the same lane.  Terminate this lane and open a fresh lane for
+            # the parent tip so each branch keeps its own dedicated lane.
+            if parent0 in branch_tip_map and parent0 not in assignment:
+                lanes[lane_idx] = None   # this branch's lane ends here
+                if not any(s == parent0 for s in lanes):
+                    # Always append rather than reuse a free slot: a free slot
+                    # may already have a lane_branch name from a prior branch.
+                    new_lane_idx = len(lanes)
+                    lanes.append(parent0)
+                    p_names = branch_tip_map[parent0]
+                    p_pref = next((n for n in p_names if n == primary), p_names[0])
+                    lane_branch[new_lane_idx] = p_pref
+            else:
+                lanes[lane_idx] = parent0
             for p in parents[1:]:           # open extra lanes for merge parents
                 if not any(s == p for s in lanes):
                     free = next((i for i, s in enumerate(lanes) if s is None), None)
                     if free is not None:
+                        new_lane_idx = free
                         lanes[free] = p
                     else:
+                        new_lane_idx = len(lanes)
                         lanes.append(p)
+                    # Record name if the merge parent happens to be a branch tip
+                    if p in branch_tip_map and new_lane_idx not in lane_branch:
+                        p_names = branch_tip_map[p]
+                        p_pref = next((n for n in p_names if n == primary), p_names[0])
+                        lane_branch[new_lane_idx] = p_pref
 
     # ── Build lane_branch: lane_index -> display name ─────────────────────
-    # Use ordered_tips (which mirrors the lane pre-seeding order) so lane 0
-    # always maps to the primary branch regardless of where the tip ended up.
-    lane_branch: dict[int, str] = {}
-    for lane_idx, tip_sha in enumerate(ordered_tips):
-        names = branch_tip_map.get(tip_sha, [])
-        if names:
-            preferred = next((n for n in names if n == primary), names[0])
-            lane_branch[lane_idx] = preferred
-
-    # Fallback for any dynamically-opened lanes beyond the pre-seeded set
+    # Names were recorded inline above for tip SHAs.
+    # Fallback for any lanes that still lack a name.
     for sha, lane_idx in assignment.items():
         if lane_idx not in lane_branch:
-            lane_branch[lane_idx] = branch_tip_map.get(sha, [""])[0] or f"branch-{lane_idx}"
+            names = branch_tip_map.get(sha, [])
+            lane_branch[lane_idx] = (names[0] if names else "") or f"branch-{lane_idx}"
 
     lane_branch.setdefault(0, primary or "main")
+
+    # ── Re-order lanes by depth so nested branches sit further from main ──
+    # Iterate in reverse topo order (oldest commit first) so each lane's
+    # parent depth is already known when we compute that lane's depth.
+    lane_depth: dict[int, int] = {0: 0}
+    for commit in reversed(commits):
+        lane = assignment.get(commit.sha, 0)
+        if lane == 0 or not commit.parents or lane in lane_depth:
+            continue
+        parent_lane = assignment.get(commit.parents[0], 0)
+        if parent_lane != lane:
+            lane_depth[lane] = lane_depth.get(parent_lane, 0) + 1
+
+    # Sort non-zero lanes: shallower branches (closer to main) get lower indices.
+    non_main = sorted(
+        {l for l in assignment.values() if l != 0},
+        key=lambda l: (lane_depth.get(l, 0), l),
+    )
+    lane_remap: dict[int, int] = {0: 0}
+    for new_idx, old_idx in enumerate(non_main, start=1):
+        lane_remap[old_idx] = new_idx
+
+    if any(k != v for k, v in lane_remap.items()):
+        assignment  = {sha: lane_remap.get(l, l) for sha, l in assignment.items()}
+        lane_branch = {lane_remap.get(l, l): name  for l, name in lane_branch.items()}
 
     return assignment, lane_branch
 
@@ -380,7 +416,7 @@ class CommitNode(QGraphicsObject):
 
 class EdgeItem(QGraphicsPathItem):
     """
-    Diagonal line for cross-lane connections.
+    L-shaped (elbow) line for cross-lane connections.
     dashed=False  → solid   (merge)
     dashed=True   → dashed  (branch creation / divergence)
     """
@@ -391,15 +427,30 @@ class EdgeItem(QGraphicsPathItem):
         px: float, py: float,
         color: str,
         dashed: bool = False,
+        orientation: str = ORIENT_LR,
     ):
         path = QPainterPath()
         path.moveTo(cx, cy)
-        path.lineTo(px, py)
+        # Elbow: go along the age axis first, then the lane axis.
+        if orientation in (ORIENT_LR, ORIENT_RL):
+            if dashed:
+                # Creation edge: go horizontal first so the vertical segment
+                # lands directly at the source commit's x-column.
+                # The bend appears below X, making it obvious Y was branched from X.
+                path.lineTo(px, cy)   # horizontal to source's x (at commit's lane y)
+                path.lineTo(px, py)   # vertical up to source commit
+            else:
+                # Merge edge: vertical-first (arrowhead drawn separately at commit).
+                path.lineTo(cx, py)   # vertical to merged branch's y-level
+                path.lineTo(px, py)   # horizontal to merged branch's x
+        else:  # ORIENT_TB / ORIENT_BT
+            path.lineTo(px, cy)   # horizontal segment to source's x-level
+            path.lineTo(px, py)   # vertical segment to source
         super().__init__(path)
 
         white = QColor("white")
         white.setAlpha(140)
-        style = Qt.SolidLine if dashed else Qt.DotLine
+        style = Qt.DashLine if dashed else Qt.SolidLine
         self.setPen(QPen(white, 1.5, style, Qt.RoundCap, Qt.RoundJoin))
         self.setBrush(QBrush(Qt.NoBrush))
         self.setZValue(1)
@@ -767,45 +818,6 @@ class SpatialCanvas(QGraphicsView):
             self._scene.addItem(spine)
 
         # ── 2. Cross-lane edges ────────────────────────────────────────────
-        lane_bottom: dict[int, CommitInfo] = {}
-        for commit in commits:
-            lane = lane_map.get(commit.sha, 0)
-            cx, cy = positions[commit.sha]
-            existing = lane_bottom.get(lane)
-            if existing is None:
-                lane_bottom[lane] = commit
-            else:
-                ex, ey = positions[existing.sha]
-                if orientation == ORIENT_LR and cx < ex:
-                    lane_bottom[lane] = commit
-                elif orientation == ORIENT_RL and cx > ex:
-                    lane_bottom[lane] = commit
-                elif orientation == ORIENT_BT and cy < ey:
-                    lane_bottom[lane] = commit
-                elif orientation == ORIENT_TB and cy > ey:
-                    lane_bottom[lane] = commit
-
-        lane_creation: dict[int, tuple[float, float, float, float]] = {}
-        for lane, commit in lane_bottom.items():
-            if lane == 0 or not commit.parents:
-                continue
-            cx, cy = positions[commit.sha]
-            p_sha  = commit.parents[0]
-            if p_sha in positions:
-                parent_lane = lane_map.get(p_sha, 0)
-                px, py = positions[p_sha]
-                if parent_lane != lane:
-                    lane_creation[lane] = (cx, cy, px, py)
-            else:
-                if orientation == ORIENT_LR:
-                    px, py = cx - ROW_H, V_PAD
-                elif orientation == ORIENT_RL:
-                    px, py = cx + ROW_H, V_PAD
-                elif orientation == ORIENT_BT:
-                    px, py = H_PAD, cy - ROW_H
-                else:
-                    px, py = H_PAD, cy + ROW_H
-                lane_creation[lane] = (cx, cy, px, py)
 
         for commit in commits:
             cx, cy = positions[commit.sha]
@@ -816,12 +828,15 @@ class SpatialCanvas(QGraphicsView):
                 parent_lane = lane_map.get(p_sha, 0)
                 if parent_lane != commit_lane:
                     px, py = positions[p_sha]
-                    edge = EdgeItem(cx, cy, px, py, _lane_color(parent_lane), dashed=False)
+                    edge = EdgeItem(cx, cy, px, py, _lane_color(parent_lane),
+                                    dashed=False, orientation=orientation)
                     self._scene.addItem(edge)
-                    dx, dy = cx - px, cy - py
-                    length = math.hypot(dx, dy)
-                    if length > 0:
-                        ux, uy = dx / length, dy / length
+                    # Arrowhead points along the first elbow segment into M.
+                    if orientation in (ORIENT_LR, ORIENT_RL):
+                        ux, uy = 0.0, (1.0 if py < cy else -1.0)
+                    else:
+                        ux, uy = (1.0 if px < cx else -1.0), 0.0
+                    if True:  # always compute tip (replaces old length > 0 guard)
                         tip_x = cx - ux * (NODE_R + 2)
                         tip_y = cy - uy * (NODE_R + 2)
                         sz = 7
@@ -839,17 +854,45 @@ class SpatialCanvas(QGraphicsView):
                         arrow.setAcceptedMouseButtons(Qt.NoButton)
                         self._scene.addItem(arrow)
 
-        for lane, (cx, cy, px, py) in lane_creation.items():
-            self._scene.addItem(EdgeItem(cx, cy, px, py, _lane_color(lane), dashed=True))
+        # ── 2b. Branch-creation edges (dashed) & start-flag markers ──────────
+        # Draw a dashed edge for every commit whose first parent is in a
+        # different lane. This is exactly the set of "branch root" commits,
+        # including a newly created branch's single empty commit Y → source X.
+        # Using direct parent-lane comparison avoids the lane_bottom heuristic
+        # which breaks under lane reuse (same lane index used by two branches).
+        start_shas: set[str] = set()
+        for commit in commits:
+            lane = lane_map.get(commit.sha, 0)
+            if lane == 0 or not commit.parents:
+                continue
+            p_sha = commit.parents[0]
+            parent_lane = lane_map.get(p_sha, 0)
+            if parent_lane == lane:
+                continue  # same lane — normal spine segment, not a branch root
+            if commit.sha not in positions:
+                continue
+            start_shas.add(commit.sha)
+            cx, cy = positions[commit.sha]
+            if p_sha in positions:
+                px, py = positions[p_sha]
+            else:
+                # Parent beyond visible range — synthetic off-screen anchor
+                if orientation == ORIENT_LR:
+                    px, py = cx - ROW_H, V_PAD
+                elif orientation == ORIENT_RL:
+                    px, py = cx + ROW_H, V_PAD
+                elif orientation == ORIENT_BT:
+                    px, py = H_PAD, cy - ROW_H
+                else:
+                    px, py = H_PAD, cy + ROW_H
+            self._scene.addItem(EdgeItem(cx, cy, px, py, _lane_color(lane),
+                                         dashed=True, orientation=orientation))
 
-        start_shas = {c.sha for c in lane_bottom.values()}
-        # Guarantee every branch lane has a start marker — if a lane's bottom
-        # commit wasn't captured (e.g. single-commit branch, orientation edge
-        # case), fall back to marking the branch-tip commit itself.
-        for tip_sha, names in branch_tip_map.items():
-            if tip_sha in positions:
+        # Fallback: branch tips with no cross-lane root still get a start flag.
+        for tip_sha in branch_tip_map:
+            if tip_sha in positions and tip_sha not in start_shas:
                 tip_lane = lane_map.get(tip_sha)
-                if tip_lane is not None and lane_bottom.get(tip_lane) is None:
+                if tip_lane is not None and tip_lane != 0:
                     start_shas.add(tip_sha)
 
         # ── 3. Nodes ───────────────────────────────────────────────────────

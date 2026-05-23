@@ -2651,6 +2651,43 @@ class _TabBar(QWidget):
         self._select(key)
 
 
+def _compute_branch_depths(commits: list, local_tip_branch: dict) -> dict[str, int]:
+    """Return branch_name → nesting depth (0 = main, 1 = off main, 2 = off level-1, …)."""
+    sha_to_branch = {c.sha: (local_tip_branch.get(c.sha) or c.branch) for c in commits}
+
+    # For each branch record which branch it first diverged from.
+    branch_parent: dict[str, str] = {}
+    for commit in commits:
+        if not commit.parents:
+            continue
+        cb = local_tip_branch.get(commit.sha) or commit.branch
+        pb = sha_to_branch.get(commit.parents[0], "")
+        if cb and pb and pb != cb and cb not in branch_parent:
+            branch_parent[cb] = pb
+
+    # Seed known root branches at depth 0.
+    depths: dict[str, int] = {
+        b: 0 for b in ("main", "master")
+        if any(c.branch == b for c in commits)
+    }
+
+    # Iteratively assign depths from parents.
+    changed = True
+    while changed:
+        changed = False
+        for branch, parent in branch_parent.items():
+            if branch not in depths and parent in depths:
+                depths[branch] = depths[parent] + 1
+                changed = True
+
+    # Any branch still unknown → default to depth 1 (direct off main).
+    for c in commits:
+        if c.branch and c.branch not in depths:
+            depths[c.branch] = 1
+
+    return depths
+
+
 class CommitViewPage(QWidget):
     _op_done        = pyqtSignal(bool, str, str, str, bool)  # ok, err, success_msg, fail_prefix, close_panel
     _auto_pulled    = pyqtSignal(list)                       # list of branch names pulled
@@ -2819,6 +2856,7 @@ class CommitViewPage(QWidget):
         self._local_tip_branch: dict = {}
         self._remote_tip_shas:  set  = set()
         self._branch_head_shas: set  = set()
+        self._branch_depths: dict    = {}
         self._jump_to_head:     bool = False
         self._panel_op_active:   bool = False
         self._pending_init_path: str  = ""
@@ -3182,9 +3220,10 @@ class CommitViewPage(QWidget):
         except Exception:
             pass
 
-        # Keep _branch_head_shas in sync here — before the early-return guard —
-        # so it is never stale even when the canvas rebuild is skipped below.
+        # Keep _branch_head_shas and _branch_depths in sync here — before the
+        # early-return guard — so they are never stale when the canvas skips rebuild.
         self._branch_head_shas = self._local_tip_shas
+        self._branch_depths    = _compute_branch_depths(commits, self._local_tip_branch)
 
         # Skip full canvas rebuild when nothing has changed
         if (new_shas == self._last_commit_shas
@@ -3205,7 +3244,6 @@ class CommitViewPage(QWidget):
         self._last_stash_shas  = stash_shas
 
         self._commits  = commits
-        self._you_shas = self._compute_you_shas(commits)
         self._panel.set_stash_shas(stash_shas)
         self._update_position_panel(commits)
         # Show a red dot on ALL branch tips — both local and remote.
@@ -3225,6 +3263,8 @@ class CommitViewPage(QWidget):
         # Remote filled-dot is shown separately for awareness, but actions and
         # head-tracking always follow the local tip.
         local_tip_visible: set[str] = set(self._local_tip_branch.keys())
+
+        self._you_shas = self._compute_you_shas(commits)
 
         # Auto fast-forward pull any local branch that is strictly behind remote
         self._trigger_auto_pull(commits)
@@ -3879,6 +3919,8 @@ class CommitViewPage(QWidget):
         return re.sub(r'[^a-z]', '', s.lower())
 
     def _compute_you_shas(self, commits, gh_name: str = "") -> set:
+        """Return SHAs of all commits authored by the logged-in user.
+        Every such commit shows 'You' as the text label for consistency."""
         login = self._user.get("login", "")
         if not login:
             return set()
@@ -3894,32 +3936,43 @@ class CommitViewPage(QWidget):
                 result.add(commit.sha)
         return result
 
-    def _find_latest_commit_for_login(self, login: str, gh_name: str = "") -> Optional[CommitInfo]:
+    def _find_latest_commit_for_login(self, login: str, gh_name: str = "",
+                                       tip_shas: set = None) -> Optional[CommitInfo]:
+        """Find the latest commit by this user.
+        When tip_shas is provided, prefer a tip commit over a non-tip one
+        so the avatar badge lands on the user's latest pushed/local head."""
         if not self._commits:
             return None
         nl = self._alpha(login)
         nn = self._alpha(gh_name)
-        best: Optional[CommitInfo] = None
+        user_commits = []
         for commit in self._commits:
             na = self._alpha(commit.author)
             if not na:
                 continue
-            login_hit = nl and (nl == na or nl in na or na in nl)
-            name_hit  = nn and (nn == na or nn in na or na in nn)
-            if login_hit or name_hit:
-                if best is None or commit.date > best.date:
-                    best = commit
-        return best
+            if (nl and (nl == na or nl in na or na in nl)) or \
+               (nn and (nn == na or nn in na or na in nn)):
+                user_commits.append(commit)
+        if not user_commits:
+            return None
+        if tip_shas:
+            tip_matches = [c for c in user_commits if c.sha in tip_shas]
+            if tip_matches:
+                return max(tip_matches, key=lambda c: c.date)
+        return max(user_commits, key=lambda c: c.date)
 
     def _place_contributor_badges(self):
         enriched    = []
         badge_data  = []
         known_authors: set[str] = set()
 
+        _has_remote = bool(self._tracker and self._tracker.has_remote())
+        _badge_tips = self._remote_tip_shas if _has_remote else set(self._local_tip_branch.keys())
+
         for collab in self._collaborators:
             login   = collab.get("login", "")
             gh_name = collab.get("gh_name", "")
-            commit  = self._find_latest_commit_for_login(login, gh_name)
+            commit  = self._find_latest_commit_for_login(login, gh_name, tip_shas=_badge_tips)
             is_self = login == self._user.get("login", "")
             enriched.append({**collab, "display_name": "You" if is_self else (commit.author if commit else None)})
             if commit:
@@ -4083,6 +4136,7 @@ class CommitViewPage(QWidget):
             is_main=is_main,
             is_head=is_head,
             is_merge_commit=is_merge_commit,
+            branch_depth=self._branch_depths.get(branch, 0),
         )
 
     def _on_detail_thread_done(self, thread: QThread):
