@@ -12,6 +12,10 @@ from PyQt5.QtWidgets import (
     QDialog, QLineEdit,
 )
 from styles.theme import COLORS
+from ui.dialogs import confirm
+
+# Roles that can act directly on main; write-level users get the branch redirect.
+_ELEVATED_ROLES = {"owner", "admin", "maintain"}
 
 
 class _VScrollArea(QScrollArea):
@@ -1242,7 +1246,8 @@ class DetailPanel(QWidget):
     stash_file_selected  = pyqtSignal(dict)
     navigate_requested      = pyqtSignal(str)        # commit sha
     branch_create_requested = pyqtSignal(str, str)   # sha, branch_name
-    push_requested          = pyqtSignal(str)          # branch name
+    push_requested          = pyqtSignal(str)          # branch name (kept for compat)
+    pr_open_requested       = pyqtSignal(str)          # branch name → triggers PR wizard
     pull_requested          = pyqtSignal(str)          # branch name
     merge_requested         = pyqtSignal(str, str)    # source_branch, target_branch
     save_stash_requested    = pyqtSignal(str, str, str, str)  # commit sha, stash_ref, message, branch
@@ -1392,7 +1397,7 @@ class DetailPanel(QWidget):
         self._branch_btn.clicked.connect(self._on_create_branch)
         content_layout.addWidget(self._branch_btn)
 
-        self._push_btn = QPushButton("↑  Upload to remote")
+        self._push_btn = QPushButton("↑  Open Pull Request")
         self._push_btn.setCursor(Qt.PointingHandCursor)
         self._push_btn.setStyleSheet(f"""
             QPushButton {{
@@ -1437,6 +1442,57 @@ class DetailPanel(QWidget):
                     f"QPushButton:hover {{ background: {color}; color: white; }}"
                     f"QPushButton:disabled {{ border-color: {COLORS['border']};"
                     f" color: {COLORS['text_muted']}; }}")
+
+        # ── Role / protection state (set externally, used by banner) ──────────
+        self._user_role:       str  = "write"
+        self._is_elevated:     bool = False   # owner / admin / maintain
+        self._is_on_protected: bool = False
+
+        # ── Protected branch banner (write-level users on main) ───────────────
+        self._protected_banner = QWidget()
+        self._protected_banner.setAttribute(Qt.WA_StyledBackground, True)
+        self._protected_banner.setStyleSheet(
+            f"QWidget {{ background: {COLORS['bg_card']};"
+            f" border: 1px solid {COLORS['warning']}; border-radius: 8px; }}"
+            f"QLabel  {{ background: transparent; border: none; }}"
+        )
+        _pb_layout = QVBoxLayout(self._protected_banner)
+        _pb_layout.setContentsMargins(12, 12, 12, 12)
+        _pb_layout.setSpacing(8)
+
+        self._pb_title = QLabel("⚠  You're on main")
+        self._pb_title.setStyleSheet(
+            f"font-size: 12px; font-weight: 700; color: {COLORS['warning']};"
+        )
+        _pb_layout.addWidget(self._pb_title)
+
+        self._pb_desc = QLabel("Changes to main go through a PR.\nCreate a branch to continue.")
+        self._pb_desc.setWordWrap(True)
+        self._pb_desc.setStyleSheet(
+            f"font-size: 11px; color: {COLORS['text_secondary']};"
+        )
+        _pb_layout.addWidget(self._pb_desc)
+
+        self._pb_input = QLineEdit("feature/")
+        self._pb_input.setPlaceholderText("feature/branch-name")
+        self._pb_input.setStyleSheet(
+            f"QLineEdit {{ background: {COLORS['bg_secondary']};"
+            f" border: 1px solid {COLORS['border']}; border-radius: 6px;"
+            f" color: {COLORS['text_primary']}; font-size: 12px; padding: 6px 10px; }}"
+            f"QLineEdit:focus {{ border-color: {COLORS['accent']}; }}"
+        )
+        self._pb_input.textChanged.connect(self._on_pb_input_changed)
+        _pb_layout.addWidget(self._pb_input)
+
+        self._pb_create_btn = QPushButton("Create branch & continue")
+        self._pb_create_btn.setCursor(Qt.PointingHandCursor)
+        self._pb_create_btn.setEnabled(False)
+        self._pb_create_btn.setStyleSheet(_action_style(COLORS["accent"]))
+        self._pb_create_btn.clicked.connect(self._on_branch_from_banner)
+        _pb_layout.addWidget(self._pb_create_btn)
+
+        self._protected_banner.hide()
+        content_layout.addWidget(self._protected_banner)
 
         self._save_stash_btn = QPushButton("Save Changes")
         self._save_stash_btn.setCursor(Qt.PointingHandCursor)
@@ -1678,18 +1734,17 @@ class DetailPanel(QWidget):
             if btn.isVisible():
                 btn.setEnabled(True)
 
-    def set_merge_state(self, show: bool, source_branch: str, all_branches: list):
+    def set_merge_state(self, show: bool, source_branch: str, all_branches: list,
+                        default_branch: str = "main"):
         self._merge_source = source_branch
         self._merge_row.setVisible(show)
         if show:
             self._merge_combo.clear()
             for b in [b for b in all_branches if b != source_branch]:
                 self._merge_combo.addItem(b)
-            for preferred in ("main", "master"):
-                idx = self._merge_combo.findText(preferred)
-                if idx >= 0:
-                    self._merge_combo.setCurrentIndex(idx)
-                    break
+            idx = self._merge_combo.findText(default_branch)
+            if idx >= 0:
+                self._merge_combo.setCurrentIndex(idx)
 
     def _on_merge(self):
         current_branch  = getattr(self, "_merge_source", "")   # branch we're on
@@ -1729,8 +1784,17 @@ class DetailPanel(QWidget):
                             has_parent: bool, is_first_of_branch: bool,
                             is_main: bool, is_head: bool,
                             is_merge_commit: bool = False,
-                            branch_depth: int = 0):
+                            branch_depth: int = 0,
+                            is_remote_branch: bool = False):
         """Show the appropriate action buttons for the currently displayed commit."""
+        # Cache args so set_user_role can replay when collaborator data loads late.
+        self._last_action_kwargs = dict(
+            branch=branch, parent_sha=parent_sha, has_parent=has_parent,
+            is_first_of_branch=is_first_of_branch, is_main=is_main,
+            is_head=is_head, is_merge_commit=is_merge_commit,
+            branch_depth=branch_depth, is_remote_branch=is_remote_branch,
+        )
+
         self._action_branch          = branch
         self._action_parent_sha      = parent_sha
         self._action_is_merge_commit = is_merge_commit
@@ -1764,6 +1828,16 @@ class DetailPanel(QWidget):
             self._soft_revert_btn.setVisible(show_soft)
             self._soft_revert_btn.setEnabled(show_soft)
 
+        # ── Role gates ────────────────────────────────────────────────────────
+        # Hard revert on any remote branch or on main → elevated role only.
+        # Soft revert on main → elevated role only.
+        # Soft revert on remote non-main and Delete Branch → open to everyone.
+        if self._user_role not in _ELEVATED_ROLES:
+            if is_remote_branch or is_main:
+                self._hard_revert_btn.hide()
+            if is_main:
+                self._soft_revert_btn.hide()
+
     def _on_goto(self):
         if getattr(self, "_current_sha", None):
             self.lock_actions()
@@ -1782,19 +1856,74 @@ class DetailPanel(QWidget):
             self.lock_actions()
             self.branch_create_requested.emit(sha, name)
 
-    def set_push_state(self, can_push: bool, branch: str = ""):
-        self._push_branch = branch
-        self._push_btn.setVisible(can_push)
-        self._push_btn.setEnabled(can_push)
+    def set_push_state(self, can_push: bool, branch: str = "", is_protected: bool = False):
+        """Show upload button. Elevated users get 'Upload to remote' (direct push) on any
+        branch; write-level users get 'Open Pull Request' on non-protected branches only."""
+        self._push_branch     = branch
+        self._is_on_protected = is_protected
+        if is_protected and branch:
+            self._pb_title.setText(f"⚠  You're on {branch}")
+            self._pb_desc.setText(
+                f"Changes to {branch} go through a PR.\nCreate a branch to continue."
+            )
+        # When protection is off, all collaborators are treated as admins — direct push allowed.
+        effective_elevated = self._is_elevated or not is_protected
+        show = can_push and (not is_protected or self._is_elevated)
+        if show:
+            lbl = "↑  Upload to remote" if effective_elevated else "↑  Open Pull Request"
+            self._push_btn.setText(lbl)
+        self._push_btn.setVisible(show)
+        self._push_btn.setEnabled(show)
+        self._refresh_protected_banner()
+
+    def set_user_role(self, role: str):
+        """Set the current user's collaboration role. Re-evaluates banner and action buttons."""
+        self._user_role   = role
+        self._is_elevated = role in _ELEVATED_ROLES
+        self._refresh_protected_banner()
+        # Replay the last set_commit_actions call so role gates apply immediately
+        # even when collaborator data arrives after the commit was already selected.
+        if hasattr(self, "_last_action_kwargs"):
+            self.set_commit_actions(**self._last_action_kwargs)
+
+    def _refresh_protected_banner(self):
+        """Show the protected-branch redirect banner for write-level users on main."""
+        has_files = bool(getattr(self, "_stash_data", []))
+        show = (self._is_on_protected
+                and self._user_role not in _ELEVATED_ROLES
+                and has_files)
+        self._protected_banner.setVisible(show)
+        if show:
+            self._save_stash_btn.hide()
+            self._clear_stash_btn.hide()
+
+    def _on_pb_input_changed(self, text: str):
+        """Enable the create button only when the branch name is non-trivial."""
+        stripped = text.strip().strip("/")
+        valid = bool(stripped) and stripped.lower() != "feature"
+        self._pb_create_btn.setEnabled(valid)
+
+    def _on_branch_from_banner(self):
+        """Emit branch_create_requested from the protected-branch redirect banner."""
+        name = self._pb_input.text().strip()
+        sha  = getattr(self, "_current_sha", None)
+        if not name or not sha:
+            return
+        self.lock_actions()
+        self.branch_create_requested.emit(sha, name)
 
     def _on_push(self):
         branch = getattr(self, "_push_branch", "")
         if branch:
-            self.lock_actions()
-            self.push_requested.emit(branch)
+            # When protection is off (_is_on_protected=False), all collaborators act as admins.
+            effective_elevated = self._is_elevated or not self._is_on_protected
+            if effective_elevated:
+                self.lock_actions()
+                self.push_requested.emit(branch)    # direct push
+            else:
+                self.pr_open_requested.emit(branch) # PR wizard for write-level users on protected branch
 
     def _on_hard_revert(self):
-        from PyQt5.QtWidgets import QMessageBox
         branch   = getattr(self, "_action_branch", "")
         sha      = getattr(self, "_action_parent_sha", "")
         is_merge = getattr(self, "_action_is_merge_commit", False)
@@ -1809,8 +1938,7 @@ class DetailPanel(QWidget):
             title = "Hard Revert"
             body  = (f"Hard revert '{branch}'? "
                      f"This permanently discards the latest commit and cannot be undone.")
-        ans = QMessageBox.question(self, title, body, QMessageBox.Yes | QMessageBox.Cancel)
-        if ans == QMessageBox.Yes:
+        if confirm(self, title, body, "Yes"):
             self.lock_actions()
             self.hard_revert_requested.emit(branch, sha)
 
@@ -1823,16 +1951,11 @@ class DetailPanel(QWidget):
             self.soft_revert_requested.emit(branch, tip, parent)
 
     def _on_delete_branch(self):
-        from PyQt5.QtWidgets import QMessageBox
         branch = getattr(self, "_action_branch", "")
         if not branch:
             return
-        ans = QMessageBox.question(
-            self, "Delete branch",
-            f"Delete '{branch}' locally and from remote?",
-            QMessageBox.Yes | QMessageBox.Cancel,
-        )
-        if ans == QMessageBox.Yes:
+        if confirm(self, "Delete branch",
+                   f"Delete '{branch}' locally and from remote?", "Delete"):
             self.lock_actions()
             parent_sha = getattr(self, "_action_parent_sha", "")
             self.delete_branch_requested.emit(branch, parent_sha)
@@ -1841,8 +1964,10 @@ class DetailPanel(QWidget):
         sha       = getattr(self, "_current_sha", "")
         stash_ref = getattr(self, "_stash_ref", "")
         if sha:
-            self.lock_actions()
-            self.clear_stash_requested.emit(sha, stash_ref)
+            if confirm(self, "Clear unsaved changes",
+                       "Permanently discard all unsaved changes? This cannot be undone."):
+                self.lock_actions()
+                self.clear_stash_requested.emit(sha, stash_ref)
 
     def set_head_sha(self, head_sha: str):
         self._head_sha = head_sha
@@ -2003,6 +2128,8 @@ class DetailPanel(QWidget):
             self._stash_section.show()
         else:
             QTimer.singleShot(260, lambda: self._stash_section.hide() if not self._stash_data else None)
+        # Banner overrides save/clear visibility for write-level users on main
+        self._refresh_protected_banner()
 
     def refresh_stash_section(self):
         """Re-query stash/working-dir state and animate cards in/out. Called when stash list changes."""

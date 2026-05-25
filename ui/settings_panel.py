@@ -135,11 +135,21 @@ class _Avatar(QWidget):
 # ── Collab row ────────────────────────────────────────────────────────────────
 
 class _SCollabRow(QWidget):
+    # role: "owner" | "admin" | "maintain" | "write"
+    _ROLE_LABELS = {
+        "owner":    "Owner",
+        "admin":    "Admin",
+        "maintain": "Admin",
+        "write":    "Collaborator",
+    }
+
     def __init__(self, login: str, contributions: int, avatar_url: str,
-                 display_name: str | None = None, is_owner: bool = False, parent=None):
+                 display_name: str | None = None, is_owner: bool = False,
+                 role: str = "write", is_me: bool = False, parent=None):
         super().__init__(parent)
         self.setAttribute(Qt.WA_StyledBackground, True)
-        self.setStyleSheet("background: transparent; border-radius: 6px;")
+        bg = COLORS["bg_hover"] if is_me else "transparent"
+        self.setStyleSheet(f"background: {bg}; border-radius: 6px;")
 
         hl = QHBoxLayout(self)
         hl.setContentsMargins(4, 8, 4, 8)
@@ -162,11 +172,29 @@ class _SCollabRow(QWidget):
             f" color: {COLORS['text_primary']};"
         )
         name_row.addWidget(nm)
-        if is_owner:
+
+        # Crown icons based on role
+        if role == "owner":
             crown = QLabel("👑")
             crown.setStyleSheet("background: transparent; font-size: 11px;")
+            crown.setToolTip("Owner")
             name_row.addWidget(crown)
+        elif role in ("admin", "maintain"):
+            crown = QLabel("🥈")
+            crown.setStyleSheet("background: transparent; font-size: 11px;")
+            crown.setToolTip("Admin")
+            name_row.addWidget(crown)
+
         name_row.addStretch()
+
+        # Role label badge (right-aligned)
+        role_label = self._ROLE_LABELS.get(role, "Collaborator")
+        role_lbl = QLabel(role_label)
+        role_lbl.setStyleSheet(
+            f"background: transparent; font-size: 10px; font-weight: 500;"
+            f" color: {COLORS['text_muted']};"
+        )
+        name_row.addWidget(role_lbl)
         info.addLayout(name_row)
 
         sub = QLabel(f"{contributions} commit{'s' if contributions != 1 else ''}")
@@ -493,6 +521,15 @@ class SettingsPanel(QWidget):
         self._is_owner  = is_owner
         self._token     = token
 
+        # Seed _default_branch from local git immediately (before async GitHub API fetch).
+        # The GitHub API path (_apply_repo_info) will override this with the authoritative
+        # value when it arrives.
+        if tracker:
+            from core.git_ops import get_default_branch
+            self._default_branch = get_default_branch(tracker._path)
+        else:
+            self._default_branch = "main"
+
         # Repo name placeholder
         if tracker:
             self._repo_name_lbl.setText(tracker.repo_name)
@@ -503,7 +540,7 @@ class SettingsPanel(QWidget):
             threading.Thread(target=self._fetch_repo_info,  daemon=True).start()
             threading.Thread(target=self._fetch_protection, daemon=True).start()
 
-    def load_collaborators(self, collabs: list[dict]):
+    def load_collaborators(self, collabs: list[dict], current_login: str = ""):
         while self._collab_list.count():
             item = self._collab_list.takeAt(0)
             w = item.widget()
@@ -528,12 +565,17 @@ class SettingsPanel(QWidget):
             return
 
         for c in collabs:
+            login = c.get("login", "?")
+            # Determine role: owner flag takes priority over whatever role field says
+            role = "owner" if c.get("is_owner") else c.get("role", "write")
             row = _SCollabRow(
-                login=c.get("login", "?"),
+                login=login,
                 contributions=c.get("contributions", 0),
                 avatar_url=c.get("avatar_url", ""),
                 display_name=c.get("display_name") or c.get("gh_name"),
                 is_owner=c.get("is_owner", False),
+                role=role,
+                is_me=(login == current_login and bool(current_login)),
             )
             self._collab_list.addWidget(row)
 
@@ -573,7 +615,7 @@ class SettingsPanel(QWidget):
             pass
 
     def _apply_repo_info(self, data: dict):
-        self._default_branch = data.get("default_branch") or "main"
+        self._default_branch = data.get("default_branch") or self._default_branch
         self._repo_name_lbl.setText(data.get("name", "—"))
         vis = "Private" if data.get("private") else "Public"
         self._vis_badge.setText(vis)

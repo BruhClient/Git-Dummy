@@ -19,7 +19,8 @@ from core.git_tracker import CommitInfo
 from styles.theme import COLORS
 
 # ── Layout ────────────────────────────────────────────────────────────────────
-NODE_R   = 10
+NODE_R     = 10
+DIVERGED_R = 6        # smaller circle for commits on diverged branch lines
 START_R  = 14
 BADGE_R  = 9        # contributor avatar badge radius
 LANE_W   = 100      # wider — leaves room for branch label pills
@@ -59,62 +60,96 @@ def _lane_color(lane_idx: int) -> str:
     return COLORS["accent"] if lane_idx == 0 else PALETTE[(lane_idx - 1) % len(PALETTE)]
 
 
+def _build_branch_colors(
+    branch_tip_map: dict[str, list[str]],
+    default_branch: str = "main",
+) -> dict[str, str]:
+    """
+    Return a stable name→color mapping for every unique branch name.
+
+    Assignment order:
+      1. default_branch always gets COLORS["accent"] (same as lane 0).
+      2. All other unique names are sorted alphabetically and assigned
+         PALETTE colors in index order, wrapping if needed.
+
+    This is deterministic: given the same branch_tip_map and default_branch
+    it always returns the same mapping regardless of topological order or
+    how lane indices are assigned.
+    """
+    all_names: list[str] = sorted(
+        {n for names in branch_tip_map.values() for n in names},
+        key=lambda n: (n != default_branch, n),  # default first, then alpha
+    )
+    palette_idx = 0
+    result: dict[str, str] = {}
+    for name in all_names:
+        if name == default_branch:
+            result[name] = COLORS["accent"]
+        else:
+            result[name] = PALETTE[palette_idx % len(PALETTE)]
+            palette_idx += 1
+    return result
+
+
 # ── Lane algorithm ─────────────────────────────────────────────────────────────
 
 def _compute_lanes(
     commits: list[CommitInfo],
     branch_tip_map: dict[str, list[str]],
+    default_branch: str = "main",
+    local_only: set = None,          # kept for API compatibility; no longer used
 ) -> tuple[dict[str, int], dict[int, str]]:
     """
-    Classic streaming lane algorithm — the same approach used by git log --graph.
+    Streaming lane algorithm that gives every branch its own dedicated lane.
 
-    Requires commits to be in TOPOLOGICAL ORDER (children before parents),
-    which graph_commits() guarantees via --topo-order.
-
-    How it works
-    ------------
-    • We maintain a list of "open lanes".  Each slot holds the SHA that lane
-      is currently waiting to see (its next expected commit).
-    • For each commit we find which lane is expecting it, assign it there,
-      then update that lane to expect the commit's first parent.
-    • Merge commits open extra lanes for their additional parents.
-    • When multiple lanes converge on the same SHA (a branch was merged),
-      we free the stale duplicates so their slots can be reused.
-    • Lane 0 is pre-seeded with the primary (main/master) tip so it
-      always gets the green accent colour.
+    Design principles
+    -----------------
+    • Pre-seed one lane per unique branch name before streaming begins.
+      Lanes are allocated in stable order (default branch = 0, then
+      alphabetical) so lane indices — and therefore colours — never shift
+      between loads.
+    • Local-only branches are treated identically to pushed branches: they
+      always get their own lane.  Visual distinction (hollow nodes, dashed
+      spine) is handled at render time, not here.
+    • When a branch is "ahead of remote" (two tip SHAs sharing the same
+      branch name), both tips flow through the same pre-seeded lane.
+    • The old depth-reordering post-pass is removed; stable pre-seeding
+      makes it unnecessary.
     """
     if not commits:
         return {}, {}
 
-    # ── Identify primary branch ───────────────────────────────────────────
-    primary = next(
-        (n for names in branch_tip_map.values() for n in names if n in ("main", "master")),
-        None,
+    commit_index = {c.sha: i for i, c in enumerate(commits)}
+    visible_shas = {c.sha for c in commits}
+
+    # ── Unique branch names in stable order (default first, then alpha) ───
+    unique_names: list[str] = sorted(
+        {n for names in branch_tip_map.values() for n in names},
+        key=lambda n: (n != default_branch, n),
     )
 
-    # When multiple tips share the same branch name (local ahead of remote),
-    # pick the topologically newest one (lowest index = child before parent).
-    commit_index = {c.sha: i for i, c in enumerate(commits)}
-    if primary:
-        primary_candidates = [sha for sha, names in branch_tip_map.items()
-                              if primary in names]
-        primary_tip = min(primary_candidates,
-                          key=lambda s: commit_index.get(s, 10**9),
-                          default=None)
-    else:
-        primary_tip = None
+    # For each name, collect all tip SHAs and pick the topologically newest
+    # (lowest commit_index = child before parent in topo order).
+    name_to_shas: dict[str, set[str]] = {}
+    for sha, names in branch_tip_map.items():
+        for n in names:
+            name_to_shas.setdefault(n, set()).add(sha)
 
-    # ── Seed only lane 0 with the primary tip; allocate all others lazily ─
-    # Branches get a lane only when first encountered — either as a merge
-    # parent (parents[1:] loop below) or as an unmerged tip that appears
-    # early in topo order and hits the "not expected" path.
-    # This keeps lane indices compact so merge lines span only as many lanes
-    # as there are concurrently active branches, not the total branch count.
+    name_to_seed: dict[str, str] = {}
+    for name in unique_names:
+        candidates = name_to_shas[name]
+        name_to_seed[name] = min(candidates, key=lambda s: commit_index.get(s, 10**9))
+
+    # ── Pre-seed one lane per unique branch name ───────────────────────────
+    # If the tip SHA is outside the visible range, seed the slot with None
+    # so the lane name is reserved but the slot is immediately free for reuse.
     lanes: list[Optional[str]] = []
-    if primary_tip:
-        lanes.append(primary_tip)
-
     lane_branch: dict[int, str] = {}
+    for lane_idx, name in enumerate(unique_names):
+        seed = name_to_seed[name]
+        lanes.append(seed if seed in visible_shas else None)
+        lane_branch[lane_idx] = name
+
     assignment: dict[str, int] = {}
 
     for commit in commits:
@@ -124,7 +159,7 @@ def _compute_lanes(
         lane_idx = next((i for i, s in enumerate(lanes) if s == sha), None)
 
         if lane_idx is None:
-            # Not expected — reuse first free slot or open a new lane
+            # Not expected by any pre-seeded lane — reuse free slot or open new.
             free = next((i for i, s in enumerate(lanes) if s is None), None)
             if free is not None:
                 lane_idx = free
@@ -134,14 +169,19 @@ def _compute_lanes(
 
         assignment[sha] = lane_idx
 
-        # Record branch name when a branch tip is first assigned to a lane
-        if sha in branch_tip_map and lane_idx not in lane_branch:
+        # If lane_branch wasn't set at pre-seed (fallback allocation above),
+        # fill it now from the tip map.
+        if lane_idx not in lane_branch and sha in branch_tip_map:
             names = branch_tip_map[sha]
-            preferred = next((n for n in names if n == primary), names[0])
-            lane_branch[lane_idx] = preferred
+            for n in names:
+                if n not in lane_branch.values():
+                    lane_branch[lane_idx] = n
+                    break
+            else:
+                lane_branch[lane_idx] = names[0]
 
-        # Free stale entries: when a branch merges into another, multiple
-        # lanes can end up pointing at the same parent SHA — clean them up
+        # Free stale duplicate tracking slots (multiple lanes converging on
+        # the same SHA after a merge).
         for i in range(len(lanes)):
             if i != lane_idx and lanes[i] == sha:
                 lanes[i] = None
@@ -149,26 +189,29 @@ def _compute_lanes(
         parents = commit.parents
         if not parents:
             lanes[lane_idx] = None
-        else:
-            parent0 = parents[0]
-            # If the first parent is an unprocessed branch tip, don't let the
-            # current lane inherit it — that would place two different branches
-            # in the same lane.  Terminate this lane and open a fresh lane for
-            # the parent tip so each branch keeps its own dedicated lane.
-            if parent0 in branch_tip_map and parent0 not in assignment:
-                lanes[lane_idx] = None   # this branch's lane ends here
-                if not any(s == parent0 for s in lanes):
-                    # Always append rather than reuse a free slot: a free slot
-                    # may already have a lane_branch name from a prior branch.
-                    new_lane_idx = len(lanes)
-                    lanes.append(parent0)
-                    p_names = branch_tip_map[parent0]
-                    p_pref = next((n for n in p_names if n == primary), p_names[0])
-                    lane_branch[new_lane_idx] = p_pref
-            else:
-                lanes[lane_idx] = parent0
-            for p in parents[1:]:           # open extra lanes for merge parents
-                if not any(s == p for s in lanes):
+            continue
+
+        parent0 = parents[0]
+        # Always continue this lane through its first parent.  When two lanes
+        # both chase the same SHA (because a pre-seeded lane also points there),
+        # next(… if s == sha …) picks the LOWEST index first so the pre-seeded
+        # lane always wins the commit.  The stale duplicate is freed by the loop
+        # below that clears lanes[i] where i != lane_idx and lanes[i] == sha.
+        lanes[lane_idx] = parent0
+
+        # Merge parents (parents[1:]) — ensure each has a tracking slot.
+        for p in parents[1:]:
+            if not any(s == p for s in lanes):
+                p_names = set(branch_tip_map.get(p, []))
+                preferred_slot = next(
+                    (i for i, n in lane_branch.items()
+                     if n in p_names and lanes[i] is None),
+                    None,
+                )
+                if preferred_slot is not None:
+                    new_lane_idx = preferred_slot
+                    lanes[preferred_slot] = p
+                else:
                     free = next((i for i, s in enumerate(lanes) if s is None), None)
                     if free is not None:
                         new_lane_idx = free
@@ -176,47 +219,36 @@ def _compute_lanes(
                     else:
                         new_lane_idx = len(lanes)
                         lanes.append(p)
-                    # Record name if the merge parent happens to be a branch tip
-                    if p in branch_tip_map and new_lane_idx not in lane_branch:
-                        p_names = branch_tip_map[p]
-                        p_pref = next((n for n in p_names if n == primary), p_names[0])
-                        lane_branch[new_lane_idx] = p_pref
+                if new_lane_idx not in lane_branch and p in branch_tip_map:
+                    p_names_list = branch_tip_map[p]
+                    p_pref = next(
+                        (n for n in p_names_list if n not in lane_branch.values()),
+                        p_names_list[0],
+                    )
+                    lane_branch[new_lane_idx] = p_pref
 
-    # ── Build lane_branch: lane_index -> display name ─────────────────────
-    # Names were recorded inline above for tip SHAs.
-    # Fallback for any lanes that still lack a name.
-    for sha, lane_idx in assignment.items():
-        if lane_idx not in lane_branch:
-            names = branch_tip_map.get(sha, [])
-            lane_branch[lane_idx] = (names[0] if names else "") or f"branch-{lane_idx}"
-
-    lane_branch.setdefault(0, primary or "main")
-
-    # ── Re-order lanes by depth so nested branches sit further from main ──
-    # Iterate in reverse topo order (oldest commit first) so each lane's
-    # parent depth is already known when we compute that lane's depth.
-    lane_depth: dict[int, int] = {0: 0}
+    # ── Name any lanes opened during traversal ────────────────────────────
+    # Pre-seeded lanes already have names.  Lanes opened dynamically for
+    # non-tip merge parents do not.  Walk the topo stream in reverse
+    # (oldest first) so each commit's parents are already named when we
+    # reach it, allowing reliable inheritance instead of generating
+    # phantom "branch-N" names that pollute the filter panel.
     for commit in reversed(commits):
-        lane = assignment.get(commit.sha, 0)
-        if lane == 0 or not commit.parents or lane in lane_depth:
-            continue
-        parent_lane = assignment.get(commit.parents[0], 0)
-        if parent_lane != lane:
-            lane_depth[lane] = lane_depth.get(parent_lane, 0) + 1
+        sha = commit.sha
+        lane_idx = assignment.get(sha)
+        if lane_idx is None or lane_idx in lane_branch:
+            continue                                    # already named or unassigned
+        # Inherit from the first parent that has a named lane
+        inherited = ""
+        for p_sha in commit.parents:
+            p_lane = assignment.get(p_sha)
+            if p_lane is not None and p_lane in lane_branch:
+                inherited = lane_branch[p_lane]
+                break
+        names = branch_tip_map.get(sha, [])
+        lane_branch[lane_idx] = names[0] if names else inherited
 
-    # Sort non-zero lanes: shallower branches (closer to main) get lower indices.
-    non_main = sorted(
-        {l for l in assignment.values() if l != 0},
-        key=lambda l: (lane_depth.get(l, 0), l),
-    )
-    lane_remap: dict[int, int] = {0: 0}
-    for new_idx, old_idx in enumerate(non_main, start=1):
-        lane_remap[old_idx] = new_idx
-
-    if any(k != v for k, v in lane_remap.items()):
-        assignment  = {sha: lane_remap.get(l, l) for sha, l in assignment.items()}
-        lane_branch = {lane_remap.get(l, l): name  for l, name in lane_branch.items()}
-
+    lane_branch.setdefault(0, default_branch)
     return assignment, lane_branch
 
 
@@ -291,7 +323,7 @@ class CommitNode(QGraphicsObject):
                  is_local_only: bool = False, is_head: bool = False,
                  has_stash: bool = False,
                  is_local_tip: bool = False, is_remote_tip: bool = False,
-                 is_action_head: bool = False):
+                 is_action_head: bool = False, is_diverged: bool = False):
         super().__init__()
         self._commit          = commit
         self._color           = QColor(color)
@@ -302,7 +334,8 @@ class CommitNode(QGraphicsObject):
         self._is_local_tip    = is_local_tip
         self._is_remote_tip   = is_remote_tip
         self._is_action_head  = is_action_head
-        self._r             = START_R if is_start else NODE_R
+        self._is_diverged     = is_diverged
+        self._r             = START_R if is_start else (DIVERGED_R if is_diverged else NODE_R)
         self._hovered       = False
         self._selected      = False
 
@@ -725,6 +758,7 @@ class SpatialCanvas(QGraphicsView):
         local_tip_shas: set = None,
         remote_tip_shas: set = None,
         action_head_shas: set = None,
+        default_branch: str = "main",
     ):
         prev_centre = self.mapToScene(self.viewport().rect().center())
 
@@ -756,7 +790,13 @@ class SpatialCanvas(QGraphicsView):
         if not commits:
             return
 
-        lane_map, lane_branch = _compute_lanes(commits, branch_tip_map)
+        lane_map, lane_branch = _compute_lanes(
+            commits, branch_tip_map, default_branch,
+            local_only=self._local_only_branches,
+        )
+
+        # Build a stable branch-name → colour map once, used everywhere below.
+        branch_name_color = _build_branch_colors(branch_tip_map, default_branch)
 
         for commit in commits:
             commit.branch = lane_branch.get(lane_map.get(commit.sha, 0), "")
@@ -807,8 +847,7 @@ class SpatialCanvas(QGraphicsView):
                 path.lineTo(x, y)
             spine = QGraphicsPathItem(path)
             branch_name = lane_branch.get(lane, "")
-            is_local    = branch_name in self._local_only_branches
-            raw_color   = _lane_color(lane) if is_local else "#6b7280"
+            raw_color   = branch_name_color.get(branch_name, _lane_color(lane))
             lane_color  = QColor(raw_color)
             lane_color.setAlpha(160)
             spine.setPen(QPen(lane_color, 2, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
@@ -828,7 +867,9 @@ class SpatialCanvas(QGraphicsView):
                 parent_lane = lane_map.get(p_sha, 0)
                 if parent_lane != commit_lane:
                     px, py = positions[p_sha]
-                    edge = EdgeItem(cx, cy, px, py, _lane_color(parent_lane),
+                    _parent_bname = lane_branch.get(parent_lane, "")
+                    edge = EdgeItem(cx, cy, px, py,
+                                    branch_name_color.get(_parent_bname, _lane_color(parent_lane)),
                                     dashed=False, orientation=orientation)
                     self._scene.addItem(edge)
                     # Arrowhead points along the first elbow segment into M.
@@ -848,7 +889,9 @@ class SpatialCanvas(QGraphicsView):
                                     tip_y - uy * sz - ux * (sz / 2)),
                         ])
                         arrow = QGraphicsPolygonItem(poly)
-                        arrow.setBrush(QBrush(QColor(_lane_color(parent_lane))))
+                        arrow.setBrush(QBrush(QColor(
+                            branch_name_color.get(lane_branch.get(parent_lane, ""),
+                                                   _lane_color(parent_lane)))))
                         arrow.setPen(QPen(Qt.NoPen))
                         arrow.setZValue(3)
                         arrow.setAcceptedMouseButtons(Qt.NoButton)
@@ -861,6 +904,11 @@ class SpatialCanvas(QGraphicsView):
         # Using direct parent-lane comparison avoids the lane_bottom heuristic
         # which breaks under lane reuse (same lane index used by two branches).
         start_shas: set[str] = set()
+        # Maps branch name → current best (oldest) candidate SHA for its start flag.
+        # We iterate newest-first (topo order), so each new cross-lane root found is
+        # OLDER than any previous one for the same branch name.  By always replacing,
+        # the dict ends up holding the OLDEST (leftmost in ORIENT_LR) root per branch.
+        _branch_start: dict[str, str] = {}
         for commit in commits:
             lane = lane_map.get(commit.sha, 0)
             if lane == 0 or not commit.parents:
@@ -871,7 +919,18 @@ class SpatialCanvas(QGraphicsView):
                 continue  # same lane — normal spine segment, not a branch root
             if commit.sha not in positions:
                 continue
-            start_shas.add(commit.sha)
+            # Mark as a start whenever the branch name changes across the lane
+            # boundary.  Always REPLACE the previous candidate for the same branch
+            # name so the flag ends up at the oldest (leftmost) cross-lane root.
+            parent_bname = lane_branch.get(parent_lane, "")
+            commit_bname = lane_branch.get(lane, "")
+            if parent_bname != commit_bname:
+                old = _branch_start.get(commit_bname)
+                if old:
+                    start_shas.discard(old)
+                if commit_bname:
+                    _branch_start[commit_bname] = commit.sha
+                start_shas.add(commit.sha)
             cx, cy = positions[commit.sha]
             if p_sha in positions:
                 px, py = positions[p_sha]
@@ -885,26 +944,34 @@ class SpatialCanvas(QGraphicsView):
                     px, py = H_PAD, cy - ROW_H
                 else:
                     px, py = H_PAD, cy + ROW_H
-            self._scene.addItem(EdgeItem(cx, cy, px, py, _lane_color(lane),
-                                         dashed=True, orientation=orientation))
+            _bname = lane_branch.get(lane, "")
+            # Only draw a dashed "branch-creation" edge when the branch name
+            # genuinely differs across the lane boundary.  Skip it when the
+            # two lanes share the same name (e.g. diverged local/remote tips
+            # for the same branch) to avoid spurious creation arrows.
+            if _bname != parent_bname:
+                self._scene.addItem(EdgeItem(
+                    cx, cy, px, py,
+                    branch_name_color.get(_bname, _lane_color(lane)),
+                    dashed=True, orientation=orientation,
+                ))
 
         # Fallback: branch tips with no cross-lane root still get a start flag.
+        # Seed seen_fallback from _branch_start so we skip branches already handled.
+        seen_fallback: set[str] = set(_branch_start.keys())
         for tip_sha in branch_tip_map:
             if tip_sha in positions and tip_sha not in start_shas:
                 tip_lane = lane_map.get(tip_sha)
-                if tip_lane is not None and tip_lane != 0:
-                    start_shas.add(tip_sha)
+                if tip_lane is None or tip_lane == 0:
+                    continue
+                tip_names = set(branch_tip_map[tip_sha])
+                if tip_names & seen_fallback:
+                    continue  # this branch already has a start flag
+                start_shas.add(tip_sha)
+                seen_fallback |= tip_names
 
         # ── 3. Nodes ───────────────────────────────────────────────────────
-        # Build branch-name → colour from lane_branch first (covers all lanes),
-        # then from tip commits (lane 0 / primary is always first, setting the
-        # authoritative colour before other lanes for the same branch name).
-        branch_name_color: dict[str, str] = {}
-        for ln in sorted(lane_branch):           # lane 0 first → primary wins
-            bname = lane_branch[ln]
-            if bname and bname not in branch_name_color:
-                branch_name_color[bname] = _lane_color(ln)
-
+        # branch_name_color was already built via _build_branch_colors() above.
         for commit in commits:
             cx, cy      = positions[commit.sha]
             lane        = lane_map.get(commit.sha, 0)
@@ -922,7 +989,8 @@ class SpatialCanvas(QGraphicsView):
                               has_stash=commit.sha in self._stash_shas,
                               is_local_tip=commit.sha in self._local_tip_shas_c,
                               is_remote_tip=commit.sha in self._remote_tip_shas_c,
-                              is_action_head=commit.sha in self._action_head_shas)
+                              is_action_head=commit.sha in self._action_head_shas,
+                              is_diverged=False)
             node.setPos(cx, cy)
             node.clicked.connect(self._on_node_clicked)
             self._scene.addItem(node)

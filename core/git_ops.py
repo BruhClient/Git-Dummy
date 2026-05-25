@@ -128,6 +128,42 @@ def current_branch(path: str) -> str:
     return "" if result == "HEAD" else result
 
 
+def get_default_branch(path: str) -> str:
+    """Detect the repo's default branch without hitting the network.
+
+    Detection order:
+    1. git symbolic-ref refs/remotes/origin/HEAD  (strips refs/remotes/origin/ prefix)
+    2. git rev-parse --verify main
+    3. git rev-parse --verify master
+    4. Fallback: "main"
+    """
+    try:
+        r = subprocess.run(
+            ["git", "symbolic-ref", "refs/remotes/origin/HEAD"],
+            cwd=path, capture_output=True, text=True, timeout=5,
+        )
+        if r.returncode == 0:
+            ref = r.stdout.strip()
+            prefix = "refs/remotes/origin/"
+            if ref.startswith(prefix):
+                return ref[len(prefix):]
+    except Exception:
+        pass
+
+    for candidate in ("main", "master"):
+        try:
+            r = subprocess.run(
+                ["git", "rev-parse", "--verify", candidate],
+                cwd=path, capture_output=True, text=True, timeout=5,
+            )
+            if r.returncode == 0:
+                return candidate
+        except Exception:
+            pass
+
+    return "main"
+
+
 def branch_for_commit(path: str, sha: str) -> str:
     """Return a branch name that contains sha — used when in detached HEAD."""
     r = subprocess.run(
@@ -843,18 +879,16 @@ def delete_branch_full(path: str, branch: str, fallback_sha: str = "") -> tuple[
         except Exception:
             pass
 
-        # Fall back to main / master if --contains found nothing usable
+        # Fall back to the repo's detected default branch if --contains found nothing usable
         if not checkout_target:
-            for candidate in ("main", "master"):
-                if candidate == branch:
-                    continue
+            default = get_default_branch(path)
+            if default != branch:
                 r = subprocess.run(
-                    ["git", "rev-parse", "--verify", candidate],
+                    ["git", "rev-parse", "--verify", default],
                     cwd=path, capture_output=True, text=True, timeout=5,
                 )
                 if r.returncode == 0:
-                    checkout_target = candidate
-                    break
+                    checkout_target = default
 
         # Last resort: detached checkout to the parent SHA
         if not checkout_target:
@@ -1008,4 +1042,143 @@ def push_to_github(
     except RuntimeError as e:
         return False, str(e)
     except Exception as e:
+        return False, str(e)
+
+
+# ── PR conflict detection (dry-run, never modifies working tree) ───────────────
+
+def check_pr_conflicts(path: str, feature_branch: str,
+                       target_branch: str = "main") -> tuple[bool, list, dict]:
+    """
+    Dry-run merge check using git merge-tree.
+    Returns (has_conflicts, conflict_files, conflict_content).
+    Never modifies the working tree.
+    """
+    try:
+        # Fetch latest from remote so we're comparing current state
+        subprocess.run(["git", "fetch", "origin"],
+                       cwd=path, capture_output=True, text=True, timeout=30)
+
+        # Resolve remote refs
+        feat_ref   = f"origin/{feature_branch}"
+        target_ref = f"origin/{target_branch}"
+
+        # Find the merge base
+        base_r = subprocess.run(
+            ["git", "merge-base", target_ref, feat_ref],
+            cwd=path, capture_output=True, text=True, timeout=10,
+        )
+        if base_r.returncode != 0:
+            # No common ancestor — treat as no conflicts (GitHub will decide)
+            return False, [], {}
+        base_sha = base_r.stdout.strip()
+        if not base_sha:
+            return False, [], {}
+
+        # Dry-run merge
+        tree_r = subprocess.run(
+            ["git", "merge-tree", base_sha, target_ref, feat_ref],
+            cwd=path, capture_output=True, text=True, timeout=15,
+        )
+        output = tree_r.stdout
+        if "<<<<<<<" not in output:
+            return False, [], {}
+
+        # Parse conflicting files and capture content
+        conflict_files: list[str] = []
+        conflict_content: dict    = {}
+        current_file: str | None  = None
+        current_lines: list[str]  = []
+
+        for line in output.splitlines():
+            if line.startswith("changed in both") or \
+               line.startswith("+++ ") or line.startswith("--- "):
+                # merge-tree section header — extract filename
+                if line.startswith("+++ ") or line.startswith("--- "):
+                    fname = line[4:].strip().lstrip("b/")
+                    if fname and fname not in conflict_files:
+                        if current_file and current_lines:
+                            conflict_content[current_file] = "\n".join(current_lines)
+                        current_file = fname
+                        current_lines = []
+                        conflict_files.append(fname)
+            else:
+                if current_file is not None:
+                    current_lines.append(line)
+
+        if current_file and current_lines:
+            conflict_content[current_file] = "\n".join(current_lines)
+
+        # Fallback: if we detected conflict markers but no filenames parsed
+        if not conflict_files and "<<<<<<<" in output:
+            return True, ["(unknown files — check manually)"], {}
+
+        return bool(conflict_files), conflict_files, conflict_content
+
+    except Exception as e:
+        # On any error, return no-conflict so the GitHub API can make the
+        # final determination rather than blocking the user entirely.
+        return False, [], {}
+
+
+# ── PR local merge (used after conflict resolution) ────────────────────────────
+
+def merge_pr_locally(path: str, feature_branch: str, target_branch: str,
+                     decisions: dict) -> tuple[bool, str]:
+    """
+    After the user resolves conflicts in _MergeConflictDialog, merge the
+    feature branch into target_branch locally and push.
+
+    decisions: {filepath: "ours"|"theirs"} from the conflict dialog.
+    Returns (ok, err).
+    """
+    try:
+        # Checkout target branch
+        cur_r = subprocess.run(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            cwd=path, capture_output=True, text=True, timeout=5,
+        )
+        current = cur_r.stdout.strip()
+        if current != target_branch:
+            ok, err = _run(path, ["git", "checkout", target_branch])
+            if not ok:
+                return False, f"Could not checkout {target_branch}: {err}"
+
+        # Pull latest target
+        _run(path, ["git", "pull", "--ff-only", "origin", target_branch], timeout=30)
+
+        # Attempt merge with no-commit to apply decisions
+        _run(path, ["git", "merge", "--no-ff", "--no-commit", feature_branch], timeout=60)
+
+        # Apply per-file decisions
+        for filepath, choice in decisions.items():
+            flag = "--ours" if choice == "ours" else "--theirs"
+            ok_f, _ = _run(path, ["git", "checkout", flag, filepath])
+            if ok_f:
+                _run(path, ["git", "add", filepath])
+
+        # Commit the merge
+        ok_c, err_c = _run(
+            path,
+            ["git", "commit", "--no-edit", "-m",
+             f"Merge branch '{feature_branch}' into {target_branch}"],
+            timeout=30,
+        )
+        if not ok_c:
+            subprocess.run(["git", "merge", "--abort"],
+                           cwd=path, capture_output=True, text=True, timeout=10)
+            return False, err_c
+
+        # Push target branch
+        ok_p, err_p = _run(path, ["git", "push", "origin", target_branch], timeout=60)
+        if not ok_p:
+            return False, f"Merged locally but push failed: {err_p}"
+
+        return True, ""
+    except Exception as e:
+        try:
+            subprocess.run(["git", "merge", "--abort"],
+                           cwd=path, capture_output=True, text=True, timeout=10)
+        except Exception:
+            pass
         return False, str(e)

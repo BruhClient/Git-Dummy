@@ -181,18 +181,29 @@ class GitTracker:
                 except Exception:
                     pass
         else:
-            # Include local branches whose tip isn't on any remote ref.
-            # Only mark as local_only if the branch name itself doesn't exist
-            # on the remote — branches that are merely "ahead" of remote are
-            # handled commit-by-commit via get_unpushed_shas().
-            remote_tip_shas     = {sha     for _, _,       sha  in ref_list}
-            remote_branch_names = {display for _, display, _    in ref_list}
+            # Include local branches that are ahead of (or have no) remote
+            # counterpart.  Compare each branch against its OWN remote SHA
+            # rather than the global remote_tip_shas set — using the set was
+            # wrong because a local branch whose SHA coincides with a *different*
+            # remote branch's tip would be silently dropped, causing _compute_lanes
+            # to assign that commit to the wrong lane (Bug C-1).
+            remote_sha_by_name: dict[str, str] = {}
+            for _, display, sha in ref_list:
+                remote_sha_by_name.setdefault(display, sha)  # first entry wins
             for b in self._repo.branches:
                 try:
-                    if b.commit.hexsha not in remote_tip_shas:
+                    own_remote_sha = remote_sha_by_name.get(b.name)
+                    if own_remote_sha is not None:
+                        # Branch has a remote counterpart — add only when local
+                        # is ahead of it (SHA differs).  Fully-synced branches
+                        # are already represented via the remote ref entry.
+                        if b.commit.hexsha != own_remote_sha:
+                            ref_list.append((b.name, b.name, b.commit.hexsha))
+                            # NOT local_only — branch exists on remote, just ahead
+                    else:
+                        # No remote counterpart → local-only, always add.
                         ref_list.append((b.name, b.name, b.commit.hexsha))
-                        if b.name not in remote_branch_names:
-                            local_only.add(b.name)
+                        local_only.add(b.name)
                 except Exception:
                     pass
 
@@ -203,6 +214,13 @@ class GitTracker:
         branch_tip_map: dict[str, list[str]] = {}
         for _, display_name, tip_sha in ref_list:
             branch_tip_map.setdefault(tip_sha, []).append(display_name)
+
+        # Stabilise name order: non-local-only names first so _compute_lanes
+        # always picks the pushed branch's name for shared-tip SHAs (e.g. when
+        # a new local branch is created at the same commit as an existing pushed
+        # branch).  False < True, so pushed names sort before local-only names.
+        for sha in branch_tip_map:
+            branch_tip_map[sha].sort(key=lambda n: n in local_only)
 
         # ── Single topological traversal across all refs ──────────────────
         # Passing a list of ref names to iter_commits issues:
@@ -242,6 +260,33 @@ class GitTracker:
             return old != new
         except Exception:
             return False
+
+    def fetch_with_author(self) -> tuple:
+        """Fetch from origin.
+        Returns (changed, best_guess_author) where best_guess_author is the
+        commit-author of the new tip on the first changed ref — a heuristic
+        for 'who pushed'. Empty string when unknown.
+        """
+        if not self._repo or not self.has_remote():
+            return False, ""
+        try:
+            remote = next(iter(self._repo.remotes))
+            old = {ref.name: ref.commit.hexsha for ref in remote.refs}
+            remote.fetch()
+            new = {ref.name: ref.commit.hexsha for ref in remote.refs}
+            changed = old != new
+            author = ""
+            if changed:
+                for ref in remote.refs:
+                    if ref.name in old and old[ref.name] != new.get(ref.name, ""):
+                        try:
+                            author = ref.commit.author.name
+                        except Exception:
+                            pass
+                        break
+            return changed, author
+        except Exception:
+            return False, ""
 
     def get_unpushed_shas(self) -> set[str]:
         """Return commit SHAs reachable from local branches but not from any remote ref."""
@@ -361,7 +406,8 @@ class GitTracker:
     def get_collaborators(self, token: str) -> list[dict]:
         """
         Fetch contributors for this repo from GitHub's API.
-        Returns a list of dicts: {login, avatar_url, contributions}.
+        Returns a list of dicts: {login, avatar_url, contributions, gh_name, role}.
+        role is one of: "admin", "maintain", "write" (owner is resolved in commit_view).
         Returns [] if the repo has no GitHub remote or the request fails.
         """
         import re, requests as req
@@ -399,7 +445,30 @@ class GitTracker:
         except Exception:
             return []
 
-        # Enrich each contributor with their GitHub display name (parallel fetches)
+        # Fetch collaborator roles from GitHub's collaborators API (requires write access)
+        role_map: dict[str, str] = {}
+        try:
+            collab_resp = req.get(
+                f"https://api.github.com/repos/{owner}/{repo}/collaborators",
+                headers=headers,
+                params={"affiliation": "direct", "per_page": 100},
+                timeout=10,
+            )
+            if collab_resp.status_code == 200:
+                for c in collab_resp.json():
+                    login = c.get("login", "")
+                    perms = c.get("permissions", {})
+                    role_name = c.get("role_name", "")
+                    if perms.get("admin") or role_name == "admin":
+                        role_map[login] = "admin"
+                    elif perms.get("maintain") or role_name == "maintain":
+                        role_map[login] = "maintain"
+                    else:
+                        role_map[login] = "write"
+        except Exception:
+            pass
+
+        # Enrich each contributor with their GitHub display name and role (parallel fetches)
         import concurrent.futures
 
         def _fetch_gh_name(collab):
@@ -411,10 +480,12 @@ class GitTracker:
                     timeout=5,
                 )
                 if r.status_code == 200:
-                    return {**collab, "gh_name": r.json().get("name") or ""}
+                    gh_name = r.json().get("name") or ""
+                    return {**collab, "gh_name": gh_name,
+                            "role": role_map.get(login, "write")}
             except Exception:
                 pass
-            return {**collab, "gh_name": ""}
+            return {**collab, "gh_name": "", "role": role_map.get(login, "write")}
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=10) as pool:
             enriched = list(pool.map(_fetch_gh_name, contributors))
