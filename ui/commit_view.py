@@ -35,7 +35,7 @@ from ui.components.avatar import _AVATAR_CACHE, _AVATAR_DIR, _avatar_disk_path, 
 from ui.workers.commit_workers import (
     _CollabLoader, _Loader, _CommitDetailWorker, _VisibilityWorker,
     _FetchWorker, _UncommittedRefreshWorker, _NavigateWorker,
-    _FirstCommitWorker, _CreateRepoWorker, _BranchCountWorker,
+    _FirstCommitWorker, _CreateRepoWorker,
 )
 from ui.dialogs.github_connect import _GitHubConnectDialog
 from ui.components.loading_overlay import _LoadingOverlay
@@ -48,7 +48,6 @@ from ui.components.collaborator_panel import (
 )
 from ui.components.explore_banner import _ExploreBanner
 from ui.components.toast import _Toast
-from ui.components.branch_list_panel import BranchListPanel
 from ui.dialogs.conflict_dialog import (
     _numbered, _ConflictDialog, _PullDirtyDialog, _NavigateDirtyDialog, _MergeConflictDialog,
 )
@@ -442,8 +441,6 @@ class CommitViewPage(QWidget):
     _wizard_pr_done_sig     = pyqtSignal(bool, str)          # ok, err
     # PR merge conflict check (thread → main)
     _pr_conflict_check_sig  = pyqtSignal(bool, list, object, object)  # has_conflicts, files, content, pr
-    # Branch list panel unique-count worker
-    _branch_count_done_sig  = pyqtSignal(dict)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -502,14 +499,7 @@ class CommitViewPage(QWidget):
         self._filter_panel = _FilterPanel(self)
         self._filter_panel.raise_()
 
-        self._branch_list_panel = BranchListPanel(self)
-        self._branch_list_panel.raise_()
-        self._branch_list_panel.hide()
-        self._branch_count_thread: Optional[QThread] = None
-        self._branch_count_worker = None
-        self._branch_count_done_sig.connect(self._on_branch_count_done)
         self._filter_panel.filter_changed.connect(self._apply_canvas_filter)
-        self._branch_list_panel.branch_focused.connect(self._on_branch_focused)
 
         self._filter_btn = QPushButton("⊟ Filter", self)
         self._filter_btn.setFixedHeight(34)
@@ -871,41 +861,10 @@ class CommitViewPage(QWidget):
 
     # ── Branch count worker ────────────────────────────────────────────────────
 
-    def _start_branch_count_worker(self, branches: list, default_branch: str):
-        if self._branch_count_thread and self._branch_count_thread.isRunning():
-            return  # previous count still in flight — skip
-        thread = QThread()
-        worker = _BranchCountWorker(self._tracker._path, branches, default_branch)
-        worker.moveToThread(thread)
-        thread.started.connect(worker.run)
-        worker.finished.connect(self._branch_count_done_sig)
-        worker.finished.connect(thread.quit)
-        thread.finished.connect(self._on_branch_count_thread_done)
-        self._branch_count_thread = thread
-        self._branch_count_worker = worker
-        thread.start()
-
-    def _on_branch_count_thread_done(self):
-        self._branch_count_thread = None
-        self._branch_count_worker = None
-
     def _on_branch_count_done(self, counts: dict):
         default = getattr(self._settings_panel, "_default_branch", "main")
-        # Default branch first, then the rest sorted by count desc
-        ordered: dict = {}
-        if default in counts:
-            ordered[default] = counts[default]
-        for b in sorted(counts, key=lambda b: -counts[b]):
-            if b != default:
-                ordered[b] = counts[b]
-        self._branch_list_panel.update_branches(ordered)
-        self._branch_list_panel.show()
-        self._branch_list_panel.raise_()
-        margin = 16
-        blp = self._branch_list_panel
-        blp.adjustSize()
-        blp.move(self.width() - blp.width() - margin,
-                 self._header.height() + margin)
+        main_count = counts.get(default, counts.get("master", 0))
+        self._header.set_count(main_count, default)
 
     # ── Fetch ──────────────────────────────────────────────────────────────────
 
@@ -1199,7 +1158,6 @@ class CommitViewPage(QWidget):
         self._sha_to_branch = {c.sha: c.branch for c in commits}
         self._update_position_panel(commits)
         self._branch_depths = _compute_branch_depths(commits, self._local_tip_branch, _dflt)
-        self._header.set_count(len(commits))
         self._loading.hide()
 
         if self._jump_to_sha:
@@ -1376,15 +1334,11 @@ class CommitViewPage(QWidget):
                 w.show()
             if getattr(self, "_pos_panel_was_visible", False):
                 self._position_panel.show()
-            if self._branch_list_panel.isVisible() or getattr(self, "_blp_was_visible", False):
-                self._branch_list_panel.show()
         elif tab == "collaboration":
             self._pos_panel_was_visible = self._position_panel.isVisible()
-            self._blp_was_visible = self._branch_list_panel.isVisible()
             self._content_stack.setCurrentIndex(2)
             for w in [self._zoom_bar, self._minimap, self._orient_bar,
-                      self._filter_btn, self._filter_panel, self._position_panel,
-                      self._branch_list_panel]:
+                      self._filter_btn, self._filter_panel, self._position_panel]:
                 w.hide()
             self._panel.hide_panel()
             self._changes_panel.hide_panel()
@@ -1393,11 +1347,9 @@ class CommitViewPage(QWidget):
         else:
             # "settings"
             self._pos_panel_was_visible = self._position_panel.isVisible()
-            self._blp_was_visible = self._branch_list_panel.isVisible()
             self._content_stack.setCurrentIndex(1)
             for w in [self._zoom_bar, self._minimap, self._orient_bar,
-                      self._filter_btn, self._filter_panel, self._position_panel,
-                      self._branch_list_panel]:
+                      self._filter_btn, self._filter_panel, self._position_panel]:
                 w.hide()
             self._panel.hide_panel()
             self._changes_panel.hide_panel()
@@ -2507,25 +2459,6 @@ class CommitViewPage(QWidget):
                 dimmed.add(commit.sha)
         self._canvas.apply_commit_filter(dimmed)
 
-    def _on_branch_focused(self, name: str):
-        if not name:
-            self._apply_canvas_filter()
-            return
-        tip_sha = next(
-            (sha for sha, names in self._branch_tip_map.items() if name in names),
-            None,
-        )
-        if not tip_sha:
-            return
-        default_branch = getattr(self._settings_panel, "_default_branch", "main")
-        _ok, unique_shas = get_branch_unique_commits(
-            self._tracker._path, tip_sha, default_branch
-        )
-        highlight = set(unique_shas) | {tip_sha}
-        dimmed = {c.sha for c in self._commits if c.sha not in highlight}
-        self._canvas.apply_commit_filter(dimmed)
-        self._canvas.scroll_to_sha(tip_sha)
-
     def _reposition_filter(self):
         fp = self._filter_panel
         fp.adjustSize()
@@ -2574,11 +2507,5 @@ class CommitViewPage(QWidget):
             self._reposition_position()
         if self._filter_panel.isVisible():
             self._reposition_filter()
-        blp = self._branch_list_panel
-        if blp.isVisible():
-            blp.adjustSize()
-            blp.move(self.width() - blp.width() - margin,
-                     self._header.height() + margin)
-            blp.raise_()
         self._toast.reposition()
 

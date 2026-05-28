@@ -171,5 +171,5 @@ class _Header(QWidget):
             self._status_badge.show()
             self._connect_btn.show()
 
-    def set_count(self, n: int):
-        self._count.setText(f"{n} commit{'s' if n != 1 else ''}")
+    def set_count(self, n: int, branch: str = "main"):
+        self._count.setText(f"{n} on {branch}")
