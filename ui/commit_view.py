@@ -55,7 +55,6 @@ from ui.dialogs.conflict_dialog import (
 
 
 # ── Local-only helpers (not extracted) ────────────────────────────────────────
-
 # ── Filter panel ──────────────────────────────────────────────────────────────
 
 class _FilterPanel(QWidget):
