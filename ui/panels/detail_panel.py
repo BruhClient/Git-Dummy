@@ -1,49 +1,28 @@
+"""Main commit detail panel — slides in from the right."""
 from __future__ import annotations
 
 import hashlib
-import re
 import threading
 
 from PyQt5.QtCore import Qt, QPropertyAnimation, QEasingCurve, QRect, QPoint, QTimer, pyqtSignal
 from PyQt5.QtGui import QPainter, QColor, QBrush, QPen, QPainterPath, QPixmap, QFont
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QScrollArea, QFrame, QSizePolicy, QGraphicsOpacityEffect,
-    QDialog, QLineEdit,
+    QFrame, QLineEdit, QComboBox,
 )
+
 from styles.theme import COLORS
 from ui.dialogs import confirm
+from ui.dialogs.message_dialog import _CommitMessageDialog
+from .diff_renderer import (
+    _VScrollArea, _trunc, _scrollbar_style, _close_btn_style,
+    _STATUS_COLOR, _MiniBar, _fade_in, _fade_out_and_remove, _divider, _Row,
+    PANEL_W, CHANGES_W, SWIPE_THRESHOLD,
+)
+from .all_changes_popup import AllChangesPopup
 
 # Roles that can act directly on main; write-level users get the branch redirect.
 _ELEVATED_ROLES = {"owner", "admin", "maintain"}
-
-
-class _VScrollArea(QScrollArea):
-    """QScrollArea that clamps content to viewport width and blocks horizontal scrolling."""
-
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        w = self.widget()
-        if w:
-            w.setMaximumWidth(self.viewport().width())
-
-    def scrollContentsBy(self, dx: int, dy: int):
-        super().scrollContentsBy(0, dy)
-
-    def wheelEvent(self, event):
-        if abs(event.angleDelta().x()) > abs(event.angleDelta().y()):
-            event.ignore()
-        else:
-            super().wheelEvent(event)
-
-
-def _trunc(text: str, n: int) -> str:
-    return text if len(text) <= n else text[:n - 1] + "…"
-
-
-# Hi there! The code below is for the detail panel and changes panel in the commit details view.
-
-# This is another area where I had to make some tradeoffs for the sake of shipping a v1 — in this case, the diff rendering.
 
 _PALETTE = [
     "#6366f1", "#f59e0b", "#ef4444", "#8b5cf6",
@@ -54,6 +33,13 @@ _PALETTE = [
 def _author_color(name: str) -> str:
     idx = int(hashlib.md5(name.encode()).hexdigest(), 16) % len(_PALETTE)
     return _PALETTE[idx]
+
+_STATUS_LABEL = {
+    "added":    "Added",
+    "deleted":  "Deleted",
+    "modified": "Edited",
+    "renamed":  "Renamed",
+}
 
 
 class _HeaderAvatar(QWidget):
@@ -119,375 +105,6 @@ class _HeaderAvatar(QWidget):
         p.setPen(QPen(self._color, 1.5))
         p.drawEllipse(1, 1, s - 2, s - 2)
         p.end()
-
-PANEL_W   = 320
-CHANGES_W = 460
-
-SWIPE_THRESHOLD = 70   # px rightward drag to dismiss a panel
-
-def _filter_unchanged(removed: list, added: list) -> tuple[list, list]:
-    """Drop lines that are positionally paired and content-identical — they only moved."""
-    from difflib import SequenceMatcher
-    if not removed or not added:
-        return removed, added
-    # Skip O(n²) filtering for large diffs — would freeze the UI
-    if len(removed) > 300 or len(added) > 300:
-        return removed, added
-    sm = SequenceMatcher(None, [t for _, t in removed], [t for _, t in added], autojunk=False)
-    keep_r = set(range(len(removed)))
-    keep_a = set(range(len(added)))
-    for tag, i1, i2, j1, j2 in sm.get_opcodes():
-        if tag == "equal":
-            for i, j in zip(range(i1, i2), range(j1, j2)):
-                keep_r.discard(i)
-                keep_a.discard(j)
-    return [removed[i] for i in sorted(keep_r)], \
-           [added[j]   for j in sorted(keep_a)]
-
-
-def _chunk_lines(lines: list) -> list[list]:
-    """Split (line_num, text) pairs into consecutive groups."""
-    if not lines:
-        return []
-    chunks, current = [], [lines[0]]
-    for entry in lines[1:]:
-        if entry[0] == current[-1][0] + 1:
-            current.append(entry)
-        else:
-            chunks.append(current)
-            current = [entry]
-    chunks.append(current)
-    return chunks
-
-
-def _compute_hunks(lines: list) -> list[dict]:
-    """Group diff lines into hunks [{removed:[(n,t)…], added:[(n,t)…]}]."""
-    hunks: list[dict] = []
-    cur_r: list = []
-    cur_a: list = []
-    old_num = new_num = 1
-    started = False
-
-    def _flush():
-        if cur_r or cur_a:
-            hunks.append({"removed": list(cur_r), "added": list(cur_a)})
-        cur_r.clear()
-        cur_a.clear()
-
-    for kind, text in lines:
-        if kind == "hunk":
-            if started:
-                _flush()
-            m = re.search(r"@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@", text)
-            if m:
-                old_num, new_num = int(m.group(1)), int(m.group(2))
-            started = True
-        elif kind == "removed":
-            cur_r.append((old_num, text)); old_num += 1
-        elif kind == "added":
-            cur_a.append((new_num, text)); new_num += 1
-        elif kind == "context":
-            old_num += 1; new_num += 1
-    _flush()
-    return hunks
-
-
-def _side_cell(entry, kind: str) -> QWidget:
-    RED_BG  = "rgba(239,68,68,0.10)";  RED_NUM  = "rgba(239,68,68,0.06)"
-    GRN_BG  = "rgba(34,197,94,0.10)";  GRN_NUM  = "rgba(34,197,94,0.06)"
-    cell_bg = (RED_BG if kind == "removed" else GRN_BG) if entry else "transparent"
-    num_bg  = (RED_NUM if kind == "removed" else GRN_NUM) if entry else "transparent"
-
-    cell = QWidget()
-    cell.setAttribute(Qt.WA_StyledBackground, True)
-    cell.setStyleSheet(f"background: {cell_bg};")
-    cl = QHBoxLayout(cell)
-    cl.setContentsMargins(0, 2, 4, 2)
-    cl.setSpacing(0)
-
-    if entry:
-        num, text = entry
-        nl = QLabel(str(num))
-        nl.setFixedWidth(36)
-        nl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-        nl.setStyleSheet(
-            f"background: {num_bg}; font-family: Consolas, monospace;"
-            f" font-size: 10px; color: {COLORS['text_muted']}; padding-right: 6px;"
-        )
-        cl.addWidget(nl)
-        tl = QLabel(text or " ")
-        tl.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
-        tl.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        tl.setStyleSheet(
-            f"background: transparent; font-family: Consolas, monospace;"
-            f" font-size: 11px; color: {COLORS['text_primary']}; padding-left: 6px;"
-        )
-        cl.addWidget(tl, 1)
-    return cell
-
-
-def _side_row(old_e, new_e) -> QWidget:
-    w = QWidget()
-    rl = QHBoxLayout(w)
-    rl.setContentsMargins(0, 0, 0, 0)
-    rl.setSpacing(0)
-    rl.addWidget(_side_cell(old_e, "removed"), 1)
-    div = QWidget()
-    div.setFixedWidth(1)
-    div.setAttribute(Qt.WA_StyledBackground, True)
-    div.setStyleSheet(f"background: {COLORS['border']};")
-    rl.addWidget(div)
-    rl.addWidget(_side_cell(new_e, "added"), 1)
-    return w
-
-
-def _side_gap() -> QWidget:
-    w = QWidget()
-    rl = QHBoxLayout(w)
-    rl.setContentsMargins(0, 0, 0, 0)
-    rl.setSpacing(0)
-    for i in range(2):
-        lbl = QLabel("· · ·")
-        lbl.setAlignment(Qt.AlignCenter)
-        lbl.setStyleSheet(
-            f"background: transparent; color: {COLORS['text_muted']}; font-size: 11px; padding: 4px 0;"
-        )
-        rl.addWidget(lbl, 1)
-        if i == 0:
-            div = QWidget()
-            div.setFixedWidth(1)
-            div.setAttribute(Qt.WA_StyledBackground, True)
-            div.setStyleSheet(f"background: {COLORS['border']};")
-            rl.addWidget(div)
-    return w
-
-
-def _side_header() -> QWidget:
-    w = QWidget()
-    w.setAttribute(Qt.WA_StyledBackground, True)
-    rl = QHBoxLayout(w)
-    rl.setContentsMargins(0, 0, 0, 0)
-    rl.setSpacing(0)
-    for i, (label, color, bg) in enumerate([
-        ("BEFORE", "#ef4444", "rgba(239,68,68,0.08)"),
-        ("AFTER",  "#22c55e", "rgba(34,197,94,0.08)"),
-    ]):
-        cell = QWidget()
-        cell.setAttribute(Qt.WA_StyledBackground, True)
-        cell.setStyleSheet(f"background: {bg};")
-        cell.setFixedHeight(28)
-        cl = QHBoxLayout(cell)
-        cl.setContentsMargins(40, 0, 12, 0)
-        lbl = QLabel(label)
-        lbl.setStyleSheet(
-            f"background: transparent; font-size: 10px; font-weight: 700;"
-            f" color: {color}; letter-spacing: 0.08em;"
-        )
-        cl.addWidget(lbl)
-        cl.addStretch()
-        rl.addWidget(cell, 1)
-        if i == 0:
-            div = QWidget()
-            div.setFixedWidth(1)
-            div.setAttribute(Qt.WA_StyledBackground, True)
-            div.setStyleSheet(f"background: {COLORS['border']};")
-            rl.addWidget(div)
-    return w
-
-
-def _render_hunks(hunks: list, layout: QVBoxLayout, limit: int = 100):
-    if not hunks:
-        return
-    layout.addWidget(_side_header())
-    rendered = 0
-    total = sum(max(len(h["removed"]), len(h["added"])) for h in hunks)
-    for i, hunk in enumerate(hunks):
-        if rendered >= limit:
-            break
-        if i > 0:
-            layout.addWidget(_side_gap())
-        removed, added = hunk["removed"], hunk["added"]
-        for j in range(max(len(removed), len(added))):
-            if rendered >= limit:
-                break
-            layout.addWidget(_side_row(
-                removed[j] if j < len(removed) else None,
-                added[j]   if j < len(added)   else None,
-            ))
-            rendered += 1
-    if total > limit:
-        more = QLabel(f"  … {total - limit} more lines")
-        more.setStyleSheet(
-            f"background: transparent; font-size: 11px;"
-            f" color: {COLORS['text_muted']}; padding: 6px 16px;"
-        )
-        layout.addWidget(more)
-
-
-def _scrollbar_style(colors) -> str:
-    b, m = colors["border"], colors["text_muted"]
-    return f"""
-        QScrollArea {{ background: transparent; border: none; }}
-        QScrollBar:vertical {{
-            background: transparent; width: 8px; margin: 0;
-        }}
-        QScrollBar::handle:vertical {{
-            background: {b}; border-radius: 4px; min-height: 32px;
-        }}
-        QScrollBar::handle:vertical:hover {{ background: {m}; }}
-        QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
-        QScrollBar::add-page:vertical,  QScrollBar::sub-page:vertical  {{ background: transparent; }}
-        QScrollBar:horizontal {{
-            background: transparent; height: 8px; margin: 0;
-        }}
-        QScrollBar::handle:horizontal {{
-            background: {b}; border-radius: 4px; min-width: 32px;
-        }}
-        QScrollBar::handle:horizontal:hover {{ background: {m}; }}
-        QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{ width: 0; }}
-        QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {{ background: transparent; }}
-    """
-
-def _close_btn_style(colors) -> str:
-    return f"""
-        QPushButton {{
-            background: transparent; border: 1px solid {colors['border']};
-            border-radius: 8px; color: {colors['text_muted']}; font-size: 13px;
-        }}
-        QPushButton:hover {{
-            background: {colors['bg_hover']}; color: {colors['text_primary']};
-        }}
-    """
-
-
-class _Row(QWidget):
-    """Label + value pair."""
-
-    def __init__(self, label: str, parent=None):
-        super().__init__(parent)
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(3)
-
-        lbl = QLabel(label.upper())
-        lbl.setStyleSheet(
-            f"background: transparent; font-size: 10px; font-weight: 600; color: {COLORS['text_muted']}; letter-spacing: 0.07em;"
-        )
-        layout.addWidget(lbl)
-
-        self._value = QLabel("—")
-        self._value.setWordWrap(True)
-        self._value.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        self._value.setStyleSheet(f"background: transparent; font-size: 13px; color: {COLORS['text_primary']};")
-        layout.addWidget(self._value)
-
-    def set(self, text: str, color: str = None, mono: bool = False):
-        col = color or COLORS["text_primary"]
-        mono_css = "font-family: Consolas, 'Courier New', monospace;" if mono else ""
-        self._value.setStyleSheet(f"background: transparent; font-size: 13px; color: {col}; {mono_css}")
-        self._value.setText(text)
-
-
-_STATUS_COLOR = {
-    "added":    "#22c55e",
-    "deleted":  "#ef4444",
-    "modified": "#6366f1",
-    "renamed":  "#f59e0b",
-}
-
-_STATUS_LABEL = {
-    "added":    "Added",
-    "deleted":  "Deleted",
-    "modified": "Edited",
-    "renamed":  "Renamed",
-}
-
-
-class _MiniBar(QWidget):
-    """5-block visual bar — green blocks = additions, red = deletions."""
-
-    def __init__(self, ins: int, dels: int, parent=None):
-        super().__init__(parent)
-        self.setFixedSize(40, 8)
-        total = max(ins + dels, 1)
-        self._green = round(ins / total * 5)
-        self._red   = 5 - self._green
-
-    def paintEvent(self, _):
-        p = QPainter(self)
-        p.setRenderHint(QPainter.Antialiasing)
-        p.setPen(Qt.NoPen)
-        block_w, gap = 6, 2
-        for i in range(5):
-            x = i * (block_w + gap)
-            color = "#22c55e" if i < self._green else "#ef4444"
-            p.setBrush(QBrush(QColor(color)))
-            p.drawRoundedRect(x, 0, block_w, 8, 2, 2)
-        p.end()
-
-
-class _DiffLine(QWidget):
-    """Single line in the expanded diff view."""
-
-    _BG     = {"added": "rgba(34,197,94,0.10)", "removed": "rgba(239,68,68,0.10)"}
-    _NUM_BG = {"added": "rgba(34,197,94,0.06)", "removed": "rgba(239,68,68,0.06)"}
-
-    def __init__(self, kind: str, text: str, line_num: int = None, parent=None):
-        super().__init__(parent)
-        self.setAttribute(Qt.WA_StyledBackground, True)
-        self.setStyleSheet(f"background: {self._BG.get(kind, 'transparent')};")
-
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(0, 2, 12, 2)
-        layout.setSpacing(0)
-
-        if line_num is not None:
-            num_lbl = QLabel(str(line_num))
-            num_lbl.setFixedWidth(42)
-            num_lbl.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
-            num_lbl.setStyleSheet(
-                f"background: {self._NUM_BG.get(kind, 'transparent')};"
-                f" font-family: Consolas, monospace; font-size: 10px;"
-                f" color: {COLORS['text_muted']}; padding-right: 8px;"
-            )
-            layout.addWidget(num_lbl)
-
-        lbl = QLabel(text[:140] or " ")
-        lbl.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        fg = COLORS["text_primary"] if kind in ("added", "removed") else COLORS["text_muted"]
-        lbl.setStyleSheet(
-            f"background: transparent; font-family: Consolas, monospace;"
-            f" font-size: 11px; color: {fg}; padding-left: 10px;"
-        )
-        layout.addWidget(lbl)
-
-
-def _fade_in(widget: QWidget, duration: int = 300):
-    effect = QGraphicsOpacityEffect(widget)
-    widget.setGraphicsEffect(effect)
-    anim = QPropertyAnimation(effect, b"opacity", widget)
-    anim.setDuration(duration)
-    anim.setStartValue(0.0)
-    anim.setEndValue(1.0)
-    anim.setEasingCurve(QEasingCurve.OutCubic)
-    anim.start()
-    widget._fade_anim = anim
-
-
-def _fade_out_and_remove(widget: QWidget, layout, duration: int = 250):
-    effect = QGraphicsOpacityEffect(widget)
-    widget.setGraphicsEffect(effect)
-    anim = QPropertyAnimation(effect, b"opacity", widget)
-    anim.setDuration(duration)
-    anim.setStartValue(1.0)
-    anim.setEndValue(0.0)
-    anim.setEasingCurve(QEasingCurve.InCubic)
-    def _remove():
-        layout.removeWidget(widget)
-        widget.setParent(None)
-    anim.finished.connect(_remove)
-    anim.start()
-    widget._fade_anim = anim
 
 
 class _FileCard(QWidget):
@@ -603,639 +220,6 @@ class _FileCard(QWidget):
         self.setStyleSheet("background: transparent; border-radius: 6px;")
 
 
-def _divider() -> QFrame:
-    f = QFrame()
-    f.setFrameShape(QFrame.HLine)
-    f.setStyleSheet(f"background: {COLORS['border']}; max-height: 1px;")
-    return f
-
-
-class ChangesPanel(QWidget):
-    """
-    Slides in from behind the detail panel to show a file's diff.
-    Hidden position: x = parent.width() - PANEL_W  (tucked behind detail panel)
-    Shown  position: x = parent.width() - PANEL_W - CHANGES_W
-    """
-
-    panel_toggled = pyqtSignal(bool)
-
-    def __init__(self, parent: QWidget):
-        super().__init__(parent)
-        self.setFixedWidth(CHANGES_W)
-        self.setAttribute(Qt.WA_StyledBackground, True)
-        self.setStyleSheet(f"""
-            ChangesPanel {{
-                background: {COLORS['bg_secondary']};
-                border-left: 1px solid {COLORS['border']};
-            }}
-        """)
-
-        self._anim = QPropertyAnimation(self, b"geometry")
-        self._anim.setDuration(200)
-        self._anim.setEasingCurve(QEasingCurve.OutCubic)
-
-        self._visible      = False
-        self._current_path: str | None = None
-        self._setup_ui()
-        self._place(visible=False, animate=False)
-
-    def _setup_ui(self):
-        root = QVBoxLayout(self)
-        root.setContentsMargins(0, 0, 0, 0)
-        root.setSpacing(0)
-
-        hdr = QWidget()
-        hdr.setObjectName("chgHdr")
-        hdr.setFixedHeight(64)
-        hdr.setStyleSheet(f"""
-            #chgHdr {{
-                background: {COLORS['bg_card']};
-                border-bottom: 1px solid {COLORS['border']};
-            }}
-        """)
-        hl = QHBoxLayout(hdr)
-        hl.setContentsMargins(16, 0, 12, 0)
-        hl.setSpacing(10)
-
-        info_block = QVBoxLayout()
-        info_block.setSpacing(3)
-        info_block.setAlignment(Qt.AlignVCenter)
-
-        self._title = QLabel("—")
-        self._title.setStyleSheet(
-            f"background: transparent; font-size: 13px; font-weight: 600;"
-            f" color: {COLORS['text_primary']};"
-        )
-        self._subtitle = QLabel("")
-        self._subtitle.setStyleSheet(
-            f"background: transparent; font-size: 10px; color: {COLORS['text_muted']};"
-        )
-        info_block.addWidget(self._title)
-        info_block.addWidget(self._subtitle)
-        hl.addLayout(info_block)
-        hl.addStretch()
-
-        self._source_badge = QLabel("")
-        self._source_badge.setFixedHeight(20)
-        self._source_badge.setAlignment(Qt.AlignCenter)
-        self._source_badge.hide()
-        hl.addWidget(self._source_badge)
-
-        close_btn = QPushButton("✕")
-        close_btn.setFixedSize(40, 40)
-        close_btn.setCursor(Qt.PointingHandCursor)
-        close_btn.setStyleSheet(_close_btn_style(COLORS))
-        close_btn.clicked.connect(self.hide_panel)
-        hl.addWidget(close_btn)
-        root.addWidget(hdr)
-
-        scroll = _VScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.NoFrame)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        scroll.setStyleSheet(_scrollbar_style(COLORS))
-
-        self._content = QWidget()
-        self._content.setStyleSheet("background: transparent;")
-        self._content_layout = QVBoxLayout(self._content)
-        self._content_layout.setContentsMargins(0, 8, 0, 8)
-        self._content_layout.setSpacing(0)
-
-        scroll.setWidget(self._content)
-        scroll.viewport().setStyleSheet("background: transparent;")
-        root.addWidget(scroll)
-
-    def show_file(self, info: dict, source: str = "change"):
-        self._current_path = info["path"]
-        self._title.setText(_trunc(info["name"], 30))
-        self._title.setToolTip(info["name"])
-
-        is_stash = source == "stash"
-        badge_text  = "UNSAVED" if is_stash else "CHANGE"
-        badge_color = COLORS["warning"] if is_stash else COLORS["accent"]
-        badge_bg    = "rgba(214,158,46,0.12)" if is_stash else COLORS["accent_dim"]
-        self._source_badge.setText(badge_text)
-        self._source_badge.setStyleSheet(
-            f"background: {badge_bg}; color: {badge_color};"
-            f" font-size: 9px; font-weight: 700; letter-spacing: 0.08em;"
-            f" border-radius: 4px; padding: 0 7px;"
-        )
-        self._source_badge.show()
-
-        color = _STATUS_COLOR.get(info["status"], COLORS["accent"])
-        label = _STATUS_LABEL.get(info["status"], "")
-        path  = info["path"]
-        self._subtitle.setText(
-            f'<span style="color:{color};">{label}</span>'
-            + (f"  ·  {path}" if "/" in path else "")
-        )
-        self._subtitle.setTextFormat(Qt.RichText)
-
-        while self._content_layout.count():
-            item = self._content_layout.takeAt(0)
-            w = item.widget()
-            if w:
-                w.setParent(None)
-
-        if info["is_binary"]:
-            lbl = QLabel("Binary file — no preview available")
-            lbl.setStyleSheet(
-                f"background: transparent; font-size: 12px;"
-                f" color: {COLORS['text_muted']}; padding: 20px;"
-            )
-            lbl.setAlignment(Qt.AlignCenter)
-            self._content_layout.addWidget(lbl)
-        elif not info["lines"]:
-            lbl = QLabel("No changes to show")
-            lbl.setStyleSheet(
-                f"background: transparent; font-size: 12px;"
-                f" color: {COLORS['text_muted']}; padding: 20px;"
-            )
-            lbl.setAlignment(Qt.AlignCenter)
-            self._content_layout.addWidget(lbl)
-        else:
-            for i, hunk in enumerate(_compute_hunks(info["lines"])):
-                if i > 0:
-                    gap = QLabel("· · ·")
-                    gap.setAlignment(Qt.AlignCenter)
-                    gap.setStyleSheet(
-                        f"background: transparent; color: {COLORS['text_muted']};"
-                        f" font-size: 11px; padding: 6px 0;"
-                    )
-                    self._content_layout.addWidget(gap)
-                self._add_hunk(hunk)
-
-        self._content_layout.addStretch()
-
-        if not self._visible:
-            self._place(visible=True, animate=True)
-
-    def _add_section(self, title: str, lines: list, kind: str):
-        """lines: list of (line_num, text)"""
-        if not lines:
-            return
-        color = "#22c55e" if kind == "added" else "#ef4444"
-
-        hdr = QWidget()
-        hdr.setAttribute(Qt.WA_StyledBackground, True)
-        hdr.setStyleSheet(
-            f"background: {'rgba(34,197,94,0.08)' if kind == 'added' else 'rgba(239,68,68,0.08)'};"
-        )
-        hdr.setFixedHeight(28)
-        hl = QHBoxLayout(hdr)
-        hl.setContentsMargins(12, 0, 12, 0)
-        lbl = QLabel(title)
-        lbl.setStyleSheet(
-            f"background: transparent; font-size: 10px; font-weight: 700;"
-            f" color: {color}; letter-spacing: 0.08em;"
-        )
-        hl.addWidget(lbl)
-        hl.addStretch()
-        count_lbl = QLabel(f"{len(lines)} line{'s' if len(lines) != 1 else ''}")
-        count_lbl.setStyleSheet(
-            f"background: transparent; font-size: 10px; color: {color};"
-        )
-        hl.addWidget(count_lbl)
-        self._content_layout.addWidget(hdr)
-
-        limit  = 80
-        chunks = _chunk_lines(lines[:limit])
-        for i, chunk in enumerate(chunks):
-            if i > 0:
-                gap = QLabel("· · ·")
-                gap.setAlignment(Qt.AlignCenter)
-                gap.setStyleSheet(
-                    f"background: transparent; color: {COLORS['text_muted']};"
-                    f" font-size: 11px; padding: 4px 0;"
-                )
-                self._content_layout.addWidget(gap)
-            for line_num, text in chunk:
-                self._content_layout.addWidget(_DiffLine(kind, text, line_num))
-
-        if len(lines) > limit:
-            more = QLabel(f"  … {len(lines) - limit} more lines")
-            more.setStyleSheet(
-                f"background: transparent; font-size: 11px;"
-                f" color: {COLORS['text_muted']}; padding: 4px 12px;"
-            )
-            self._content_layout.addWidget(more)
-
-    def _add_hunk(self, hunk: dict):
-        removed, added = _filter_unchanged(hunk["removed"], hunk["added"])
-        if not removed and not added:
-            return
-        if removed and added:
-            self._add_section("Previous", removed, "removed")
-            div = QFrame()
-            div.setFrameShape(QFrame.HLine)
-            div.setStyleSheet(f"background: {COLORS['border']}; max-height: 1px;")
-            self._content_layout.addWidget(div)
-            self._add_section("Changed", added, "added")
-        elif removed:
-            self._add_section("Deleted", removed, "removed")
-        elif added:
-            self._add_section("Added", added, "added")
-
-    def hide_panel(self):
-        if self._visible:
-            self._current_path = None
-            self._place(visible=False, animate=True)
-
-    def reposition(self):
-        self._place(self._visible, animate=False)
-
-    def mousePressEvent(self, event):
-        self._swipe_start: QPoint = event.pos()
-        super().mousePressEvent(event)
-
-    def mouseReleaseEvent(self, event):
-        if hasattr(self, "_swipe_start"):
-            if event.pos().x() - self._swipe_start.x() > SWIPE_THRESHOLD:
-                self.hide_panel()
-        super().mouseReleaseEvent(event)
-
-    def _place(self, visible: bool, animate: bool):
-        prev = self._visible
-        self._visible = visible
-        if visible != prev:
-            self.panel_toggled.emit(visible)
-        p = self.parent()
-        if p is None:
-            return
-        h        = p.height()
-        x_shown  = p.width() - PANEL_W - CHANGES_W
-        x_hidden = p.width()
-        target   = QRect(x_shown if visible else x_hidden, 0, CHANGES_W, h)
-        if animate:
-            self._anim.stop()
-            self._anim.setStartValue(self.geometry())
-            self._anim.setEndValue(target)
-            self._anim.start()
-        else:
-            self.setGeometry(target)
-
-
-class AllChangesPopup(QWidget):
-    """Full-screen overlay showing every file's before/after changes."""
-
-    def __init__(self, files: list[dict], commit_label: str, parent=None):
-        super().__init__(parent)
-        self.setAttribute(Qt.WA_StyledBackground, True)
-        self.setObjectName("allChangesOverlay")
-        if parent:
-            self.setGeometry(parent.rect())
-        self.raise_()
-        self._build(files, commit_label)
-
-    def _build(self, files: list[dict], commit_label: str):
-        outer = QVBoxLayout(self)
-        outer.setContentsMargins(80, 60, 80, 60)
-        outer.setSpacing(0)
-
-        card = QWidget()
-        card.setAttribute(Qt.WA_StyledBackground, True)
-        card.setObjectName("acCard")
-        card.setStyleSheet(f"""
-            #acCard {{
-                background: {COLORS['bg_secondary']};
-                border-radius: 12px;
-            }}
-        """)
-        card_layout = QVBoxLayout(card)
-        card_layout.setContentsMargins(0, 0, 0, 0)
-        card_layout.setSpacing(0)
-
-        # Header
-        hdr = QWidget()
-        hdr.setObjectName("acHdr")
-        hdr.setFixedHeight(64)
-        hdr.setStyleSheet(f"""
-            #acHdr {{
-                background: {COLORS['bg_card']};
-                border-bottom: 1px solid {COLORS['border']};
-                border-radius: 12px 12px 0 0;
-            }}
-        """)
-        hl = QHBoxLayout(hdr)
-        hl.setContentsMargins(24, 0, 16, 0)
-        hl.setSpacing(12)
-
-        title = QLabel("All Changes")
-        title.setStyleSheet(
-            f"background: transparent; font-size: 15px; font-weight: 700;"
-            f" color: {COLORS['text_primary']};"
-        )
-        hl.addWidget(title)
-
-        sub = QLabel(commit_label)
-        sub.setStyleSheet(
-            f"background: transparent; font-size: 12px; color: {COLORS['text_muted']};"
-        )
-        hl.addWidget(sub)
-        hl.addStretch()
-
-        n = len(files)
-        count = QLabel(f"{n} file{'s' if n != 1 else ''}")
-        count.setStyleSheet(
-            f"background: transparent; font-size: 12px; color: {COLORS['text_muted']};"
-        )
-        hl.addWidget(count)
-
-        close_btn = QPushButton("✕")
-        close_btn.setFixedSize(40, 40)
-        close_btn.setCursor(Qt.PointingHandCursor)
-        close_btn.setStyleSheet(_close_btn_style(COLORS))
-        close_btn.clicked.connect(self.close)
-        hl.addWidget(close_btn)
-        card_layout.addWidget(hdr)
-
-        # Scrollable file sections
-        scroll = _VScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.NoFrame)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        scroll.setStyleSheet(_scrollbar_style(COLORS))
-
-        content = QWidget()
-        content.setStyleSheet("background: transparent;")
-        cl = QVBoxLayout(content)
-        cl.setContentsMargins(24, 16, 24, 24)
-        cl.setSpacing(0)
-
-        for i, info in enumerate(files):
-            if i > 0:
-                sep = QFrame()
-                sep.setFrameShape(QFrame.HLine)
-                sep.setStyleSheet(
-                    f"background: {COLORS['border']}; max-height: 1px; margin: 0;"
-                )
-                cl.addWidget(sep)
-            cl.addWidget(self._file_section(info))
-
-        cl.addStretch()
-        scroll.setWidget(content)
-        scroll.viewport().setStyleSheet("background: transparent;")
-        card_layout.addWidget(scroll)
-
-        outer.addWidget(card)
-
-    def _file_section(self, info: dict) -> QWidget:
-        section = QWidget()
-        section.setAttribute(Qt.WA_StyledBackground, True)
-        section.setStyleSheet("background: transparent;")
-        sl = QVBoxLayout(section)
-        sl.setContentsMargins(0, 0, 0, 0)
-        sl.setSpacing(0)
-
-        # File header
-        fhdr = QWidget()
-        fhdr.setFixedHeight(52)
-        fhdr.setAttribute(Qt.WA_StyledBackground, True)
-        fhdr.setStyleSheet(f"background: transparent;")
-        fhl = QHBoxLayout(fhdr)
-        fhl.setContentsMargins(0, 0, 0, 0)
-        fhl.setSpacing(8)
-
-        color = _STATUS_COLOR.get(info["status"], COLORS["accent"])
-        dot = QLabel("●")
-        dot.setStyleSheet(f"background: transparent; font-size: 9px; color: {color};")
-        fhl.addWidget(dot)
-
-        name = QLabel(_trunc(info["name"], 36))
-        name.setToolTip(info["name"])
-        name.setStyleSheet(
-            f"background: transparent; font-size: 13px; font-weight: 600;"
-            f" color: {COLORS['text_primary']};"
-        )
-        fhl.addWidget(name)
-
-        if "/" in info["path"]:
-            path_parts = "/".join(info["path"].split("/")[:-1])
-            path_lbl = QLabel("  " + _trunc(path_parts, 32))
-            path_lbl.setToolTip(path_parts)
-            path_lbl.setStyleSheet(
-                f"background: transparent; font-size: 11px; color: {COLORS['text_muted']};"
-            )
-            fhl.addWidget(path_lbl)
-
-        fhl.addStretch()
-
-        if not info["is_binary"]:
-            counts = QLabel(f"+{info['insertions']}  −{info['deletions']}")
-            counts.setStyleSheet(
-                f"background: transparent; font-size: 11px;"
-                f" color: {COLORS['text_muted']}; font-family: monospace;"
-            )
-            fhl.addWidget(counts)
-            fhl.addWidget(_MiniBar(info["insertions"], info["deletions"]))
-        sl.addWidget(fhdr)
-
-        # Before / After
-        if info["is_binary"]:
-            lbl = QLabel("Binary file")
-            lbl.setStyleSheet(
-                f"background: transparent; font-size: 12px;"
-                f" color: {COLORS['text_muted']}; padding: 12px 16px;"
-            )
-            sl.addWidget(lbl)
-        else:
-            for i, hunk in enumerate(_compute_hunks(info["lines"])):
-                if i > 0:
-                    gap = QLabel("· · ·")
-                    gap.setAlignment(Qt.AlignCenter)
-                    gap.setStyleSheet(
-                        f"background: transparent; color: {COLORS['text_muted']};"
-                        f" font-size: 11px; padding: 6px 0;"
-                    )
-                    sl.addWidget(gap)
-                removed, added = hunk["removed"], hunk["added"]
-                if removed and added:
-                    sl.addWidget(self._diff_block("Previous", removed, "removed"))
-                    div = QFrame()
-                    div.setFrameShape(QFrame.HLine)
-                    div.setStyleSheet(f"background: {COLORS['border']}; max-height: 1px;")
-                    sl.addWidget(div)
-                    sl.addWidget(self._diff_block("Changed", added, "added"))
-                elif removed:
-                    sl.addWidget(self._diff_block("Deleted", removed, "removed"))
-                elif added:
-                    sl.addWidget(self._diff_block("Added", added, "added"))
-
-        return section
-
-    def _diff_block(self, title: str, lines: list, kind: str) -> QWidget:
-        color  = "#22c55e" if kind == "added" else "#ef4444"
-        bg     = "rgba(34,197,94,0.06)" if kind == "added" else "rgba(239,68,68,0.06)"
-        block  = QWidget()
-        block.setAttribute(Qt.WA_StyledBackground, True)
-        block.setStyleSheet("background: transparent;")
-        bl = QVBoxLayout(block)
-        bl.setContentsMargins(0, 0, 0, 0)
-        bl.setSpacing(0)
-
-        hdr = QWidget()
-        hdr.setAttribute(Qt.WA_StyledBackground, True)
-        hdr.setStyleSheet(f"background: {bg};")
-        hdr.setFixedHeight(32)
-        hhl = QHBoxLayout(hdr)
-        hhl.setContentsMargins(16, 0, 16, 0)
-        lbl = QLabel(title)
-        lbl.setStyleSheet(
-            f"background: transparent; font-size: 10px; font-weight: 700;"
-            f" color: {color}; letter-spacing: 0.08em;"
-        )
-        hhl.addWidget(lbl)
-        hhl.addStretch()
-        c_lbl = QLabel(f"{len(lines)} line{'s' if len(lines) != 1 else ''}")
-        c_lbl.setStyleSheet(f"background: transparent; font-size: 10px; color: {color};")
-        hhl.addWidget(c_lbl)
-        bl.addWidget(hdr)
-
-        limit   = 120
-        capped  = lines[:limit]
-        chunks  = _chunk_lines(capped)
-        for i, chunk in enumerate(chunks):
-            if i > 0:
-                gap = QLabel("· · ·")
-                gap.setAlignment(Qt.AlignCenter)
-                gap.setStyleSheet(
-                    f"background: transparent; color: {COLORS['text_muted']};"
-                    f" font-size: 11px; padding: 4px 0;"
-                )
-                bl.addWidget(gap)
-            for line_num, text in chunk:
-                bl.addWidget(_DiffLine(kind, text, line_num))
-
-        if len(lines) > limit:
-            more = QLabel(f"  … {len(lines) - limit} more lines")
-            more.setStyleSheet(
-                f"background: transparent; font-size: 11px;"
-                f" color: {COLORS['text_muted']}; padding: 6px 16px;"
-            )
-            bl.addWidget(more)
-
-        return block
-
-    def paintEvent(self, _):
-        p = QPainter(self)
-        p.fillRect(self.rect(), QColor(0, 0, 0, 170))
-        p.end()
-
-    def mousePressEvent(self, event):
-        card = self.findChild(QWidget, "acCard")
-        if card and not card.geometry().contains(event.pos()):
-            self.close()
-        super().mousePressEvent(event)
-
-    def keyPressEvent(self, event):
-        if event.key() == Qt.Key_Escape:
-            self.close()
-        super().keyPressEvent(event)
-
-
-class _CommitMessageDialog(QDialog):
-    """Dark-themed single-line input dialog (commit message, branch name, etc.)."""
-
-    def __init__(self, parent=None, title: str = "Save Changes",
-                 placeholder: str = "Commit message…"):
-        super().__init__(parent)
-        self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
-        self.setAttribute(Qt.WA_TranslucentBackground)
-        self.setFixedWidth(420)
-
-        root = QVBoxLayout(self)
-        root.setContentsMargins(0, 0, 0, 0)
-
-        card = QWidget()
-        card.setObjectName("cmCard")
-        card.setAttribute(Qt.WA_StyledBackground, True)
-        card.setStyleSheet(f"""
-            #cmCard {{
-                background: {COLORS['bg_card']};
-                border: 1px solid {COLORS['border']};
-                border-radius: 12px;
-            }}
-        """)
-        vl = QVBoxLayout(card)
-        vl.setContentsMargins(24, 20, 24, 20)
-        vl.setSpacing(14)
-
-        title_lbl = QLabel(title)
-        title_lbl.setStyleSheet(
-            f"font-size: 15px; font-weight: 700; color: {COLORS['text_primary']};"
-            f" background: transparent;"
-        )
-        vl.addWidget(title_lbl)
-
-        self._input = QLineEdit()
-        self._input.setPlaceholderText(placeholder)
-        self._input.setStyleSheet(f"""
-            QLineEdit {{
-                background: {COLORS['bg_primary']};
-                border: 1px solid {COLORS['border']};
-                border-radius: 8px;
-                color: {COLORS['text_primary']};
-                font-size: 13px;
-                padding: 9px 12px;
-            }}
-            QLineEdit:focus {{ border-color: {COLORS['accent']}; }}
-        """)
-        self._input.returnPressed.connect(self._on_save)
-        vl.addWidget(self._input)
-
-        btn_row = QHBoxLayout()
-        btn_row.setSpacing(8)
-
-        cancel_btn = QPushButton("Cancel")
-        cancel_btn.setFixedHeight(38)
-        cancel_btn.setCursor(Qt.PointingHandCursor)
-        cancel_btn.setStyleSheet(f"""
-            QPushButton {{
-                background: transparent;
-                border: 1px solid {COLORS['border']};
-                border-radius: 8px;
-                color: {COLORS['text_secondary']};
-                font-size: 12px; font-weight: 600;
-            }}
-            QPushButton:hover {{ border-color: {COLORS['text_secondary']}; }}
-        """)
-        cancel_btn.clicked.connect(self.reject)
-
-        save_btn = QPushButton("Save")
-        save_btn.setFixedHeight(38)
-        save_btn.setCursor(Qt.PointingHandCursor)
-        save_btn.setStyleSheet(f"""
-            QPushButton {{
-                background: {COLORS['accent']};
-                border: none;
-                border-radius: 8px;
-                color: #000;
-                font-size: 12px; font-weight: 700;
-            }}
-            QPushButton:hover {{ background: {COLORS.get('accent_hover', COLORS['accent'])}; }}
-            QPushButton:disabled {{ background: {COLORS['border']}; color: {COLORS['text_muted']}; }}
-        """)
-        save_btn.clicked.connect(self._on_save)
-
-        btn_row.addWidget(cancel_btn)
-        btn_row.addWidget(save_btn)
-        vl.addLayout(btn_row)
-
-        root.addWidget(card)
-
-    def _on_save(self):
-        if self._input.text().strip():
-            self.accept()
-
-    def get_message(self) -> str:
-        return self._input.text().strip()
-
-    def showEvent(self, event):
-        super().showEvent(event)
-        self._input.clear()
-        self._input.setFocus()
-
-
 class DetailPanel(QWidget):
     """
     Slides in from the right edge of its parent when show_commit() is called.
@@ -1274,8 +258,6 @@ class DetailPanel(QWidget):
 
         self._visible = False
         self._setup_ui()
-
-        # Start off-screen to the right
         self._place(visible=False, animate=False)
 
     # ── UI ────────────────────────────────────────────────────────────────────
@@ -1285,7 +267,6 @@ class DetailPanel(QWidget):
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
 
-        # Header bar
         header = QWidget()
         header.setObjectName("panelHeader")
         header.setFixedHeight(64)
@@ -1328,7 +309,6 @@ class DetailPanel(QWidget):
         header_layout.addWidget(close_btn)
         root.addWidget(header)
 
-        # Scrollable content
         scroll = _VScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
@@ -1443,12 +423,10 @@ class DetailPanel(QWidget):
                     f"QPushButton:disabled {{ border-color: {COLORS['border']};"
                     f" color: {COLORS['text_muted']}; }}")
 
-        # ── Role / protection state (set externally, used by banner) ──────────
         self._user_role:       str  = "write"
-        self._is_elevated:     bool = False   # owner / admin / maintain
+        self._is_elevated:     bool = False
         self._is_on_protected: bool = False
 
-        # ── Protected branch banner (write-level users on main) ───────────────
         self._protected_banner = QWidget()
         self._protected_banner.setAttribute(Qt.WA_StyledBackground, True)
         self._protected_banner.setStyleSheet(
@@ -1468,9 +446,7 @@ class DetailPanel(QWidget):
 
         self._pb_desc = QLabel("Changes to main go through a PR.\nCreate a branch to continue.")
         self._pb_desc.setWordWrap(True)
-        self._pb_desc.setStyleSheet(
-            f"font-size: 11px; color: {COLORS['text_secondary']};"
-        )
+        self._pb_desc.setStyleSheet(f"font-size: 11px; color: {COLORS['text_secondary']};")
         _pb_layout.addWidget(self._pb_desc)
 
         self._pb_input = QLineEdit("feature/")
@@ -1522,8 +498,6 @@ class DetailPanel(QWidget):
         self._soft_revert_btn.hide()
         content_layout.addWidget(self._soft_revert_btn)
 
-        # Merge row: [⇢ Merge into] [combo ▾]
-        from PyQt5.QtWidgets import QComboBox
         self._merge_row = QWidget()
         self._merge_row.setStyleSheet("background: transparent;")
         merge_hl = QHBoxLayout(self._merge_row)
@@ -1569,7 +543,6 @@ class DetailPanel(QWidget):
         self._delete_branch_btn.hide()
         content_layout.addWidget(self._delete_branch_btn)
 
-        # Stash section — shown only when this commit has a saved stash
         self._stash_section = QWidget()
         self._stash_section.setStyleSheet("background: transparent;")
         self._stash_section.hide()
@@ -1615,7 +588,6 @@ class DetailPanel(QWidget):
         stash_vl.addWidget(self._stash_files_container)
 
         content_layout.addWidget(self._stash_section)
-
         content_layout.addWidget(_divider())
 
         files_hdr = QWidget()
@@ -1688,7 +660,6 @@ class DetailPanel(QWidget):
         popup.show()
 
     def _on_file_card_clicked(self, info: dict):
-        # Deselect stash cards when a changes card is picked
         for card in getattr(self, "_stash_cards", []):
             card.set_selected(False)
         for card in self._file_cards:
@@ -1697,7 +668,6 @@ class DetailPanel(QWidget):
         self.file_selected.emit(info)
 
     def _on_stash_card_clicked(self, info: dict):
-        # Deselect changes cards when a stash card is picked
         for card in getattr(self, "_file_cards", []):
             card.set_selected(False)
         self._selected_card = None
@@ -1725,9 +695,6 @@ class DetailPanel(QWidget):
         self._branch_btn.setEnabled(True)
         self._merge_combo.setEnabled(True)
         self._merge_btn.setEnabled(True)
-        # _save_stash_btn and _clear_stash_btn are excluded here — their
-        # visibility is managed solely by update_uncommitted_files /
-        # refresh_stash_section, not by the lock/unlock cycle.
         for btn in (self._push_btn, self._pull_btn,
                     self._hard_revert_btn, self._soft_revert_btn,
                     self._delete_branch_btn):
@@ -1747,11 +714,10 @@ class DetailPanel(QWidget):
                 self._merge_combo.setCurrentIndex(idx)
 
     def _on_merge(self):
-        current_branch  = getattr(self, "_merge_source", "")   # branch we're on
-        incoming_branch = self._merge_combo.currentText()       # branch to merge in
+        current_branch  = getattr(self, "_merge_source", "")
+        incoming_branch = self._merge_combo.currentText()
         if current_branch and incoming_branch:
             self.lock_actions()
-            # source = branch being merged in, target = branch being merged into
             self.merge_requested.emit(incoming_branch, current_branch)
 
     def set_pull_state(self, can_pull: bool, branch: str):
@@ -1783,15 +749,15 @@ class DetailPanel(QWidget):
     def set_commit_actions(self, branch: str, parent_sha: str,
                             has_parent: bool, is_first_of_branch: bool,
                             is_main: bool, is_head: bool,
+                            is_remote_head: bool = False,
                             is_merge_commit: bool = False,
                             branch_depth: int = 0,
                             is_remote_branch: bool = False):
-        """Show the appropriate action buttons for the currently displayed commit."""
-        # Cache args so set_user_role can replay when collaborator data loads late.
         self._last_action_kwargs = dict(
             branch=branch, parent_sha=parent_sha, has_parent=has_parent,
             is_first_of_branch=is_first_of_branch, is_main=is_main,
-            is_head=is_head, is_merge_commit=is_merge_commit,
+            is_head=is_head, is_remote_head=is_remote_head,
+            is_merge_commit=is_merge_commit,
             branch_depth=branch_depth, is_remote_branch=is_remote_branch,
         )
 
@@ -1799,21 +765,18 @@ class DetailPanel(QWidget):
         self._action_parent_sha      = parent_sha
         self._action_is_merge_commit = is_merge_commit
 
-        # Hard limit: no branching beyond depth 2 (main → level-1 → level-2).
         can_branch = branch_depth < 2
         self._branch_btn.setVisible(can_branch)
         self._branch_btn.setEnabled(can_branch)
 
         if not is_head:
-            self._delete_branch_btn.hide()
             self._hard_revert_btn.hide()
             self._soft_revert_btn.hide()
-            return
+            if not is_remote_head:
+                self._delete_branch_btn.hide()
+                return
 
-        # Delete Branch only makes sense when the head IS the branch's first
-        # unique commit (branch just started, one commit).  Once a branch has
-        # grown past that point, or the head is a merge commit, hide it.
-        show_delete = not is_main and bool(branch) and is_first_of_branch and not is_merge_commit
+        show_delete = not is_main and bool(branch) and (is_head or is_remote_head) and not is_merge_commit and is_first_of_branch
         self._delete_branch_btn.setVisible(show_delete)
         self._delete_branch_btn.setEnabled(show_delete)
 
@@ -1822,16 +785,12 @@ class DetailPanel(QWidget):
             self._soft_revert_btn.hide()
         else:
             show_hard = has_parent and bool(branch)
-            show_soft = show_hard   # same rule as hard revert — show on all heads
+            show_soft = show_hard
             self._hard_revert_btn.setVisible(show_hard)
             self._hard_revert_btn.setEnabled(show_hard)
             self._soft_revert_btn.setVisible(show_soft)
             self._soft_revert_btn.setEnabled(show_soft)
 
-        # ── Role gates ────────────────────────────────────────────────────────
-        # Hard revert on any remote branch or on main → elevated role only.
-        # Soft revert on main → elevated role only.
-        # Soft revert on remote non-main and Delete Branch → open to everyone.
         if self._user_role not in _ELEVATED_ROLES:
             if is_remote_branch or is_main:
                 self._hard_revert_btn.hide()
@@ -1857,8 +816,6 @@ class DetailPanel(QWidget):
             self.branch_create_requested.emit(sha, name)
 
     def set_push_state(self, can_push: bool, branch: str = "", is_protected: bool = False):
-        """Show upload button. Elevated users get 'Upload to remote' (direct push) on any
-        branch; write-level users get 'Open Pull Request' on non-protected branches only."""
         self._push_branch     = branch
         self._is_on_protected = is_protected
         if is_protected and branch:
@@ -1866,7 +823,6 @@ class DetailPanel(QWidget):
             self._pb_desc.setText(
                 f"Changes to {branch} go through a PR.\nCreate a branch to continue."
             )
-        # When protection is off, all collaborators are treated as admins — direct push allowed.
         effective_elevated = self._is_elevated or not is_protected
         show = can_push and (not is_protected or self._is_elevated)
         if show:
@@ -1877,17 +833,13 @@ class DetailPanel(QWidget):
         self._refresh_protected_banner()
 
     def set_user_role(self, role: str):
-        """Set the current user's collaboration role. Re-evaluates banner and action buttons."""
         self._user_role   = role
         self._is_elevated = role in _ELEVATED_ROLES
         self._refresh_protected_banner()
-        # Replay the last set_commit_actions call so role gates apply immediately
-        # even when collaborator data arrives after the commit was already selected.
         if hasattr(self, "_last_action_kwargs"):
             self.set_commit_actions(**self._last_action_kwargs)
 
     def _refresh_protected_banner(self):
-        """Show the protected-branch redirect banner for write-level users on main."""
         has_files = bool(getattr(self, "_stash_data", []))
         show = (self._is_on_protected
                 and self._user_role not in _ELEVATED_ROLES
@@ -1898,13 +850,11 @@ class DetailPanel(QWidget):
             self._clear_stash_btn.hide()
 
     def _on_pb_input_changed(self, text: str):
-        """Enable the create button only when the branch name is non-trivial."""
         stripped = text.strip().strip("/")
         valid = bool(stripped) and stripped.lower() != "feature"
         self._pb_create_btn.setEnabled(valid)
 
     def _on_branch_from_banner(self):
-        """Emit branch_create_requested from the protected-branch redirect banner."""
         name = self._pb_input.text().strip()
         sha  = getattr(self, "_current_sha", None)
         if not name or not sha:
@@ -1915,13 +865,12 @@ class DetailPanel(QWidget):
     def _on_push(self):
         branch = getattr(self, "_push_branch", "")
         if branch:
-            # When protection is off (_is_on_protected=False), all collaborators act as admins.
             effective_elevated = self._is_elevated or not self._is_on_protected
             if effective_elevated:
                 self.lock_actions()
-                self.push_requested.emit(branch)    # direct push
+                self.push_requested.emit(branch)
             else:
-                self.pr_open_requested.emit(branch) # PR wizard for write-level users on protected branch
+                self.pr_open_requested.emit(branch)
 
     def _on_hard_revert(self):
         branch   = getattr(self, "_action_branch", "")
@@ -2003,8 +952,6 @@ class DetailPanel(QWidget):
                     display_author: str = None, files: list = None):
         self._current_sha = commit.sha
         self._refresh_goto_btn()
-        # Reset save/clear buttons — the poll will re-show them if this
-        # commit actually has unsaved changes.
         self._save_stash_btn.hide()
         self._clear_stash_btn.hide()
         has_stash = commit.sha in getattr(self, "_stash_shas", set())
@@ -2029,13 +976,12 @@ class DetailPanel(QWidget):
             self._place(visible=True, animate=True)
 
     def _populate_stash_files(self):
-        from core.git_ops import (get_stash_ref_for_commit, get_stash_diff_files,
-                                  has_uncommitted_changes, get_working_dir_diff_files)
+        from core.ops import (get_stash_ref_for_commit, get_stash_diff_files,
+                              has_uncommitted_changes, get_working_dir_diff_files)
         repo_path = getattr(self, "_repo_path", "")
         if not repo_path or not self._current_sha:
             return
 
-        # Clear existing cards (panel is opening fresh — no removal animation needed)
         while self._stash_files_layout.count():
             item = self._stash_files_layout.takeAt(0)
             w = item.widget()
@@ -2045,7 +991,7 @@ class DetailPanel(QWidget):
 
         stash_ref = get_stash_ref_for_commit(repo_path, self._current_sha)
         is_head   = self._current_sha == getattr(self, "_head_sha", "")
-        self._stash_ref = stash_ref  # store so Clear button can use it
+        self._stash_ref = stash_ref
 
         if stash_ref:
             files = get_stash_diff_files(repo_path, stash_ref)
@@ -2070,19 +1016,16 @@ class DetailPanel(QWidget):
             self._stash_cards_by_path[info["path"]] = card
 
     def update_uncommitted_files(self, files: list):
-        """Diff live working-dir list against current cards: add new, remove gone, refresh changed."""
-        old_cards: dict[str, _FileCard]    = getattr(self, "_stash_cards_by_path", {})
-        old_info:  dict[str, dict]         = getattr(self, "_stash_info_by_path",  {})
+        old_cards: dict[str, _FileCard] = getattr(self, "_stash_cards_by_path", {})
+        old_info:  dict[str, dict]      = getattr(self, "_stash_info_by_path",  {})
         new_paths = {f["path"] for f in files}
 
-        # Fade out cards whose files are gone
         for path, card in list(old_cards.items()):
             if path not in new_paths:
                 _fade_out_and_remove(card, self._stash_files_layout)
                 del old_cards[path]
                 old_info.pop(path, None)
 
-        # Add new cards; replace existing ones whose stats changed
         for info in files:
             path = info["path"]
             prev = old_info.get(path)
@@ -2098,7 +1041,6 @@ class DetailPanel(QWidget):
                 old_cards[path] = card
                 old_info[path]  = info
             elif stats_changed:
-                # Replace card in-place with updated info
                 old_card = old_cards[path]
                 idx = self._stash_files_layout.indexOf(old_card)
                 old_card.setParent(None)
@@ -2113,8 +1055,6 @@ class DetailPanel(QWidget):
 
         self._stash_cards_by_path = old_cards
         self._stash_info_by_path  = old_info
-
-        self._stash_cards_by_path = old_cards
         self._stash_data = files
 
         n = len(files)
@@ -2128,13 +1068,11 @@ class DetailPanel(QWidget):
             self._stash_section.show()
         else:
             QTimer.singleShot(260, lambda: self._stash_section.hide() if not self._stash_data else None)
-        # Banner overrides save/clear visibility for write-level users on main
         self._refresh_protected_banner()
 
     def refresh_stash_section(self):
-        """Re-query stash/working-dir state and animate cards in/out. Called when stash list changes."""
-        from core.git_ops import (get_stash_ref_for_commit, get_stash_diff_files,
-                                  has_uncommitted_changes, get_working_dir_diff_files)
+        from core.ops import (get_stash_ref_for_commit, get_stash_diff_files,
+                              has_uncommitted_changes, get_working_dir_diff_files)
         repo_path = getattr(self, "_repo_path", "")
         if not repo_path or not self._current_sha:
             return
@@ -2144,8 +1082,6 @@ class DetailPanel(QWidget):
         if stash_ref:
             files = get_stash_diff_files(repo_path, stash_ref)
         elif has_uncommitted_changes(repo_path):
-            # Show live working-tree changes regardless of whether _head_sha
-            # is current — it can be stale after branch switches.
             files = get_working_dir_diff_files(repo_path)
         else:
             files = []
@@ -2198,7 +1134,6 @@ class DetailPanel(QWidget):
             self._place(visible=False, animate=True)
 
     def reposition(self):
-        """Call this from the parent's resizeEvent."""
         self._place(visible=self._visible, animate=False)
 
     def mousePressEvent(self, event):
@@ -2210,8 +1145,6 @@ class DetailPanel(QWidget):
             if event.pos().x() - self._swipe_start.x() > SWIPE_THRESHOLD:
                 self.hide_panel()
         super().mouseReleaseEvent(event)
-
-    # ── Internal ─────────────────────────────────────────────────────────────
 
     def _place(self, visible: bool, animate: bool):
         prev = self._visible

@@ -8,7 +8,7 @@ from PyQt5.QtWidgets import (
     QLineEdit, QCheckBox, QStackedWidget, QWidget, QSizePolicy,
 )
 from styles.theme import COLORS, BTN_PRIMARY, BTN_SECONDARY, INPUT_STYLE
-from core import git_ops
+from core import ops as git_ops
 
 
 # ── background worker ─────────────────────────────────────────────────────────

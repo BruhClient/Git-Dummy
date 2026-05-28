@@ -1,0 +1,100 @@
+from __future__ import annotations
+
+import os
+import subprocess
+
+
+def _run(path: str, cmd: list, timeout: int = 30) -> tuple[bool, str]:
+    """Run a git command with a timeout. Returns (ok, error_message)."""
+    try:
+        r = subprocess.run(cmd, cwd=path, capture_output=True, text=True, timeout=timeout)
+        if r.returncode != 0:
+            return False, r.stderr.strip() or r.stdout.strip()
+        return True, ""
+    except subprocess.TimeoutExpired:
+        return False, "timed_out"
+
+
+def has_uncommitted_changes(path: str) -> bool:
+    r = subprocess.run(
+        ["git", "status", "--porcelain"],
+        cwd=path, capture_output=True, text=True,
+    )
+    return bool(r.stdout.strip())
+
+
+def checkout_commit(path: str, sha: str) -> tuple[bool, str]:
+    r = subprocess.run(
+        ["git", "checkout", sha],
+        cwd=path, capture_output=True, text=True,
+    )
+    return r.returncode == 0, r.stderr.strip()
+
+
+def checkout_branch(path: str, branch: str) -> tuple[bool, str]:
+    r = subprocess.run(
+        ["git", "checkout", branch],
+        cwd=path, capture_output=True, text=True,
+    )
+    return r.returncode == 0, r.stderr.strip()
+
+
+def current_branch(path: str) -> str:
+    """Return the current branch name, or '' if in detached HEAD state."""
+    r = subprocess.run(
+        ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+        cwd=path, capture_output=True, text=True,
+    )
+    result = r.stdout.strip()
+    return "" if result == "HEAD" else result
+
+
+def reset_hard(path: str) -> bool:
+    """Reset index and working tree to HEAD, aborting any partial stash apply."""
+    r = subprocess.run(
+        ["git", "reset", "--hard", "HEAD"],
+        cwd=path, capture_output=True, text=True,
+    )
+    return r.returncode == 0
+
+
+def get_conflict_files(path: str) -> list:
+    """Return list of files with unresolved merge conflicts (call before git merge --abort)."""
+    try:
+        r = subprocess.run(
+            ["git", "diff", "--name-only", "--diff-filter=U"],
+            cwd=path, capture_output=True, text=True, timeout=10,
+        )
+        return [f for f in r.stdout.strip().splitlines() if f]
+    except Exception:
+        return []
+
+
+def get_conflict_content(repo_path: str, file_path: str) -> tuple:
+    """Parse conflict markers, return (original_lines, orig_start, incoming_lines, inc_start).
+    Line numbers correspond to their actual position in the file."""
+    abs_path = os.path.join(repo_path, file_path.replace("/", os.sep))
+    try:
+        with open(abs_path, "r", encoding="utf-8", errors="replace") as f:
+            lines = f.readlines()
+    except Exception:
+        return [], 1, [], 1
+    original, incoming = [], []
+    orig_start = inc_start = 1
+    state = "normal"
+    for lineno, line in enumerate(lines, 1):
+        s = line.rstrip("\n")
+        if s.startswith("<<<<<<<"):
+            state = "original"
+            orig_start = lineno + 1
+        elif s == "=======" and state == "original":
+            state = "incoming"
+            inc_start = lineno + 1
+        elif s.startswith(">>>>>>>") and state == "incoming":
+            break
+        elif state == "original":
+            original.append(s)
+        elif state == "incoming":
+            incoming.append(s)
+    # Both sections represent the same file region — use orig_start for both
+    return original, orig_start, incoming, orig_start

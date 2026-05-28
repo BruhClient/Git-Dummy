@@ -525,7 +525,7 @@ class SettingsPanel(QWidget):
         # The GitHub API path (_apply_repo_info) will override this with the authoritative
         # value when it arrives.
         if tracker:
-            from core.git_ops import get_default_branch
+            from core.ops import get_default_branch
             self._default_branch = get_default_branch(tracker._path)
         else:
             self._default_branch = "main"

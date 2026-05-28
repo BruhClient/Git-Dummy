@@ -1,3 +1,4 @@
+"""Styled confirmation and alert dialogs, plus convenience helpers."""
 from __future__ import annotations
 
 from PyQt5.QtCore import Qt

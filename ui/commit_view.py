@@ -16,2313 +16,45 @@ from PyQt5.QtWidgets import (
 )
 from styles.theme import COLORS
 from core.git_tracker import GitTracker, CommitInfo
-from core.git_ops import (current_branch, branch_for_commit,
-                          has_uncommitted_changes, create_auto_stash,
-                          pop_auto_stash, apply_stash, drop_stash,
-                          checkout_commit, checkout_branch,
-                          get_stash_files, get_stash_ref_for_commit)
+from core.ops import (current_branch, branch_for_commit,
+                      has_uncommitted_changes, create_auto_stash,
+                      pop_auto_stash, apply_stash, drop_stash,
+                      checkout_commit, checkout_branch,
+                      get_stash_files, get_stash_ref_for_commit,
+                      get_branch_unique_commits)
 from core import settings_store
 from core import collab_cache
-from ui.spatial_canvas import SpatialCanvas, MiniMap, ORIENT_TB, ORIENT_BT, ORIENT_LR, ORIENT_RL
-from ui.detail_panel import DetailPanel, ChangesPanel, PANEL_W as DETAIL_PANEL_W, CHANGES_W, _VScrollArea
-from ui.position_panel import PositionPanel
-from ui.settings_panel import SettingsPanel
-from ui.pr_panel import PullRequestsPanel
-
-
-# ── Avatar disk + memory cache ────────────────────────────────────────────────
-_AVATAR_CACHE: dict[str, QPixmap] = {}
-_AVATAR_DIR = os.path.join(os.path.expanduser("~"), ".gitdummy_cache", "avatars")
-os.makedirs(_AVATAR_DIR, exist_ok=True)
-
-
-def _avatar_disk_path(url: str) -> str:
-    return os.path.join(_AVATAR_DIR, hashlib.md5(url.encode()).hexdigest() + ".png")
-
-
-def _load_avatar(url: str) -> "QPixmap | None":
-    if url in _AVATAR_CACHE:
-        return _AVATAR_CACHE[url]
-    path = _avatar_disk_path(url)
-    if os.path.exists(path):
-        pm = QPixmap(path)
-        if not pm.isNull():
-            _AVATAR_CACHE[url] = pm
-            return pm
-    return None
-
-
-def _save_avatar(url: str, pm: QPixmap):
-    _AVATAR_CACHE[url] = pm
-    try:
-        pm.save(_avatar_disk_path(url), "PNG")
-    except Exception:
-        pass
-
-
-# ── Background loaders ───────────────────────────────────────────────────────
-
-class _CollabLoader(QObject):
-    """Fetches collaborators on a worker thread, emits list to main thread."""
-    finished = pyqtSignal(list)
-
-    def __init__(self, path: str, token: str):
-        super().__init__()
-        self._path  = path
-        self._token = token
-
-    @pyqtSlot()
-    def run(self):
-        t = GitTracker(self._path)
-        try:
-            t.open()
-            result = t.get_collaborators(self._token)
-        except Exception:
-            result = []
-        finally:
-            t.close()
-        self.finished.emit(result)
-
-
-class _Loader(QObject):
-    finished = pyqtSignal(list, dict, set, set, set)  # commits, branch_tip_map, local_only, unpushed, stash_shas
-
-    def __init__(self, path: str):
-        super().__init__()
-        self._path = path
-
-    @pyqtSlot()
-    def run(self):
-        t = GitTracker(self._path)
-        try:
-            t.open()
-            commits, branch_tip_map, local_only = t.graph_commits()
-            unpushed = t.get_unpushed_shas()
-            from core.git_ops import get_stash_commit_shas, has_uncommitted_changes
-            stash_shas = get_stash_commit_shas(self._path)
-            # Always mark HEAD with the dot when the working tree is dirty,
-            # even before the user has navigated anywhere (no stash yet).
-            if has_uncommitted_changes(self._path):
-                head = t.head_sha()
-                if head:
-                    stash_shas = stash_shas | {head}
-        except Exception:
-            commits, branch_tip_map, local_only, unpushed, stash_shas = [], {}, set(), set(), set()
-        finally:
-            t.close()
-        self.finished.emit(commits, branch_tip_map, local_only, unpushed, stash_shas)
-
-
-class _CommitDetailWorker(QObject):
-    finished = pyqtSignal(object, dict, list, int)   # commit, detail, files, gen
-
-    def __init__(self, path: str, commit, gen: int):
-        super().__init__()
-        self._path   = path
-        self._commit = commit
-        self._gen    = gen
-
-    @pyqtSlot()
-    def run(self):
-        t = GitTracker(self._path)
-        try:
-            t.open()
-            detail = t.commit_detail(self._commit.sha)
-            files  = t.commit_files(self._commit.sha)
-        except Exception:
-            detail, files = {}, []
-        finally:
-            t.close()
-        self.finished.emit(self._commit, detail, files, self._gen)
-
-
-class _VisibilityWorker(QObject):
-    finished = pyqtSignal(str, str)   # url, visibility
-
-    def __init__(self, path: str, token: str):
-        super().__init__()
-        self._path  = path
-        self._token = token
-
-    @pyqtSlot()
-    def run(self):
-        t = GitTracker(self._path)
-        try:
-            t.open()
-            url = t.remote_url()
-            vis = t.repo_visibility(self._token)
-        except Exception:
-            url, vis = "", ""
-        finally:
-            t.close()
-        self.finished.emit(url, vis)
-
-
-class _FetchWorker(QObject):
-    finished = pyqtSignal(bool, str)   # changed, best_guess_pusher
-
-    def __init__(self, path: str):
-        super().__init__()
-        self._path = path
-
-    @pyqtSlot()
-    def run(self):
-        t = GitTracker(self._path)
-        try:
-            t.open()
-            changed, author = t.fetch_with_author()
-        except Exception:
-            changed, author = False, ""
-        finally:
-            t.close()
-        self.finished.emit(changed, author)
-
-
-class _UncommittedRefreshWorker(QObject):
-    """Lightweight background poll: dirty-state check + live diff + stash fingerprint."""
-    finished = pyqtSignal(bool, list, str)   # dirty, files, stash_id
-
-    def __init__(self, path: str):
-        super().__init__()
-        self._path = path
-
-    @pyqtSlot()
-    def run(self):
-        from core.git_ops import has_uncommitted_changes, get_working_dir_diff_files, get_stash_list_id
-        dirty = has_uncommitted_changes(self._path)
-        files = get_working_dir_diff_files(self._path) if dirty else []
-        stash_id = get_stash_list_id(self._path)
-        self.finished.emit(dirty, files, stash_id)
-
-
-class _NavigateWorker(QObject):
-    """Runs stash-save / checkout / stash-restore on a background thread."""
-    finished = pyqtSignal(bool, str)   # ok, error_message
-
-    def __init__(self, path: str, sha: str, current_head: str, discard: bool = False):
-        super().__init__()
-        self._path         = path
-        self._sha          = sha
-        self._current_head = current_head
-        self._discard      = discard
-
-    @pyqtSlot()
-    def run(self):
-        from core.git_ops import (
-            has_uncommitted_changes, get_stash_ref_for_commit,
-            drop_stash, create_auto_stash, pop_auto_stash,
-            checkout_commit, apply_stash, reset_hard,
-            discard_all_changes,
-        )
-        path = self._path
-        sha  = self._sha
-
-        created_stash_id = None
-        if self._discard:
-            ok, err = discard_all_changes(path)
-            if not ok:
-                self.finished.emit(False, f"discard-failed: {err}")
-                return
-        elif has_uncommitted_changes(path):
-            if self._current_head:
-                old_ref = get_stash_ref_for_commit(path, self._current_head)
-                if old_ref:
-                    drop_stash(path, old_ref)
-            stashed_files, created_stash_id = create_auto_stash(path)
-            if not created_stash_id and has_uncommitted_changes(path):
-                self.finished.emit(False, "auto-save-failed")
-                return
-
-        ok, err = checkout_commit(path, sha)
-        if not ok:
-            if created_stash_id:
-                pop_auto_stash(path, created_stash_id)
-            self.finished.emit(False, err)
-            return
-
-        target_ref = get_stash_ref_for_commit(path, sha)
-        if target_ref:
-            if not apply_stash(path, target_ref):
-                # Stash had conflicts — abort the partial apply so the index
-                # isn't left with unmerged paths (which would break the next
-                # navigation attempt with an "auto-save-failed" error).
-                reset_hard(path)
-                self.finished.emit(True, "stash-conflict")
-                return
-
-        self.finished.emit(True, "")
-
-
-class _FirstCommitWorker(QObject):
-    finished = pyqtSignal(bool)
-
-    def __init__(self, path: str):
-        super().__init__()
-        self._path = path
-
-    @pyqtSlot()
-    def run(self):
-        import subprocess
-        subprocess.run(["git", "add", "."], cwd=self._path, capture_output=True)
-        # --allow-empty ensures a commit is always created even for empty folders
-        r = subprocess.run(
-            ["git", "commit", "--allow-empty", "-m", "Initial commit"],
-            cwd=self._path, capture_output=True,
-        )
-        self.finished.emit(r.returncode == 0)
-
-
-class _CreateRepoWorker(QObject):
-    finished = pyqtSignal(bool, str, str)   # success, error, clone_url
-
-    def __init__(self, repo_path: str, repo_name: str, token: str, username: str,
-                 private: bool = True, user_name: str = "", user_email: str = ""):
-        super().__init__()
-        self._path       = repo_path
-        self._name       = repo_name
-        self._token      = token
-        self._username   = username
-        self._private    = private
-        self._user_name  = user_name
-        self._user_email = user_email
-
-    @pyqtSlot()
-    def run(self):
-        from core.git_ops import create_github_repo, push_to_github
-        ok, err, clone_url = create_github_repo(self._name, self._private, self._token)
-        if not ok:
-            self.finished.emit(False, err, "")
-            return
-        ok, err = push_to_github(self._path, clone_url, self._username, self._token,
-                                 self._user_name, self._user_email)
-        self.finished.emit(ok, err, clone_url)
-
-
-# ── GitHub connect dialog ─────────────────────────────────────────────────────
-
-class _GitHubConnectDialog(QWidget):
-    """Full-screen overlay dialog for connecting a local repo to GitHub."""
-    _connect_choice = pyqtSignal(str, bool)   # name, is_private
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setAttribute(Qt.WA_StyledBackground, True)
-        self.setStyleSheet("background: rgba(0,0,0,160);")
-        self.hide()
-        self._is_private = True
-
-        from PyQt5.QtWidgets import QGraphicsOpacityEffect
-        self._eff = QGraphicsOpacityEffect(self)
-        self._eff.setOpacity(0.0)
-        self.setGraphicsEffect(self._eff)
-        self._anim = QPropertyAnimation(self._eff, b"opacity")
-        self._anim.setDuration(200)
-        self._anim.setEasingCurve(QEasingCurve.OutCubic)
-
-        card = QWidget(self)
-        card.setObjectName("ghCard")
-        card.setFixedWidth(420)
-        card.setAttribute(Qt.WA_StyledBackground, True)
-        card.setStyleSheet(f"""
-            #ghCard {{
-                background: {COLORS['bg_card']};
-                border: 1px solid {COLORS['border']};
-                border-radius: 12px;
-            }}
-        """)
-        self._card = card
-        vl = QVBoxLayout(card)
-        vl.setContentsMargins(24, 20, 24, 20)
-        vl.setSpacing(14)
-
-        title = QLabel("Connect to GitHub")
-        title.setStyleSheet(
-            f"background: transparent; font-size: 15px; font-weight: 700;"
-            f" color: {COLORS['text_primary']};"
-        )
-        vl.addWidget(title)
-
-        sub = QLabel("Create a GitHub repository and upload this project.")
-        sub.setStyleSheet(
-            f"background: transparent; font-size: 12px; color: {COLORS['text_muted']};"
-        )
-        vl.addWidget(sub)
-
-        self._name_input = QLineEdit()
-        self._name_input.setFixedHeight(38)
-        self._name_input.setPlaceholderText("Repository name")
-        self._name_input.setStyleSheet(f"""
-            QLineEdit {{
-                background: {COLORS['bg_primary']}; border: 1px solid {COLORS['border']};
-                border-radius: 8px; color: {COLORS['text_primary']};
-                font-size: 13px; padding: 0 12px;
-            }}
-            QLineEdit:focus {{ border-color: {COLORS['accent']}; }}
-        """)
-        self._name_input.returnPressed.connect(self._submit)
-        vl.addWidget(self._name_input)
-
-        _ON  = (f"QPushButton {{ background: {COLORS['accent']}; border: 1px solid {COLORS['accent']};"
-                f" border-radius: 6px; color: white; font-size: 12px;"
-                f" font-weight: 600; padding: 4px 16px; }}")
-        _OFF = (f"QPushButton {{ background: transparent; border: 1px solid {COLORS['border']};"
-                f" border-radius: 6px; color: {COLORS['text_muted']}; font-size: 12px;"
-                f" padding: 4px 16px; }}"
-                f"QPushButton:hover {{ border-color: {COLORS['accent']}; color: {COLORS['accent']}; }}")
-        self._priv_btn = QPushButton("Private")
-        self._pub_btn  = QPushButton("Public")
-        for btn in (self._priv_btn, self._pub_btn):
-            btn.setCursor(Qt.PointingHandCursor)
-            btn.setFixedHeight(32)
-        self._priv_btn.setStyleSheet(_ON)
-        self._pub_btn.setStyleSheet(_OFF)
-        self._priv_btn.clicked.connect(lambda: self._set_private(True))
-        self._pub_btn.clicked.connect(lambda: self._set_private(False))
-        self._on_style  = _ON
-        self._off_style = _OFF
-        vis_row = QHBoxLayout()
-        vis_row.setSpacing(8)
-        vis_row.setContentsMargins(0, 0, 0, 0)
-        vis_row.addWidget(self._priv_btn)
-        vis_row.addWidget(self._pub_btn)
-        vis_row.addStretch()
-        vl.addLayout(vis_row)
-
-        btn_row = QHBoxLayout()
-        btn_row.setSpacing(8)
-
-        cancel_btn = QPushButton("Cancel")
-        cancel_btn.setFixedHeight(40)
-        cancel_btn.setCursor(Qt.PointingHandCursor)
-        cancel_btn.setStyleSheet(f"""
-            QPushButton {{
-                background: transparent; border: 1px solid {COLORS['border']};
-                border-radius: 8px; color: {COLORS['text_secondary']};
-                font-size: 12px; font-weight: 600;
-            }}
-            QPushButton:hover {{ border-color: {COLORS['text_secondary']}; }}
-        """)
-        cancel_btn.clicked.connect(self.hide)
-
-        upload_btn = QPushButton("☁  Upload to GitHub")
-        upload_btn.setFixedHeight(40)
-        upload_btn.setCursor(Qt.PointingHandCursor)
-        upload_btn.setStyleSheet(f"""
-            QPushButton {{
-                background: {COLORS['accent']}; border: none;
-                border-radius: 8px; color: white;
-                font-size: 12px; font-weight: 700;
-            }}
-            QPushButton:hover {{ background: {COLORS.get('accent_hover', COLORS['accent'])}; }}
-        """)
-        upload_btn.clicked.connect(self._submit)
-
-        btn_row.addWidget(cancel_btn)
-        btn_row.addWidget(upload_btn)
-        vl.addLayout(btn_row)
-
-    def _set_private(self, priv: bool):
-        self._is_private = priv
-        self._priv_btn.setStyleSheet(self._on_style  if priv else self._off_style)
-        self._pub_btn.setStyleSheet (self._off_style if priv else self._on_style)
-
-    def show_near(self, repo_path: str):
-        """Show the dialog centred over the parent (name kept for call-site compat)."""
-        self._name_input.setText(os.path.basename(repo_path))
-        self._set_private(True)
-        self._card.adjustSize()
-        self.setGeometry(self.parent().rect())
-        cx = (self.width()  - self._card.width())  // 2
-        cy = (self.height() - self._card.height()) // 2
-        self._card.move(cx, cy)
-        self._eff.setOpacity(0.0)
-        self.show()
-        self.raise_()
-        self._anim.setStartValue(0.0)
-        self._anim.setEndValue(1.0)
-        self._anim.start()
-        self._name_input.selectAll()
-        self._name_input.setFocus()
-
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        if self.isVisible():
-            cx = (self.width()  - self._card.width())  // 2
-            cy = (self.height() - self._card.height()) // 2
-            self._card.move(cx, cy)
-
-    def mousePressEvent(self, event):
-        if not self._card.geometry().contains(event.pos()):
-            self.hide()
-        super().mousePressEvent(event)
-
-    def _submit(self):
-        name = self._name_input.text().strip()
-        if name:
-            self.hide()
-            self._connect_choice.emit(name, self._is_private)
-
-
-# ── Loading overlay ───────────────────────────────────────────────────────────
-
-class _LoadingOverlay(QWidget):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setAttribute(Qt.WA_StyledBackground, True)
-        self.setStyleSheet(f"background: {COLORS['bg_primary']};")
-        layout = QVBoxLayout(self)
-        layout.setAlignment(Qt.AlignCenter)
-        lbl = QLabel("Loading commits…")
-        lbl.setStyleSheet(f"background: transparent; font-size: 15px; color: {COLORS['text_muted']};")
-        layout.addWidget(lbl)
-
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        if self.parent():
-            self.setGeometry(self.parent().rect())
-
-
-# ── Tab bar ───────────────────────────────────────────────────────────────────
-
-class _TabBar(QWidget):
-    tab_changed = pyqtSignal(str)   # "local", "remote", or "collaboration"
-
-    _ACTIVE = f"""
-        QPushButton {{
-            background: {COLORS['accent']}; border: none; border-radius: 6px;
-            color: white; font-size: 12px; font-weight: 600; padding: 4px 16px;
-        }}
-    """
-    _INACTIVE = f"""
-        QPushButton {{
-            background: transparent; border: none; border-radius: 6px;
-            color: {COLORS['text_muted']}; font-size: 12px; padding: 4px 16px;
-        }}
-        QPushButton:hover {{ color: {COLORS['text_primary']}; }}
-    """
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setAttribute(Qt.WA_StyledBackground, True)
-        self.setStyleSheet(f"background: {COLORS['bg_primary']}; border-radius: 8px;")
-
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(3, 3, 3, 3)
-        layout.setSpacing(0)
-
-        self._local  = QPushButton("Local")
-        self._remote = QPushButton("Remote")
-        self._collab = QPushButton("Collaboration")
-        for btn in (self._local, self._remote, self._collab):
-            btn.setCursor(Qt.PointingHandCursor)
-            layout.addWidget(btn)
-
-        self._local.clicked.connect(lambda: self._activate("local"))
-        self._remote.clicked.connect(lambda: self._activate("remote"))
-        self._collab.clicked.connect(lambda: self._activate("collaboration"))
-        self._activate("remote", emit=False)
-
-    def _activate(self, mode: str, emit: bool = True):
-        self._local.setStyleSheet( self._ACTIVE if mode == "local"  else self._INACTIVE)
-        self._remote.setStyleSheet(self._ACTIVE if mode == "remote" else self._INACTIVE)
-        self._collab.setStyleSheet(self._ACTIVE if mode == "collaboration" else self._INACTIVE)
-        if emit:
-            self.tab_changed.emit(mode)
-
-    def select(self, mode: str):
-        """Programmatically select a tab without emitting."""
-        self._activate(mode, emit=False)
-
-    def set_mode(self, mode: str):
-        self._activate(mode, emit=False)
-
-
-# ── No-remote prompt ──────────────────────────────────────────────────────────
-
-class _NoRemoteView(QWidget):
-    create_requested = pyqtSignal()
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setAttribute(Qt.WA_StyledBackground, True)
-        self.setStyleSheet(f"background: {COLORS['bg_primary']};")
-
-        layout = QVBoxLayout(self)
-        layout.setAlignment(Qt.AlignCenter)
-        layout.setSpacing(12)
-
-        icon = QLabel("☁")
-        icon.setStyleSheet(f"background: transparent; font-size: 52px; color: {COLORS['text_muted']};")
-        icon.setAlignment(Qt.AlignCenter)
-        layout.addWidget(icon)
-
-        title = QLabel("Not on GitHub yet")
-        title.setStyleSheet(
-            f"background: transparent; font-size: 17px; font-weight: 700; color: {COLORS['text_primary']};"
-        )
-        title.setAlignment(Qt.AlignCenter)
-        layout.addWidget(title)
-
-        sub = QLabel("Create a GitHub repository to back up your commits to the cloud.")
-        sub.setStyleSheet(f"background: transparent; font-size: 13px; color: {COLORS['text_muted']};")
-        sub.setAlignment(Qt.AlignCenter)
-        sub.setWordWrap(True)
-        layout.addWidget(sub)
-
-        layout.addSpacing(8)
-
-        self._btn = QPushButton("Create Repository →")
-        self._btn.setFixedHeight(44)
-        self._btn.setCursor(Qt.PointingHandCursor)
-        self._btn.setStyleSheet(f"""
-            QPushButton {{
-                background: {COLORS['accent']}; border: none; border-radius: 8px;
-                color: white; font-size: 13px; font-weight: 600; padding: 0 28px;
-            }}
-            QPushButton:hover {{ background: {COLORS['accent_dim']}; }}
-            QPushButton:disabled {{ background: {COLORS['border']}; color: {COLORS['text_muted']}; }}
-        """)
-        self._btn.clicked.connect(self.create_requested)
-        layout.addWidget(self._btn, 0, Qt.AlignCenter)
-
-        self._status = QLabel("")
-        self._status.setStyleSheet(f"background: transparent; font-size: 12px; color: {COLORS['text_muted']};")
-        self._status.setAlignment(Qt.AlignCenter)
-        layout.addWidget(self._status)
-
-    def set_creating(self, creating: bool):
-        self._btn.setEnabled(not creating)
-        self._btn.setText("Creating…" if creating else "Create Repository →")
-        self._status.setText("This may take a moment…" if creating else "")
-
-    def set_error(self, msg: str):
-        self._btn.setEnabled(True)
-        self._btn.setText("Try again →")
-        self._status.setStyleSheet(f"background: transparent; font-size: 12px; color: #ef4444;")
-        self._status.setText(msg)
-
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        if self.parent():
-            self.setGeometry(self.parent().rect())
-
-
-# ── No-remote banner ─────────────────────────────────────────────────────────
-
-class _NoRemoteBanner(QWidget):
-    create_requested = pyqtSignal(str, bool)  # name, is_private
-
-    _PILL = """
-        QPushButton {{
-            background: {bg}; border: 1px solid {border};
-            border-radius: 5px; color: {fg};
-            font-size: 11px; font-weight: 600; padding: 3px 12px;
-        }}
-    """
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setAttribute(Qt.WA_StyledBackground, True)
-        self.setStyleSheet(f"background: #13131f; border-bottom: 1px solid {COLORS['border']};")
-        self.setFixedHeight(52)
-        self._is_private = True
-
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(20, 0, 20, 0)
-        layout.setSpacing(10)
-
-        icon = QLabel("☁")
-        icon.setStyleSheet(f"background: transparent; font-size: 15px; color: {COLORS['text_muted']};")
-        layout.addWidget(icon)
-
-        msg = QLabel("Not on GitHub yet —")
-        msg.setStyleSheet(f"background: transparent; font-size: 12px; color: {COLORS['text_muted']};")
-        layout.addWidget(msg)
-
-        self._name_input = QLineEdit()
-        self._name_input.setPlaceholderText("repository name")
-        self._name_input.setFixedSize(180, 30)
-        self._name_input.setStyleSheet(f"""
-            QLineEdit {{
-                background: {COLORS['bg_card']}; border: 1px solid {COLORS['border']};
-                border-radius: 6px; color: {COLORS['text_primary']};
-                font-size: 12px; padding: 0 10px;
-            }}
-            QLineEdit:focus {{ border-color: {COLORS['accent']}; }}
-        """)
-        layout.addWidget(self._name_input)
-
-        self._priv_btn = QPushButton("Private")
-        self._pub_btn  = QPushButton("Public")
-        for btn in (self._priv_btn, self._pub_btn):
-            btn.setCursor(Qt.PointingHandCursor)
-            btn.setFixedHeight(30)
-        self._priv_btn.clicked.connect(lambda: self._set_privacy(True))
-        self._pub_btn.clicked.connect(lambda: self._set_privacy(False))
-        layout.addWidget(self._priv_btn)
-        layout.addWidget(self._pub_btn)
-        self._set_privacy(True, emit=False)
-
-        layout.addStretch()
-
-        self._btn = QPushButton("Create →")
-        self._btn.setCursor(Qt.PointingHandCursor)
-        self._btn.setFixedHeight(30)
-        self._btn.setStyleSheet(f"""
-            QPushButton {{
-                background: {COLORS['accent']}; border: none; border-radius: 6px;
-                color: white; font-size: 12px; font-weight: 600; padding: 0 16px;
-            }}
-            QPushButton:hover {{ background: {COLORS['accent_dim']}; }}
-            QPushButton:disabled {{ background: {COLORS['border']}; color: {COLORS['text_muted']}; }}
-        """)
-        self._btn.clicked.connect(self._emit_create)
-        layout.addWidget(self._btn)
-
-    def set_repo_name(self, name: str):
-        self._name_input.setText(name)
-
-    def _set_privacy(self, private: bool, emit: bool = True):
-        self._is_private = private
-        active_style   = self._PILL.format(bg=COLORS['accent'], border=COLORS['accent'], fg="white")
-        inactive_style = self._PILL.format(bg="transparent", border=COLORS['border'], fg=COLORS['text_muted'])
-        self._priv_btn.setStyleSheet(active_style   if private else inactive_style)
-        self._pub_btn.setStyleSheet( inactive_style if private else active_style)
-
-    def _emit_create(self):
-        name = self._name_input.text().strip()
-        if name:
-            self.create_requested.emit(name, self._is_private)
-
-    def set_creating(self, creating: bool):
-        self._btn.setEnabled(not creating)
-        self._name_input.setEnabled(not creating)
-        self._priv_btn.setEnabled(not creating)
-        self._pub_btn.setEnabled(not creating)
-        self._btn.setText("Creating…" if creating else "Create →")
-
-    def set_error(self, msg: str):
-        self.set_creating(False)
-        self._btn.setText("Try again →")
-
-    def show_deleted(self):
-        """Switch banner to 'repo was deleted' warning state."""
-        self.setStyleSheet("background: #2d1515; border-bottom: 1px solid #4a2020;")
-        self._name_input.show()
-        self._priv_btn.show()
-        self._pub_btn.show()
-        self._btn.show()
-        self._btn.setText("Recreate →")
-        # Update the message label
-        for i in range(self.layout().count()):
-            w = self.layout().itemAt(i).widget()
-            if isinstance(w, QLabel) and "yet" in (w.text() or ""):
-                w.setText("Remote repository was deleted —")
-                w.setStyleSheet(f"background: transparent; font-size: 12px; color: #ef4444;")
-                break
-
-
-# ── Header bar ────────────────────────────────────────────────────────────────
-
-class _Header(QWidget):
-    connect_requested = pyqtSignal()
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setObjectName("commitHeader")
-        self.setFixedHeight(52)
-        self.setStyleSheet(f"""
-            #commitHeader {{
-                background: {COLORS['bg_secondary']};
-                border-bottom: 1px solid {COLORS['border']};
-            }}
-        """)
-
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(24, 0, 24, 0)
-        layout.setSpacing(10)
-
-        name_block = QVBoxLayout()
-        name_block.setSpacing(1)
-        name_block.setAlignment(Qt.AlignVCenter)
-
-        self._name = QLabel("—")
-        self._name.setStyleSheet(
-            f"background: transparent; font-size: 14px; font-weight: 600; color: {COLORS['text_primary']};"
-        )
-        name_block.addWidget(self._name)
-
-        self._url = QLabel("")
-        self._url.setStyleSheet(
-            f"background: transparent; font-size: 11px; color: {COLORS['accent']};"
-        )
-        self._url.setOpenExternalLinks(True)
-        self._url.hide()
-        name_block.addWidget(self._url)
-
-        layout.addLayout(name_block)
-        layout.addStretch(1)
-
-        self._center = QWidget()
-        self._center.setStyleSheet("background: transparent;")
-        self._center_layout = QHBoxLayout(self._center)
-        self._center_layout.setContentsMargins(0, 0, 0, 0)
-        self._center_layout.setSpacing(0)
-        layout.addWidget(self._center)
-
-        layout.addStretch(1)
-
-        self._op_badge = QLabel("")
-        self._op_badge.setStyleSheet(f"""
-            background: #2d2010; border: 1px solid {COLORS['warning']};
-            border-radius: 5px; color: {COLORS['warning']};
-            font-size: 11px; font-weight: 600; padding: 2px 10px;
-        """)
-        self._op_badge.hide()
-        layout.addWidget(self._op_badge)
-
-        self._status_badge = QLabel("● Local")
-        self._status_badge.setStyleSheet(
-            f"background: transparent; font-size: 11px; font-weight: 600;"
-            f" color: {COLORS['text_muted']};"
-        )
-        self._status_badge.hide()
-        layout.addWidget(self._status_badge)
-
-        self._connect_btn = QPushButton("Connect →")
-        self._connect_btn.setFixedHeight(26)
-        self._connect_btn.setCursor(Qt.PointingHandCursor)
-        self._connect_btn.setStyleSheet(f"""
-            QPushButton {{
-                background: transparent; border: 1px solid {COLORS['border']};
-                border-radius: 5px; color: {COLORS['text_muted']};
-                font-size: 11px; font-weight: 600; padding: 0 10px;
-            }}
-            QPushButton:hover {{ border-color: {COLORS['accent']}; color: {COLORS['accent']}; }}
-        """)
-        self._connect_btn.clicked.connect(self.connect_requested)
-        self._connect_btn.hide()
-        layout.addWidget(self._connect_btn)
-
-        self._count = QLabel("")
-        self._count.setStyleSheet(f"background: transparent; font-size: 12px; color: {COLORS['text_muted']};")
-        layout.addWidget(self._count)
-
-    def set_center(self, widget: QWidget):
-        self._center_layout.addWidget(widget)
-
-    def set_repo(self, name: str):
-        self._name.setText(name)
-
-    def set_operation(self, op: str):
-        if op:
-            self._op_badge.setText(f"⚙ {op}…")
-            self._op_badge.show()
-        else:
-            self._op_badge.hide()
-
-    def set_url(self, url: str, visibility: str = ""):
-        if visibility == "not_found":
-            self._url.setText(
-                '<span style="color:#ef4444; font-size:11px;">⚠ Repository deleted on GitHub</span>'
-            )
-            self._url.setFixedHeight(16)
-            self.setFixedHeight(64)
-            self._url.show()
-        elif url:
-            badge = ""
-            if visibility == "private":
-                badge = ' <span style="font-size:10px; color:#6b7280;">· Private</span>'
-            elif visibility == "public":
-                badge = ' <span style="font-size:10px; color:#6b7280;">· Public</span>'
-            self._url.setText(
-                f'<a href="{url}" style="color:{COLORS["accent"]}; text-decoration:none;">{url}</a>{badge}'
-            )
-            self._url.setFixedHeight(16)
-            self.setFixedHeight(64)
-            self._url.show()
-        else:
-            self._url.hide()
-            self.setFixedHeight(52)
-
-    def set_connection_state(self, has_remote: bool):
-        if has_remote:
-            self._status_badge.setText("● Remote")
-            self._status_badge.setStyleSheet(
-                f"background: transparent; font-size: 11px; font-weight: 600;"
-                f" color: {COLORS['accent']};"
-            )
-            self._status_badge.show()
-            self._connect_btn.hide()
-        else:
-            self._status_badge.setText("● Local")
-            self._status_badge.setStyleSheet(
-                f"background: transparent; font-size: 11px; font-weight: 600;"
-                f" color: {COLORS['text_muted']};"
-            )
-            self._status_badge.show()
-            self._connect_btn.show()
-
-    def set_count(self, n: int):
-        self._count.setText(f"{n} commit{'s' if n != 1 else ''}")
-
-
-# ── Zoom bar ──────────────────────────────────────────────────────────────────
-
-class ZoomBar(QWidget):
-    _BTN = f"""
-        QPushButton {{
-            background: transparent; border: none;
-            color: {COLORS['text_secondary']};
-            font-size: 16px; font-weight: 600; padding: 0 4px;
-        }}
-        QPushButton:hover {{ color: {COLORS['text_primary']}; }}
-        QPushButton:disabled {{ color: {COLORS['text_muted']}; }}
-    """
-    _LBL = f"""
-        QPushButton {{
-            background: transparent; border: none;
-            color: {COLORS['text_muted']};
-            font-size: 12px; font-weight: 500; min-width: 46px;
-        }}
-        QPushButton:hover {{ color: {COLORS['text_primary']}; }}
-    """
-
-    def __init__(self, canvas: SpatialCanvas, parent=None):
-        super().__init__(parent)
-        self.setObjectName("zoomBar")
-        self.setAttribute(Qt.WA_StyledBackground, True)
-        self.setStyleSheet(f"""
-            #zoomBar {{
-                background: {COLORS['bg_card']};
-                border: 1px solid {COLORS['border']};
-                border-radius: 8px;
-            }}
-        """)
-        self.setFixedHeight(34)
-
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(6, 0, 6, 0)
-        layout.setSpacing(0)
-        layout.setAlignment(Qt.AlignVCenter)
-
-        self._minus = QPushButton("−")
-        self._minus.setStyleSheet(self._BTN)
-        self._minus.setFixedSize(34, 34)
-        self._minus.setCursor(Qt.PointingHandCursor)
-        self._minus.setToolTip("Zoom out")
-        self._minus.clicked.connect(canvas.zoom_out)
-        layout.addWidget(self._minus)
-
-        self._pct = QPushButton("100%")
-        self._pct.setStyleSheet(self._LBL)
-        self._pct.setFixedHeight(34)
-        self._pct.setCursor(Qt.PointingHandCursor)
-        self._pct.setToolTip("Reset zoom")
-        self._pct.clicked.connect(canvas.reset_zoom)
-        layout.addWidget(self._pct)
-
-        self._plus = QPushButton("+")
-        self._plus.setStyleSheet(self._BTN)
-        self._plus.setFixedSize(34, 34)
-        self._plus.setCursor(Qt.PointingHandCursor)
-        self._plus.setToolTip("Zoom in")
-        self._plus.clicked.connect(canvas.zoom_in)
-        layout.addWidget(self._plus)
-
-        self.adjustSize()
-        canvas.zoom_changed.connect(self._on_zoom)
-
-    def _on_zoom(self, pct: int):
-        self._pct.setText(f"{pct}%")
-        from ui.spatial_canvas import ZOOM_MIN, ZOOM_MAX
-        self._minus.setEnabled(pct / 100 > ZOOM_MIN + 0.01)
-        self._plus.setEnabled(pct / 100 < ZOOM_MAX - 0.01)
-
-
-# ── Canvas legend ─────────────────────────────────────────────────────────────
-
-class _Legend(QWidget):
-    """Small floating key explaining the visual symbols on the canvas."""
-
-    _ITEMS = [
-        ("●", "A snapshot of your code"),
-        ("──", "Version history"),
-        ("┄→", "Where a version was combined"),
-        ("┄┄", "Where this version started"),
-        ("⚑", "First commit on this branch"),
-    ]
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setObjectName("canvasLegend")
-        self.setAttribute(Qt.WA_StyledBackground, True)
-        self.setStyleSheet(f"""
-            #canvasLegend {{
-                background: {COLORS['bg_card']};
-                border: 1px solid {COLORS['border']};
-                border-radius: 8px;
-            }}
-        """)
-
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(12, 10, 14, 10)
-        layout.setSpacing(5)
-
-        title = QLabel("KEY")
-        title.setStyleSheet(
-            f"background: transparent; font-size: 9px; font-weight: 700; color: {COLORS['text_muted']};"
-            " letter-spacing: 0.08em;"
-        )
-        layout.addWidget(title)
-
-        for symbol, description in self._ITEMS:
-            row = QHBoxLayout()
-            row.setSpacing(8)
-            sym_lbl = QLabel(symbol)
-            sym_lbl.setFixedWidth(20)
-            sym_lbl.setStyleSheet(f"background: transparent; font-size: 11px; color: {COLORS['accent']};")
-            desc_lbl = QLabel(description)
-            desc_lbl.setStyleSheet(f"background: transparent; font-size: 10px; color: {COLORS['text_muted']};")
-            row.addWidget(sym_lbl)
-            row.addWidget(desc_lbl)
-            layout.addLayout(row)
-
-        self.adjustSize()
-
-
-
-# ── Collaborator panel ───────────────────────────────────────────────────────
-
-_COLLAB_PALETTE = [
-    "#6366f1", "#f59e0b", "#ef4444", "#8b5cf6",
-    "#06b6d4", "#f97316", "#ec4899", "#14b8a6",
-    "#84cc16", "#a78bfa",
-]
-
-def _person_color(login: str) -> str:
-    idx = int(hashlib.md5(login.encode()).hexdigest(), 16) % len(_COLLAB_PALETTE)
-    return _COLLAB_PALETTE[idx]
-
-
-class _SkeletonRow(QWidget):
-    """Grey placeholder row shown while collaborators are loading."""
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setFixedHeight(48)
-
-    def paintEvent(self, _):
-        p = QPainter(self)
-        p.setRenderHint(QPainter.Antialiasing)
-        base = QColor(COLORS["border"])
-        base.setAlpha(120)
-        p.setBrush(QBrush(base))
-        p.setPen(Qt.NoPen)
-
-        # Avatar circle placeholder
-        p.drawEllipse(0, 8, 32, 32)
-
-        # Name bar
-        p.drawRoundedRect(42, 12, 90, 10, 4, 4)
-
-        # Sub-line bar
-        dim = QColor(COLORS["border"])
-        dim.setAlpha(70)
-        p.setBrush(QBrush(dim))
-        p.drawRoundedRect(42, 28, 60, 8, 4, 4)
-        p.end()
-
-
-class _AvatarDot(QWidget):
-    """32px circular avatar — starts with initials, upgrades to real photo."""
-
-    def __init__(self, login: str, color: str, size: int = 32, parent=None):
-        super().__init__(parent)
-        self.setFixedSize(size, size)
-        self._size   = size
-        self._login  = login
-        self._color  = QColor(color)
-        self._pixmap: QPixmap | None = None
-
-    def set_pixmap(self, pm: QPixmap):
-        self._pixmap = pm.scaled(
-            self._size, self._size,
-            Qt.KeepAspectRatioByExpanding,
-            Qt.SmoothTransformation,
-        )
-        self.update()
-
-    def paintEvent(self, _):
-        p = QPainter(self)
-        p.setRenderHint(QPainter.Antialiasing)
-        s = self._size
-
-        clip = QPainterPath()
-        clip.addEllipse(0, 0, s, s)
-        p.setClipPath(clip)
-
-        if self._pixmap:
-            src = self._pixmap
-            x = (src.width()  - s) // 2
-            y = (src.height() - s) // 2
-            p.drawPixmap(0, 0, src, x, y, s, s)
-        else:
-            p.setBrush(QBrush(QColor(self._color.red(),
-                                     self._color.green(),
-                                     self._color.blue(), 40)))
-            p.setPen(Qt.NoPen)
-            p.drawEllipse(0, 0, s, s)
-            p.setClipping(False)
-            p.setPen(QPen(self._color))
-            font = QFont("Inter", s // 3, QFont.Bold)
-            p.setFont(font)
-            p.drawText(self.rect(), Qt.AlignCenter,
-                       self._login[:2].upper())
-
-        p.setClipping(False)
-        p.setPen(QPen(self._color, 2))
-        p.setBrush(Qt.NoBrush)
-        p.drawEllipse(1, 1, s - 2, s - 2)
-        p.end()
-
-
-class _CollabRow(QWidget):
-    clicked = pyqtSignal(str)   # login
-
-    def __init__(self, login: str, contributions: int, avatar_url: str,
-                 display_name: Optional[str] = None, is_owner: bool = False, parent=None):
-        super().__init__(parent)
-        self._login = login
-        self.setAttribute(Qt.WA_StyledBackground, True)
-        self.setStyleSheet("background: transparent; border-radius: 6px;")
-        self.setCursor(Qt.PointingHandCursor)
-        color = _person_color(login)
-
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(4, 8, 4, 8)
-        layout.setSpacing(10)
-
-        self._dot = _AvatarDot(login, color, 36)
-        layout.addWidget(self._dot)
-
-        info = QVBoxLayout()
-        info.setSpacing(1)
-
-        name_row = QHBoxLayout()
-        name_row.setSpacing(5)
-        name_row.setContentsMargins(0, 0, 0, 0)
-
-        raw_name = display_name or login
-        name_lbl = QLabel(raw_name if len(raw_name) <= 18 else raw_name[:17] + "…")
-        name_lbl.setToolTip(raw_name)
-        name_lbl.setStyleSheet(
-            f"background: transparent; font-size: 12px; font-weight: 600; color: {COLORS['text_primary']};"
-        )
-        name_row.addWidget(name_lbl)
-
-        if is_owner:
-            crown = QLabel("👑")
-            crown.setStyleSheet("background: transparent; font-size: 11px;")
-            name_row.addWidget(crown)
-
-        name_row.addStretch()
-        info.addLayout(name_row)
-
-        commits_lbl = QLabel(f"{contributions} commit{'s' if contributions != 1 else ''}")
-        commits_lbl.setStyleSheet(f"background: transparent; font-size: 11px; color: {COLORS['text_muted']};")
-
-        info.addWidget(commits_lbl)
-        layout.addLayout(info)
-
-        if avatar_url:
-            cached = _load_avatar(avatar_url)
-            if cached:
-                self._dot.set_pixmap(cached)
-            else:
-                threading.Thread(
-                    target=self._fetch, args=(avatar_url,), daemon=True
-                ).start()
-
-    def mousePressEvent(self, event):
-        if event.button() == Qt.LeftButton:
-            self.clicked.emit(self._login)
-        super().mousePressEvent(event)
-
-    def enterEvent(self, _):
-        self.setStyleSheet("background: rgba(255,255,255,15); border-radius: 6px;")
-
-    def leaveEvent(self, _):
-        self.setStyleSheet("background: transparent; border-radius: 6px;")
-
-    def _fetch(self, url: str):
-        try:
-            import requests
-            resp = requests.get(url, timeout=10)
-            if resp.status_code == 200:
-                pm = QPixmap()
-                pm.loadFromData(resp.content)
-                if not pm.isNull():
-                    _save_avatar(url, pm)
-                    self._dot.set_pixmap(pm)
-        except Exception:
-            pass
-
-
-class CollaboratorPanel(QWidget):
-    """Floating panel showing repo contributors — always visible top-right."""
-
-    PANEL_W = 210
-    collaborator_clicked = pyqtSignal(str)   # login
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setObjectName("collabPanel")
-        self.setFixedWidth(self.PANEL_W)
-        self.setAttribute(Qt.WA_StyledBackground, True)
-        self.setStyleSheet(f"""
-            #collabPanel {{
-                background: {COLORS['bg_card']};
-                border: 1px solid {COLORS['border']};
-                border-radius: 10px;
-            }}
-        """)
-        self.hide()
-
-        root = QVBoxLayout(self)
-        root.setContentsMargins(0, 0, 0, 0)
-        root.setSpacing(0)
-
-        hdr = QWidget()
-        hdr.setObjectName("cpHdr")
-        hdr.setFixedHeight(38)
-        hdr.setStyleSheet(f"""
-            #cpHdr {{
-                background: {COLORS['bg_secondary']};
-                border-bottom: 1px solid {COLORS['border']};
-                border-radius: 10px 10px 0 0;
-            }}
-        """)
-        hdr_layout = QHBoxLayout(hdr)
-        hdr_layout.setContentsMargins(14, 0, 8, 0)
-        title = QLabel("Collaborators")
-        title.setStyleSheet(
-            f"background: transparent; font-size: 12px; font-weight: 600; color: {COLORS['text_muted']};"
-            " letter-spacing: 0.04em;"
-        )
-        hdr_layout.addWidget(title)
-
-        self._count_lbl = QLabel("")
-        self._count_lbl.setFixedHeight(18)
-        self._count_lbl.setAlignment(Qt.AlignCenter)
-        self._count_lbl.setStyleSheet(
-            f"background: {COLORS['bg_primary']}; border-radius: 9px;"
-            f" font-size: 10px; font-weight: 600; color: {COLORS['text_muted']};"
-            f" padding: 0 8px;"
-        )
-        self._count_lbl.hide()
-        hdr_layout.addWidget(self._count_lbl)
-        hdr_layout.addStretch()
-
-        self._toggle_btn = QPushButton("▾")
-        self._toggle_btn.setFixedSize(24, 24)
-        self._toggle_btn.setCursor(Qt.PointingHandCursor)
-        self._toggle_btn.setStyleSheet(f"""
-            QPushButton {{
-                background: transparent; border: none;
-                color: {COLORS['text_muted']}; font-size: 11px;
-            }}
-            QPushButton:hover {{ color: {COLORS['text_primary']}; }}
-        """)
-        self._toggle_btn.clicked.connect(self._toggle)
-        hdr_layout.addWidget(self._toggle_btn)
-        root.addWidget(hdr)
-
-        self._scroll = _VScrollArea()
-        scroll = self._scroll
-        scroll.setWidgetResizable(True)
-        scroll.setFrameShape(QFrame.NoFrame)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        scroll.setStyleSheet(f"""
-            QScrollArea {{ background: transparent; border: none; }}
-            QScrollBar:vertical {{
-                background: transparent; width: 4px; margin: 0;
-            }}
-            QScrollBar::handle:vertical {{
-                background: {COLORS['border']}; border-radius: 2px; min-height: 20px;
-            }}
-            QScrollBar::handle:vertical:hover {{
-                background: {COLORS['text_muted']};
-            }}
-            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
-            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{ background: transparent; }}
-        """)
-        scroll.setMaximumHeight(480)
-
-        self._container = QWidget()
-        self._container.setStyleSheet("background: transparent;")
-        self._list = QVBoxLayout(self._container)
-        self._list.setContentsMargins(12, 6, 12, 8)
-        self._list.setSpacing(0)
-        self._list.addStretch()
-
-        scroll.setWidget(self._container)
-        scroll.viewport().setStyleSheet("background: transparent;")
-        root.addWidget(scroll)
-
-    def _clear(self):
-        while self._list.count() > 1:
-            item = self._list.takeAt(0)
-            w = item.widget()
-            if w:
-                w.setParent(None)
-
-    def show_loading(self, rows: int = 3):
-        self._clear()
-        for _ in range(rows):
-            self._list.insertWidget(self._list.count() - 1, _SkeletonRow())
-        self._scroll.show()
-        self._toggle_btn.setText("▾")
-        self.adjustSize()
-        self.show()
-
-    def load(self, collaborators: list[dict]):
-        self._clear()
-        n = len(collaborators)
-        if n > 0:
-            self._count_lbl.setText(str(n))
-            self._count_lbl.show()
-        else:
-            self._count_lbl.hide()
-
-        if not collaborators:
-            lbl = QLabel("No collaborators yet")
-            lbl.setAlignment(Qt.AlignCenter)
-            lbl.setStyleSheet(
-                f"background: transparent; font-size: 12px; color: {COLORS['text_muted']}; padding: 12px 0;"
-            )
-            self._list.insertWidget(0, lbl)
-            self._scroll.show()
-            self._toggle_btn.setText("▾")
-            self.adjustSize()
-            self.show()
-            return
-
-        for collab in collaborators:
-            row = _CollabRow(
-                login=collab.get("login", "?"),
-                contributions=collab.get("contributions", 0),
-                avatar_url=collab.get("avatar_url", ""),
-                display_name=collab.get("display_name"),
-                is_owner=collab.get("is_owner", False),
-            )
-            row.clicked.connect(self.collaborator_clicked)
-            self._list.insertWidget(self._list.count() - 1, row)
-
-        self._scroll.show()
-        self._toggle_btn.setText("▾")
-        self.adjustSize()
-        self.show()
-
-    def _toggle(self):
-        if self._scroll.isVisible():
-            self._scroll.setMaximumHeight(0)
-            self._scroll.hide()
-            self._toggle_btn.setText("▸")
-            self.setFixedHeight(38)
-        else:
-            self._scroll.setMaximumHeight(280)
-            self._scroll.show()
-            self._toggle_btn.setText("▾")
-            self.adjustSize()
-            self.setFixedHeight(self.sizeHint().height())
-
-
-# ── Exploration banner ────────────────────────────────────────────────────────
-
-class _ExploreBanner(QWidget):
-    return_requested = pyqtSignal()
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setAttribute(Qt.WA_StyledBackground, True)
-        self.setStyleSheet(f"""
-            background: {COLORS['accent']}1a;
-            border-bottom: 1px solid {COLORS['accent']}60;
-        """)
-        self.setFixedHeight(44)
-
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(20, 0, 20, 0)
-        layout.setSpacing(12)
-
-        icon = QLabel("🔍")
-        icon.setStyleSheet("background: transparent; font-size: 14px;")
-        layout.addWidget(icon)
-
-        msg = QLabel("You're exploring the past — your current work is safe.")
-        msg.setStyleSheet(
-            f"background: transparent; font-size: 12px; color: {COLORS['text_primary']};"
-        )
-        layout.addWidget(msg)
-        layout.addStretch()
-
-        btn = QPushButton("Go back to my work →")
-        btn.setCursor(Qt.PointingHandCursor)
-        btn.setStyleSheet(f"""
-            QPushButton {{
-                background: {COLORS['accent']}; border: none; border-radius: 6px;
-                color: white; font-size: 12px; font-weight: 600; padding: 5px 14px;
-            }}
-            QPushButton:hover {{ background: {COLORS['accent_dim']}; }}
-        """)
-        btn.clicked.connect(self.return_requested)
-        layout.addWidget(btn)
-
-
-# ── Toast notification ────────────────────────────────────────────────────────
-
-class _Toast(QWidget):
-    _STYLES = {
-        "loading": (COLORS["warning"],  "⏳"),
-        "success": (COLORS["accent"],   "✓"),
-        "error":   (COLORS["danger"],   "✕"),
-        "info":    (COLORS["text_muted"],"ℹ"),
-    }
-    _MARGIN = 20
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setObjectName("toastWidget")
-        self.setAttribute(Qt.WA_StyledBackground, True)
-        self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
-        self.setMaximumWidth(340)
-        self.hide()
-
-        from PyQt5.QtWidgets import QGraphicsOpacityEffect
-        self._opacity = QGraphicsOpacityEffect(self)
-        self._opacity.setOpacity(1.0)
-        self.setGraphicsEffect(self._opacity)
-
-        self._slide = QPropertyAnimation(self, b"pos")
-        self._slide.setDuration(260)
-        self._slide.setEasingCurve(QEasingCurve.OutCubic)
-
-        self._fade = QPropertyAnimation(self._opacity, b"opacity")
-        self._fade.setDuration(220)
-        self._fade.setEasingCurve(QEasingCurve.InCubic)
-        self._fade.finished.connect(self.hide)
-
-        self._timer = QTimer()
-        self._timer.setSingleShot(True)
-        self._timer.timeout.connect(self._dismiss)
-
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(14, 11, 14, 11)
-        layout.setSpacing(10)
-
-        self._icon_lbl = QLabel("")
-        self._icon_lbl.setStyleSheet("background: transparent; font-size: 14px;")
-        layout.addWidget(self._icon_lbl)
-
-        self._msg = QLabel("")
-        self._msg.setWordWrap(True)
-        self._msg.setStyleSheet(
-            f"background: transparent; font-size: 12px; color: {COLORS['text_primary']};"
-        )
-        layout.addWidget(self._msg)
-
-    def show_message(self, text: str, kind: str = "info", duration_ms: int = 4000):
-        color, icon = self._STYLES.get(kind, self._STYLES["info"])
-        self._icon_lbl.setText(icon)
-        self._icon_lbl.setStyleSheet(f"background: transparent; font-size: 14px; color: {color};")
-        self._msg.setText(text)
-        self.setStyleSheet(f"""
-            #toastWidget {{
-                background: {COLORS['bg_card']};
-                border: 1px solid {color}60;
-                border-radius: 10px;
-            }}
-        """)
-        self.adjustSize()
-        self._position_target()
-        self._opacity.setOpacity(1.0)
-        self._fade.stop()
-        self._slide.stop()
-
-        if self.parent():
-            p = self.parent()
-            off_x = p.width()
-            target = self._target_pos()
-            self.move(off_x, target.y())
-            self.raise_()
-            self.show()
-            self._slide.setStartValue(self.pos())
-            self._slide.setEndValue(target)
-            self._slide.start()
-
-        self._timer.stop()
-        if duration_ms > 0:
-            self._timer.start(duration_ms)
-
-    def _target_pos(self):
-        from PyQt5.QtCore import QPoint
-        if not self.parent():
-            return QPoint(0, 0)
-        p = self.parent()
-        return QPoint(p.width() - self.width() - self._MARGIN,
-                      p.height() - self.height() - self._MARGIN)
-
-    def _position_target(self):
-        if self.isVisible():
-            self.move(self._target_pos())
-
-    def _dismiss(self):
-        self._fade.setStartValue(1.0)
-        self._fade.setEndValue(0.0)
-        self._fade.start()
-
-    def reposition(self):
-        if self.isVisible():
-            self.move(self._target_pos())
-
-
-def _numbered(lines: list, start: int = 1) -> str:
-    """Format lines with actual file line numbers as a left-justified gutter."""
-    if not lines:
-        return "(empty)"
-    end = start + len(lines) - 1
-    w = len(str(end))
-    return "\n".join(f"{str(start + i).rjust(w)}  {line}" for i, line in enumerate(lines))
-
-
-# ── Conflict resolution dialog ────────────────────────────────────────────────
-
-class _ConflictDialog(QWidget):
-    _conflict_choice = pyqtSignal(str, str)   # choice, branch
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setAttribute(Qt.WA_StyledBackground, True)
-        self.setStyleSheet("background: rgba(0,0,0,160);")
-        self.hide()
-        self._branch = ""
-
-        from PyQt5.QtWidgets import QGraphicsOpacityEffect
-        self._eff = QGraphicsOpacityEffect(self)
-        self._eff.setOpacity(0.0)
-        self.setGraphicsEffect(self._eff)
-        self._fade_in_anim = QPropertyAnimation(self._eff, b"opacity")
-        self._fade_in_anim.setDuration(200)
-        self._fade_in_anim.setEasingCurve(QEasingCurve.OutCubic)
-
-        # ── Flat card ─────────────────────────────────────────────────────────
-        card = QWidget(self)
-        card.setObjectName("conflictCard")
-        card.setFixedWidth(440)
-        card.setAttribute(Qt.WA_StyledBackground, True)
-        card.setStyleSheet(f"""
-            #conflictCard {{
-                background: {COLORS['bg_card']};
-                border: 1px solid {COLORS['border']};
-                border-radius: 12px;
-            }}
-        """)
-        self._card = card
-        vl = QVBoxLayout(card)
-        vl.setContentsMargins(24, 20, 24, 20)
-        vl.setSpacing(0)
-
-        # Type badge + branches on one row
-        top_row = QHBoxLayout()
-        top_row.setSpacing(12)
-        top_row.setContentsMargins(0, 0, 0, 0)
-        self._type_lbl = QLabel("PUSH CONFLICT")
-        self._type_lbl.setStyleSheet(
-            f"background: transparent; font-size: 10px; font-weight: 700;"
-            f" color: {COLORS['warning']}; letter-spacing: 0.08em;"
-        )
-        top_row.addWidget(self._type_lbl)
-        top_row.addStretch()
-        vl.addLayout(top_row)
-        vl.addSpacing(10)
-
-        # Branches: "local/main  ↔  origin/main"
-        self._branch_lbl = QLabel("")
-        self._branch_lbl.setStyleSheet(
-            f"background: transparent; font-size: 13px; font-weight: 600;"
-            f" color: {COLORS['text_primary']}; font-family: monospace;"
-        )
-        vl.addWidget(self._branch_lbl)
-        vl.addSpacing(4)
-
-        # Conflicting files (small, muted)
-        self._files_lbl = QLabel("")
-        self._files_lbl.setWordWrap(True)
-        self._files_lbl.setStyleSheet(
-            f"background: transparent; font-size: 11px; color: {COLORS['text_muted']};"
-        )
-        vl.addWidget(self._files_lbl)
-
-        # Divider
-        def _divider():
-            f = QFrame(); f.setFrameShape(QFrame.HLine)
-            f.setStyleSheet(f"background: {COLORS['border']}; max-height: 1px; border: none;")
-            return f
-
-        # Code diff (hidden when no files) — side by side
-        from PyQt5.QtWidgets import QPlainTextEdit
-        self._code_area = QWidget()
-        self._code_area.setStyleSheet("background: transparent;")
-        code_vl = QVBoxLayout(self._code_area)
-        code_vl.setContentsMargins(0, 0, 0, 0)
-        code_vl.setSpacing(6)
-
-        self._diff_file_lbl = QLabel("")
-        self._diff_file_lbl.setStyleSheet(
-            f"background: transparent; font-size: 11px; font-weight: 600;"
-            f" color: {COLORS['text_primary']}; font-family: monospace;"
-        )
-        code_vl.addWidget(self._diff_file_lbl)
-
-        cols_lbl = QHBoxLayout()
-        cols_lbl.setSpacing(8)
-        cols_lbl.setContentsMargins(0, 0, 0, 0)
-        self._orig_role_lbl = QLabel("")
-        self._orig_role_lbl.setStyleSheet(
-            f"background: transparent; font-size: 10px; color: {COLORS['text_muted']};"
-        )
-        self._inc_role_lbl = QLabel("")
-        self._inc_role_lbl.setStyleSheet(
-            f"background: transparent; font-size: 10px; color: {COLORS['warning']};"
-        )
-        cols_lbl.addWidget(self._orig_role_lbl, 1)
-        cols_lbl.addWidget(self._inc_role_lbl, 1)
-        code_vl.addLayout(cols_lbl)
-
-        _te_style = f"""
-            QPlainTextEdit {{
-                background: {COLORS['bg_secondary']}; border: none;
-                border-radius: 6px; color: {COLORS['text_secondary']};
-                font-family: monospace; font-size: 11px; padding: 6px;
-            }}
-            QScrollBar:vertical {{ width: 4px; background: transparent; }}
-            QScrollBar::handle:vertical {{ background: {COLORS['border']}; border-radius: 2px; }}
-            QScrollBar:horizontal {{ height: 4px; background: transparent; }}
-            QScrollBar::handle:horizontal {{ background: {COLORS['border']}; border-radius: 2px; }}
-        """
-        cols_code = QHBoxLayout()
-        cols_code.setSpacing(8)
-        cols_code.setContentsMargins(0, 0, 0, 0)
-        self._orig_code_te = QPlainTextEdit()
-        self._orig_code_te.setReadOnly(True)
-        self._orig_code_te.setFixedHeight(110)
-        self._orig_code_te.setStyleSheet(_te_style)
-        self._inc_code_te = QPlainTextEdit()
-        self._inc_code_te.setReadOnly(True)
-        self._inc_code_te.setFixedHeight(110)
-        self._inc_code_te.setStyleSheet(_te_style)
-        cols_code.addWidget(self._orig_code_te, 1)
-        cols_code.addWidget(self._inc_code_te, 1)
-        code_vl.addLayout(cols_code)
-        self._code_area.hide()
-
-        vl.addSpacing(14)
-        vl.addWidget(_divider())
-        vl.addSpacing(14)
-        vl.addWidget(self._code_area)
-
-        vl.addSpacing(14)
-        vl.addWidget(_divider())
-        vl.addSpacing(16)
-
-        # Buttons side-by-side
-        btn_row = QHBoxLayout()
-        btn_row.setSpacing(10)
-        btn_row.setContentsMargins(0, 0, 0, 0)
-
-        def _abtn(color, slot):
-            b = QPushButton("")
-            b.setFixedHeight(38)
-            b.setCursor(Qt.PointingHandCursor)
-            b.setStyleSheet(f"""
-                QPushButton {{
-                    background: transparent; border: 1px solid {color};
-                    border-radius: 8px; color: {color};
-                    font-size: 11px; font-weight: 600;
-                }}
-                QPushButton:hover {{ background: {color}; color: white; }}
-            """)
-            b.clicked.connect(slot)
-            return b
-
-        self._discard_btn = _abtn(COLORS["text_secondary"], self._discard)
-        self._keep_btn    = _abtn(COLORS["accent"],         self._keep)
-        btn_row.addWidget(self._discard_btn, 1)
-        btn_row.addWidget(self._keep_btn, 1)
-        vl.addLayout(btn_row)
-        vl.addSpacing(8)
-
-        cancel = QPushButton("Cancel")
-        cancel.setFixedHeight(28)
-        cancel.setCursor(Qt.PointingHandCursor)
-        cancel.setStyleSheet(f"""
-            QPushButton {{
-                background: transparent; border: none;
-                color: {COLORS['text_muted']}; font-size: 11px;
-            }}
-            QPushButton:hover {{ color: {COLORS['text_primary']}; }}
-        """)
-        cancel.clicked.connect(self._cancel)
-        vl.addWidget(cancel, 0, Qt.AlignCenter)
-
-    def show_for_branch(self, branch: str, conflict_type: str = "PUSH CONFLICT",
-                        conflicting_files: list = None, arrow: str = "→",
-                        repo_path: str = "", prefetched_content: dict = None):
-        self._branch = branch
-        self._type_lbl.setText(conflict_type)
-        incoming = f"origin/{branch}" if arrow == "→" else f"local/{branch}"
-        original = f"local/{branch}"  if arrow == "→" else f"origin/{branch}"
-        self._branch_lbl.setText(f"{original}  ↔  {incoming}")
-        self._discard_btn.setText(f"Accept  {incoming}")
-        self._keep_btn.setText(f"Accept  {original}")
-
-        files = conflicting_files or []
-        self._files_lbl.setText("  ·  ".join(files[:6]) + ("  …" if len(files) > 6 else "") if files else "")
-        self._files_lbl.setVisible(bool(files))
-
-        content = prefetched_content or {}
-        if files and (content or repo_path):
-            try:
-                first = files[0]
-                if first in content:
-                    orig_lines, orig_start, inc_lines, inc_start = content[first]
-                else:
-                    from core.git_ops import get_conflict_content
-                    orig_lines, orig_start, inc_lines, inc_start = get_conflict_content(repo_path, first)
-                self._diff_file_lbl.setText(first)
-                self._orig_role_lbl.setText(f"Original  ·  {original}")
-                self._inc_role_lbl.setText(f"Incoming  ·  {incoming}")
-                self._orig_code_te.setPlainText(_numbered(orig_lines, orig_start))
-                self._inc_code_te.setPlainText(_numbered(inc_lines,  inc_start))
-                self._code_area.show()
-            except Exception:
-                self._code_area.hide()
-        else:
-            self._code_area.hide()
-        self._card.adjustSize()
-        self.setGeometry(self.parent().rect())
-        cx = (self.width()  - self._card.width())  // 2
-        cy = (self.height() - self._card.height()) // 2
-        self._card.move(cx, cy)
-        self._eff.setOpacity(0.0)
-        self.show()
-        self.raise_()
-        self._fade_in_anim.setStartValue(0.0)
-        self._fade_in_anim.setEndValue(1.0)
-        self._fade_in_anim.start()
-
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        if self.isVisible():
-            cx = (self.width()  - self._card.width())  // 2
-            cy = (self.height() - self._card.height()) // 2
-            self._card.move(cx, cy)
-
-    def mousePressEvent(self, event):
-        if not self._card.geometry().contains(event.pos()):
-            self._cancel()
-        super().mousePressEvent(event)
-
-    def _discard(self): self._choose("discard")
-    def _keep(self):    self._choose("keep")
-    def _cancel(self):  self._choose("cancel")
-
-    def _choose(self, choice: str):
-        self.hide()
-        self._conflict_choice.emit(choice, self._branch)
-
-
-# ── Pull dirty-state dialog ───────────────────────────────────────────────────
-
-class _PullDirtyDialog(QWidget):
-    _pull_dirty_choice = pyqtSignal(str, str)   # choice, branch
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setAttribute(Qt.WA_StyledBackground, True)
-        self.setStyleSheet("background: rgba(0,0,0,160);")
-        self.hide()
-        self._branch = ""
-
-        from PyQt5.QtWidgets import QGraphicsOpacityEffect
-        self._eff = QGraphicsOpacityEffect(self)
-        self._eff.setOpacity(0.0)
-        self.setGraphicsEffect(self._eff)
-        self._anim = QPropertyAnimation(self._eff, b"opacity")
-        self._anim.setDuration(200)
-        self._anim.setEasingCurve(QEasingCurve.OutCubic)
-
-        card = QWidget(self)
-        card.setObjectName("pdCard")
-        card.setFixedWidth(440)
-        card.setAttribute(Qt.WA_StyledBackground, True)
-        card.setStyleSheet(f"""
-            #pdCard {{
-                background: {COLORS['bg_card']};
-                border: 1px solid {COLORS['border']};
-                border-radius: 12px;
-            }}
-        """)
-        self._card = card
-        card_vl = QVBoxLayout(card)
-        card_vl.setContentsMargins(0, 0, 0, 0)
-        card_vl.setSpacing(0)
-
-        hdr = QWidget()
-        hdr.setObjectName("pdHdr")
-        hdr.setAttribute(Qt.WA_StyledBackground, True)
-        hdr.setStyleSheet(f"""
-            #pdHdr {{
-                background: {COLORS['bg_secondary']};
-                border-bottom: 1px solid {COLORS['border']};
-                border-radius: 12px 12px 0 0;
-            }}
-        """)
-        hdr_vl = QVBoxLayout(hdr)
-        hdr_vl.setContentsMargins(20, 14, 20, 14)
-        hdr_vl.setSpacing(6)
-
-        badge = QLabel("PULL WITH UNSAVED CHANGES")
-        badge.setStyleSheet(
-            f"background: transparent; font-size: 10px; font-weight: 700;"
-            f" color: {COLORS['warning']}; letter-spacing: 0.1em;"
-        )
-        hdr_vl.addWidget(badge)
-
-        self._flow_lbl = QLabel("")
-        self._flow_lbl.setStyleSheet(
-            f"background: transparent; font-size: 13px; font-weight: 600;"
-            f" color: {COLORS['text_primary']}; font-family: monospace;"
-        )
-        hdr_vl.addWidget(self._flow_lbl)
-        card_vl.addWidget(hdr)
-
-        body = QWidget()
-        body.setStyleSheet("background: transparent;")
-        body_vl = QVBoxLayout(body)
-        body_vl.setContentsMargins(20, 18, 20, 20)
-        body_vl.setSpacing(10)
-
-        desc = QLabel("You have unsaved changes. Choose how to handle them before pulling:")
-        desc.setWordWrap(True)
-        desc.setStyleSheet(
-            f"background: transparent; font-size: 12px; color: {COLORS['text_secondary']};"
-        )
-        body_vl.addWidget(desc)
-        body_vl.addSpacing(4)
-
-        def _btn(text, color, slot):
-            b = QPushButton(text)
-            b.setFixedHeight(40)
-            b.setCursor(Qt.PointingHandCursor)
-            b.setStyleSheet(f"""
-                QPushButton {{
-                    background: transparent; border: 1px solid {color};
-                    border-radius: 8px; color: {color};
-                    font-size: 12px; font-weight: 600;
-                }}
-                QPushButton:hover {{ background: {color}; color: white; }}
-            """)
-            b.clicked.connect(slot)
-            body_vl.addWidget(b)
-
-        _btn("Auto-stash  →  Pull  →  Re-apply", COLORS["accent"],       self._stash_pull)
-        _btn("Save as Commit  →  Merge",          COLORS["text_secondary"], self._save_merge)
-        _btn("Discard  →  Pull",                  COLORS["danger"],       self._discard_pull)
-        _btn("Cancel",                            COLORS["text_muted"],   self._cancel)
-        card_vl.addWidget(body)
-
-    def show_for_branch(self, branch: str):
-        self._branch = branch
-        self._flow_lbl.setText(f"origin/{branch}  →  local/{branch}")
-        self._card.adjustSize()
-        self.setGeometry(self.parent().rect())
-        cx = (self.width()  - self._card.width())  // 2
-        cy = (self.height() - self._card.height()) // 2
-        self._card.move(cx, cy)
-        self._eff.setOpacity(0.0)
-        self.show()
-        self.raise_()
-        self._anim.setStartValue(0.0)
-        self._anim.setEndValue(1.0)
-        self._anim.start()
-
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        if self.isVisible():
-            cx = (self.width()  - self._card.width())  // 2
-            cy = (self.height() - self._card.height()) // 2
-            self._card.move(cx, cy)
-
-    def mousePressEvent(self, event):
-        if not self._card.geometry().contains(event.pos()):
-            self._cancel()
-        super().mousePressEvent(event)
-
-    def _stash_pull(self):  self._choose("stash_pull")
-    def _save_merge(self):  self._choose("save_merge")
-    def _discard_pull(self): self._choose("discard_pull")
-    def _cancel(self):      self._choose("cancel")
-
-    def _choose(self, choice: str):
-        self.hide()
-        self._pull_dirty_choice.emit(choice, self._branch)
-
-
-# ── Navigate dirty dialog ─────────────────────────────────────────────────────
-
-class _NavigateDirtyDialog(QWidget):
-    """Prompt shown when the user tries to switch snapshots with unsaved changes."""
-    _navigate_dirty_choice = pyqtSignal(str, str)   # choice, sha
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setAttribute(Qt.WA_StyledBackground, True)
-        self.setStyleSheet("background: rgba(0,0,0,160);")
-        self.hide()
-        self._sha = ""
-
-        from PyQt5.QtWidgets import QGraphicsOpacityEffect
-        self._eff = QGraphicsOpacityEffect(self)
-        self._eff.setOpacity(0.0)
-        self.setGraphicsEffect(self._eff)
-        self._anim = QPropertyAnimation(self._eff, b"opacity")
-        self._anim.setDuration(200)
-        self._anim.setEasingCurve(QEasingCurve.OutCubic)
-
-        card = QWidget(self)
-        card.setObjectName("ndCard")
-        card.setFixedWidth(420)
-        card.setAttribute(Qt.WA_StyledBackground, True)
-        card.setStyleSheet(f"""
-            #ndCard {{
-                background: {COLORS['bg_card']};
-                border: 1px solid {COLORS['border']};
-                border-radius: 12px;
-            }}
-        """)
-        self._card = card
-        card_vl = QVBoxLayout(card)
-        card_vl.setContentsMargins(0, 0, 0, 0)
-        card_vl.setSpacing(0)
-
-        hdr = QWidget()
-        hdr.setObjectName("ndHdr")
-        hdr.setAttribute(Qt.WA_StyledBackground, True)
-        hdr.setStyleSheet(f"""
-            #ndHdr {{
-                background: {COLORS['bg_secondary']};
-                border-bottom: 1px solid {COLORS['border']};
-                border-radius: 12px 12px 0 0;
-            }}
-        """)
-        hdr_vl = QVBoxLayout(hdr)
-        hdr_vl.setContentsMargins(20, 14, 20, 14)
-        hdr_vl.setSpacing(4)
-
-        badge = QLabel("NAVIGATE WITH UNSAVED CHANGES")
-        badge.setStyleSheet(
-            f"background: transparent; font-size: 10px; font-weight: 700;"
-            f" color: {COLORS['warning']}; letter-spacing: 0.1em;"
-        )
-        hdr_vl.addWidget(badge)
-        card_vl.addWidget(hdr)
-
-        body = QWidget()
-        body.setStyleSheet("background: transparent;")
-        body_vl = QVBoxLayout(body)
-        body_vl.setContentsMargins(20, 18, 20, 20)
-        body_vl.setSpacing(10)
-
-        desc = QLabel(
-            "You have uncommitted changes. Choose what to do "
-            "before switching to this snapshot:"
-        )
-        desc.setWordWrap(True)
-        desc.setStyleSheet(
-            f"background: transparent; font-size: 12px; color: {COLORS['text_secondary']};"
-        )
-        body_vl.addWidget(desc)
-        body_vl.addSpacing(4)
-
-        def _btn(text, color, slot):
-            b = QPushButton(text)
-            b.setFixedHeight(40)
-            b.setCursor(Qt.PointingHandCursor)
-            b.setStyleSheet(f"""
-                QPushButton {{
-                    background: transparent; border: 1px solid {color};
-                    border-radius: 8px; color: {color};
-                    font-size: 12px; font-weight: 600;
-                }}
-                QPushButton:hover {{ background: {color}; color: white; }}
-            """)
-            b.clicked.connect(slot)
-            body_vl.addWidget(b)
-
-        _btn("Save & Navigate",    COLORS["accent"],        self._save)
-        _btn("Discard & Navigate", COLORS["danger"],        self._discard)
-        _btn("Cancel",             COLORS["text_muted"],    self._cancel)
-        card_vl.addWidget(body)
-
-    def show_for_sha(self, sha: str):
-        self._sha = sha
-        self._card.adjustSize()
-        self.setGeometry(self.parent().rect())
-        cx = (self.width()  - self._card.width())  // 2
-        cy = (self.height() - self._card.height()) // 2
-        self._card.move(cx, cy)
-        self._eff.setOpacity(0.0)
-        self.show()
-        self.raise_()
-        self._anim.setStartValue(0.0)
-        self._anim.setEndValue(1.0)
-        self._anim.start()
-
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        if self.isVisible():
-            cx = (self.width()  - self._card.width())  // 2
-            cy = (self.height() - self._card.height()) // 2
-            self._card.move(cx, cy)
-
-    def mousePressEvent(self, event):
-        if not self._card.geometry().contains(event.pos()):
-            self._cancel()
-        super().mousePressEvent(event)
-
-    def _save(self):    self._choose("save")
-    def _discard(self): self._choose("discard")
-    def _cancel(self):  self._choose("cancel")
-
-    def _choose(self, choice: str):
-        self.hide()
-        self._navigate_dirty_choice.emit(choice, self._sha)
-
-
-# ── Merge conflict dialog ─────────────────────────────────────────────────────
-
-class _MergeConflictDialog(QWidget):
-    # choice: "decisions" (dict of per-file ours/theirs), source, target
-    _merge_conflict_choice = pyqtSignal(object, str, str)
-
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setAttribute(Qt.WA_StyledBackground, True)
-        self.setStyleSheet("background: rgba(0,0,0,160);")
-        self.hide()
-        self._source = ""
-        self._target = ""
-        self._files: list = []
-        self._content: dict = {}
-        self._decisions: dict = {}
-        self._idx: int = 0
-
-        from PyQt5.QtWidgets import QGraphicsOpacityEffect, QPlainTextEdit
-        self._eff = QGraphicsOpacityEffect(self)
-        self._eff.setOpacity(0.0)
-        self.setGraphicsEffect(self._eff)
-        self._anim = QPropertyAnimation(self._eff, b"opacity")
-        self._anim.setDuration(200)
-        self._anim.setEasingCurve(QEasingCurve.OutCubic)
-
-        card = QWidget(self)
-        card.setObjectName("mcCard")
-        card.setFixedWidth(500)
-        card.setAttribute(Qt.WA_StyledBackground, True)
-        card.setStyleSheet(f"""
-            #mcCard {{
-                background: {COLORS['bg_card']};
-                border: 1px solid {COLORS['border']};
-                border-radius: 12px;
-            }}
-        """)
-        self._card = card
-        vl = QVBoxLayout(card)
-        vl.setContentsMargins(24, 20, 24, 20)
-        vl.setSpacing(0)
-
-        # ── Top row: badge + progress ─────────────────────────────────────────
-        top = QHBoxLayout()
-        top.setContentsMargins(0, 0, 0, 0)
-        badge = QLabel("MERGE CONFLICT")
-        badge.setStyleSheet(
-            f"background: transparent; font-size: 10px; font-weight: 700;"
-            f" color: {COLORS['warning']}; letter-spacing: 0.08em;"
-        )
-        top.addWidget(badge)
-        top.addStretch()
-        self._progress_lbl = QLabel("")
-        self._progress_lbl.setStyleSheet(
-            f"background: transparent; font-size: 10px; color: {COLORS['text_muted']};"
-        )
-        top.addWidget(self._progress_lbl)
-        vl.addLayout(top)
-        vl.addSpacing(10)
-
-        self._branch_lbl2 = QLabel("")
-        self._branch_lbl2.setStyleSheet(
-            f"background: transparent; font-size: 12px; font-weight: 600;"
-            f" color: {COLORS['text_primary']}; font-family: monospace;"
-        )
-        vl.addWidget(self._branch_lbl2)
-        vl.addSpacing(12)
-
-        def _div():
-            f = QFrame(); f.setFrameShape(QFrame.HLine)
-            f.setStyleSheet(f"background: {COLORS['border']}; max-height: 1px; border: none;")
-            return f
-
-        vl.addWidget(_div())
-        vl.addSpacing(12)
-
-        # ── File name ─────────────────────────────────────────────────────────
-        self._file_lbl2 = QLabel("")
-        self._file_lbl2.setStyleSheet(
-            f"background: transparent; font-size: 12px; font-weight: 700;"
-            f" color: {COLORS['text_primary']}; font-family: monospace;"
-        )
-        vl.addWidget(self._file_lbl2)
-        vl.addSpacing(6)
-
-        # ── Code labels ───────────────────────────────────────────────────────
-        lbl_row = QHBoxLayout()
-        lbl_row.setSpacing(8); lbl_row.setContentsMargins(0, 0, 0, 0)
-        self._orig_lbl2 = QLabel("")
-        self._orig_lbl2.setStyleSheet(f"background: transparent; font-size: 10px; color: {COLORS['text_muted']};")
-        self._inc_lbl2  = QLabel("")
-        self._inc_lbl2.setStyleSheet(f"background: transparent; font-size: 10px; color: {COLORS['warning']};")
-        lbl_row.addWidget(self._orig_lbl2, 1)
-        lbl_row.addWidget(self._inc_lbl2, 1)
-        vl.addLayout(lbl_row)
-        vl.addSpacing(4)
-
-        # ── Side-by-side code ─────────────────────────────────────────────────
-        _te_style = f"""
-            QPlainTextEdit {{
-                background: {COLORS['bg_secondary']}; border: none;
-                border-radius: 6px; color: {COLORS['text_secondary']};
-                font-family: monospace; font-size: 11px; padding: 6px;
-            }}
-            QScrollBar:vertical {{ width: 4px; background: transparent; }}
-            QScrollBar::handle:vertical {{ background: {COLORS['border']}; border-radius: 2px; }}
-            QScrollBar:horizontal {{ height: 4px; background: transparent; }}
-            QScrollBar::handle:horizontal {{ background: {COLORS['border']}; border-radius: 2px; }}
-        """
-        code_row = QHBoxLayout()
-        code_row.setSpacing(8); code_row.setContentsMargins(0, 0, 0, 0)
-        self._orig_te2 = QPlainTextEdit(); self._orig_te2.setReadOnly(True)
-        self._orig_te2.setFixedHeight(120); self._orig_te2.setStyleSheet(_te_style)
-        self._inc_te2  = QPlainTextEdit(); self._inc_te2.setReadOnly(True)
-        self._inc_te2.setFixedHeight(120);  self._inc_te2.setStyleSheet(_te_style)
-        code_row.addWidget(self._orig_te2, 1)
-        code_row.addWidget(self._inc_te2, 1)
-        vl.addLayout(code_row)
-        vl.addSpacing(12)
-
-        # ── Per-file Accept buttons ────────────────────────────────────────────
-        acc_row = QHBoxLayout()
-        acc_row.setSpacing(8); acc_row.setContentsMargins(0, 0, 0, 0)
-
-        def _abtn(color, slot):
-            b = QPushButton("")
-            b.setFixedHeight(36)
-            b.setCursor(Qt.PointingHandCursor)
-            b.setStyleSheet(f"""
-                QPushButton {{
-                    background: transparent; border: 1px solid {color};
-                    border-radius: 8px; color: {color};
-                    font-size: 11px; font-weight: 600;
-                }}
-                QPushButton:hover {{ background: {color}; color: white; }}
-                QPushButton:disabled {{ border-color: {COLORS['border']}; color: {COLORS['text_muted']}; }}
-            """)
-            b.clicked.connect(slot)
-            return b
-
-        def _nav_btn(text, slot):
-            b = QPushButton(text)
-            b.setFixedSize(36, 36)
-            b.setCursor(Qt.PointingHandCursor)
-            b.setStyleSheet(f"""
-                QPushButton {{
-                    background: transparent; border: 1px solid {COLORS['border']};
-                    border-radius: 8px; color: {COLORS['text_muted']};
-                    font-size: 14px; font-weight: 600;
-                }}
-                QPushButton:hover {{ border-color: {COLORS['accent']}; color: {COLORS['accent']}; }}
-                QPushButton:disabled {{ color: {COLORS['border']}; border-color: {COLORS['border']}; }}
-            """)
-            b.clicked.connect(slot)
-            return b
-
-        self._prev_btn = _nav_btn("←", self._go_prev)
-        self._next_btn = _nav_btn("→", self._go_next)
-        self._acc_orig_btn = _abtn(COLORS["text_secondary"], self._accept_original)
-        self._acc_inc_btn  = _abtn(COLORS["accent"],         self._accept_incoming)
-        acc_row.addWidget(self._prev_btn)
-        acc_row.addWidget(self._acc_orig_btn, 1)
-        acc_row.addWidget(self._acc_inc_btn, 1)
-        acc_row.addWidget(self._next_btn)
-        vl.addLayout(acc_row)
-        vl.addSpacing(12)
-        vl.addWidget(_div())
-        vl.addSpacing(12)
-
-        # ── Confirm + Cancel ──────────────────────────────────────────────────
-        self._confirm_btn = QPushButton("Confirm Merge")
-        self._confirm_btn.setFixedHeight(40)
-        self._confirm_btn.setCursor(Qt.PointingHandCursor)
-        self._confirm_btn.setStyleSheet(f"""
-            QPushButton {{
-                background: {COLORS['accent']}; border: none;
-                border-radius: 8px; color: white;
-                font-size: 12px; font-weight: 700;
-            }}
-            QPushButton:hover {{ background: {COLORS['accent_hover']}; }}
-            QPushButton:disabled {{ background: {COLORS['bg_secondary']}; color: {COLORS['text_muted']}; }}
-        """)
-        self._confirm_btn.setEnabled(False)
-        self._confirm_btn.clicked.connect(self._confirm)
-        vl.addWidget(self._confirm_btn)
-        vl.addSpacing(8)
-
-        cancel = QPushButton("Cancel Merge")
-        cancel.setFixedHeight(28); cancel.setCursor(Qt.PointingHandCursor)
-        cancel.setStyleSheet(f"""
-            QPushButton {{ background: transparent; border: none;
-                color: {COLORS['text_muted']}; font-size: 11px; }}
-            QPushButton:hover {{ color: {COLORS['text_primary']}; }}
-        """)
-        cancel.clicked.connect(self._cancel)
-        vl.addWidget(cancel, 0, Qt.AlignCenter)
-
-    # ── Public ────────────────────────────────────────────────────────────────
-
-    def show_for_conflict(self, source: str, target: str, conflict_files: list = None,
-                          repo_path: str = "", prefetched_content: dict = None):
-        self._source    = source
-        self._target    = target
-        self._files     = conflict_files or []
-        self._content   = prefetched_content or {}
-        self._decisions = {}
-        self._idx       = 0
-        self._branch_lbl2.setText(f"{target}  ↔  {source}")
-        self._acc_orig_btn.setText(f"Accept Original  ·  {target}")
-        self._acc_inc_btn.setText(f"Accept Incoming  ·  {source}")
-        self._confirm_btn.setEnabled(False)
-        self._show_file(0)
-        self._card.adjustSize()
-        self.setGeometry(self.parent().rect())
-        self._centre()
-        self._eff.setOpacity(0.0)
-        self.show(); self.raise_()
-        self._anim.setStartValue(0.0); self._anim.setEndValue(1.0); self._anim.start()
-
-    # ── Internal ──────────────────────────────────────────────────────────────
-
-    def _show_file(self, idx: int):
-        if not self._files:
-            return
-        self._idx = idx
-        f = self._files[idx]
-        n = len(self._files)
-        resolved = len(self._decisions)
-        self._progress_lbl.setText(f"{resolved} of {n} resolved")
-        self._file_lbl2.setText(f)
-        self._orig_lbl2.setText(f"Original  ·  {self._target}")
-        self._inc_lbl2.setText(f"Incoming  ·  {self._source}")
-        orig, orig_start, inc, inc_start = self._content.get(f, ([], 1, [], 1))
-        self._orig_te2.setPlainText(_numbered(orig, orig_start))
-        self._inc_te2.setPlainText(_numbered(inc,  inc_start))
-        self._prev_btn.setEnabled(idx > 0)
-        self._next_btn.setEnabled(idx < n - 1)
-        self._update_acc_buttons()
-
-    def _update_acc_buttons(self):
-        f = self._files[self._idx] if self._files else ""
-        decision = self._decisions.get(f)
-        # Original button
-        if decision == "ours":
-            self._acc_orig_btn.setStyleSheet(f"""
-                QPushButton {{ background: {COLORS['text_secondary']}; border: 1px solid {COLORS['text_secondary']};
-                    border-radius: 8px; color: white; font-size: 11px; font-weight: 600; }}
-                QPushButton:hover {{ background: {COLORS['text_primary']}; border-color: {COLORS['text_primary']}; }}
-            """)
-        else:
-            self._acc_orig_btn.setStyleSheet(f"""
-                QPushButton {{ background: transparent; border: 1px solid {COLORS['text_secondary']};
-                    border-radius: 8px; color: {COLORS['text_secondary']}; font-size: 11px; font-weight: 600; }}
-                QPushButton:hover {{ background: {COLORS['text_secondary']}; color: white; }}
-            """)
-        # Incoming button
-        if decision == "theirs":
-            self._acc_inc_btn.setStyleSheet(f"""
-                QPushButton {{ background: {COLORS['accent']}; border: 1px solid {COLORS['accent']};
-                    border-radius: 8px; color: white; font-size: 11px; font-weight: 600; }}
-                QPushButton:hover {{ background: {COLORS['accent_hover']}; }}
-            """)
-        else:
-            self._acc_inc_btn.setStyleSheet(f"""
-                QPushButton {{ background: transparent; border: 1px solid {COLORS['accent']};
-                    border-radius: 8px; color: {COLORS['accent']}; font-size: 11px; font-weight: 600; }}
-                QPushButton:hover {{ background: {COLORS['accent']}; color: white; }}
-            """)
-
-    def _toggle(self, choice: str):
-        f = self._files[self._idx]
-        if self._decisions.get(f) == choice:
-            del self._decisions[f]   # deselect
-        else:
-            self._decisions[f] = choice
-        self._progress_lbl.setText(f"{len(self._decisions)} of {len(self._files)} resolved")
-        self._confirm_btn.setEnabled(len(self._decisions) == len(self._files))
-        self._update_acc_buttons()
-
-    def _accept_original(self): self._toggle("ours")
-    def _accept_incoming(self): self._toggle("theirs")
-    def _go_prev(self): self._show_file(self._idx - 1)
-    def _go_next(self): self._show_file(self._idx + 1)
-
-    def _confirm(self):
-        self.hide()
-        self._merge_conflict_choice.emit(self._decisions, self._source, self._target)
-
-    def _cancel(self):
-        self.hide()
-        self._merge_conflict_choice.emit(None, self._source, self._target)
-
-    def _centre(self):
-        if self.parent():
-            cx = (self.width()  - self._card.width())  // 2
-            cy = (self.height() - self._card.height()) // 2
-            self._card.move(cx, cy)
-
-    def resizeEvent(self, event):
-        super().resizeEvent(event)
-        if self.isVisible():
-            self._centre()
-
-    def mousePressEvent(self, event):
-        if not self._card.geometry().contains(event.pos()):
-            self._cancel()
-        super().mousePressEvent(event)
-
-    def _choose(self, choice: str):
-        self.hide()
-        self._merge_conflict_choice.emit(choice, self._source, self._target)
-
+from ui.canvas import SpatialCanvas, MiniMap, ORIENT_TB, ORIENT_BT, ORIENT_LR, ORIENT_RL
+from ui.panels import DetailPanel, ChangesPanel, PANEL_W as DETAIL_PANEL_W, CHANGES_W, _VScrollArea
+from ui.panels.position_panel import PositionPanel
+from ui.panels.settings_panel import SettingsPanel
+from ui.panels.pr_panel import PullRequestsPanel
+
+# ── Extracted submodules ──────────────────────────────────────────────────────
+from ui.components.avatar import _AVATAR_CACHE, _AVATAR_DIR, _avatar_disk_path, _load_avatar, _save_avatar
+from ui.workers.commit_workers import (
+    _CollabLoader, _Loader, _CommitDetailWorker, _VisibilityWorker,
+    _FetchWorker, _UncommittedRefreshWorker, _NavigateWorker,
+    _FirstCommitWorker, _CreateRepoWorker, _BranchCountWorker,
+)
+from ui.dialogs.github_connect import _GitHubConnectDialog
+from ui.components.loading_overlay import _LoadingOverlay
+from ui.components.no_remote_view import _NoRemoteView, _NoRemoteBanner
+from ui.components.header_bar import _Header
+from ui.components.zoom_bar import ZoomBar
+from ui.components.legend import _Legend
+from ui.components.collaborator_panel import (
+    _COLLAB_PALETTE, _person_color, _SkeletonRow, _AvatarDot, _CollabRow, CollaboratorPanel,
+)
+from ui.components.explore_banner import _ExploreBanner
+from ui.components.toast import _Toast
+from ui.components.branch_list_panel import BranchListPanel
+from ui.dialogs.conflict_dialog import (
+    _numbered, _ConflictDialog, _PullDirtyDialog, _NavigateDirtyDialog, _MergeConflictDialog,
+)
+
+
+# ── Local-only helpers (not extracted) ────────────────────────────────────────
 
 # ── Filter panel ──────────────────────────────────────────────────────────────
 
@@ -2711,6 +443,8 @@ class CommitViewPage(QWidget):
     _wizard_pr_done_sig     = pyqtSignal(bool, str)          # ok, err
     # PR merge conflict check (thread → main)
     _pr_conflict_check_sig  = pyqtSignal(bool, list, object, object)  # has_conflicts, files, content, pr
+    # Branch list panel unique-count worker
+    _branch_count_done_sig  = pyqtSignal(dict)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -2768,7 +502,15 @@ class CommitViewPage(QWidget):
 
         self._filter_panel = _FilterPanel(self)
         self._filter_panel.raise_()
+
+        self._branch_list_panel = BranchListPanel(self)
+        self._branch_list_panel.raise_()
+        self._branch_list_panel.hide()
+        self._branch_count_thread: Optional[QThread] = None
+        self._branch_count_worker = None
+        self._branch_count_done_sig.connect(self._on_branch_count_done)
         self._filter_panel.filter_changed.connect(self._apply_canvas_filter)
+        self._branch_list_panel.branch_focused.connect(self._on_branch_focused)
 
         self._filter_btn = QPushButton("⊟ Filter", self)
         self._filter_btn.setFixedHeight(34)
@@ -2794,7 +536,7 @@ class CommitViewPage(QWidget):
         self._content_stack.addWidget(self._pr_panel)   # index 2 — Collaboration
 
         # PR Open Wizard — full-screen modal overlay
-        from ui.pr_open_wizard import PROpenWizard
+        from ui.dialogs.pr_open_wizard import PROpenWizard
         self._pr_wizard = PROpenWizard(self)
         self._pr_wizard.commit_requested.connect(self._on_wizard_commit)
         self._pr_wizard.discard_requested.connect(self._on_wizard_discard)
@@ -2947,6 +689,7 @@ class CommitViewPage(QWidget):
         self._last_branch_tips = {}
         self._last_local_only = set()
         self._last_unpushed = set()
+        self._sha_to_branch: dict = {}
         self._user = {}
         self._poll_timer.stop()
         self._uncommitted_timer.stop()
@@ -3007,15 +750,17 @@ class CommitViewPage(QWidget):
         if self._tracker:
             self._tracker.close()
 
-        self._commits = []
-        self._collaborators = []
-        self._you_shas = set()
+        self._commits        = []
+        self._branch_tip_map = {}
+        self._collaborators  = []
+        self._you_shas       = set()
         self._last_commit_shas = ()
         self._last_head_sha    = ""
         self._last_branch_tips = {}
         self._last_local_only  = set()
         self._last_unpushed    = set()
         self._last_stash_shas  = set()
+        self._sha_to_branch: dict = {}
         self._tracker = GitTracker(repo_path)
         self._panel.set_repo_path(repo_path)
         try:
@@ -3028,7 +773,7 @@ class CommitViewPage(QWidget):
             user_email = self._user.get("email", "")
             def _auto_init():
                 try:
-                    from core.git_ops import init_repo
+                    from core.ops import init_repo
                     init_repo(repo_path, user_name, user_email)
                 except Exception:
                     pass
@@ -3039,6 +784,7 @@ class CommitViewPage(QWidget):
             return
 
         self._header.set_repo(self._tracker.repo_name)
+        self._header.set_local_path(repo_path)
         self._header.set_operation("")
         self._panel.hide_panel()
         self._filter_panel.hide()
@@ -3123,6 +869,46 @@ class CommitViewPage(QWidget):
         self._fetch_worker.finished.connect(self._on_fetch_done)
         self._fetch_worker.finished.connect(self._fetch_thread.quit)
         self._fetch_thread.start()
+
+    # ── Branch count worker ────────────────────────────────────────────────────
+
+    def _start_branch_count_worker(self, branches: list, default_branch: str):
+        if self._branch_count_thread and self._branch_count_thread.isRunning():
+            return  # previous count still in flight — skip
+        thread = QThread()
+        worker = _BranchCountWorker(self._tracker._path, branches, default_branch)
+        worker.moveToThread(thread)
+        thread.started.connect(worker.run)
+        worker.finished.connect(self._branch_count_done_sig)
+        worker.finished.connect(thread.quit)
+        thread.finished.connect(self._on_branch_count_thread_done)
+        self._branch_count_thread = thread
+        self._branch_count_worker = worker
+        thread.start()
+
+    def _on_branch_count_thread_done(self):
+        self._branch_count_thread = None
+        self._branch_count_worker = None
+
+    def _on_branch_count_done(self, counts: dict):
+        default = getattr(self._settings_panel, "_default_branch", "main")
+        # Default branch first, then the rest sorted by count desc
+        ordered: dict = {}
+        if default in counts:
+            ordered[default] = counts[default]
+        for b in sorted(counts, key=lambda b: -counts[b]):
+            if b != default:
+                ordered[b] = counts[b]
+        self._branch_list_panel.update_branches(ordered)
+        self._branch_list_panel.show()
+        self._branch_list_panel.raise_()
+        margin = 16
+        blp = self._branch_list_panel
+        blp.adjustSize()
+        blp.move(self.width() - blp.width() - margin,
+                 self._header.height() + margin)
+
+    # ── Fetch ──────────────────────────────────────────────────────────────────
 
     def _on_fetch_done(self, changed: bool, last_pusher: str = ""):
         self._last_remote_pusher = last_pusher
@@ -3256,7 +1042,7 @@ class CommitViewPage(QWidget):
         self._header.set_url(self._tracker.remote_url())
         if token:
             self._vis_thread  = QThread()
-            self._vis_worker  = _VisibilityWorker(self._tracker, token)
+            self._vis_worker  = _VisibilityWorker(self._tracker._path, token)
             self._vis_worker.moveToThread(self._vis_thread)
             self._vis_thread.started.connect(self._vis_worker.run)
             self._vis_worker.finished.connect(self._on_visibility_ready)
@@ -3274,6 +1060,37 @@ class CommitViewPage(QWidget):
         new_shas = tuple(c.sha for c in commits)
 
         stash_shas = stash_shas or set()
+
+        # Strip FF-merged branches via first-parent chain traversal.
+        # c.branch is NOT yet set here (load_graph sets it later), so we walk
+        # the default branch's first-parent ancestry using commit.parents.
+        _dflt_now = getattr(self._settings_panel, "_default_branch", "main")
+        _dflt_tip = next(
+            (sha for sha, names in branch_tip_map.items() if _dflt_now in names),
+            None,
+        )
+        _main_chain: set[str] = set()
+        if _dflt_tip:
+            _by_sha = {c.sha: c for c in commits}
+            _cur = _dflt_tip
+            while _cur and _cur in _by_sha:
+                _main_chain.add(_cur)
+                _p = _by_sha[_cur].parents
+                _cur = _p[0] if _p else None
+        _keep_names = {_dflt_now, f'origin/{_dflt_now}', 'main', 'master', 'origin/main', 'origin/master'}
+        _ff = {
+            name
+            for sha, names in branch_tip_map.items()
+            if sha in _main_chain
+            for name in names
+            if name not in _keep_names
+        }
+        if _ff:
+            branch_tip_map = {
+                sha: [n for n in names if n not in _ff]
+                for sha, names in branch_tip_map.items()
+            }
+            branch_tip_map = {sha: ns for sha, ns in branch_tip_map.items() if ns}
 
         # Always rebuild local tip map — use subprocess, NOT GitPython, because
         # GitPython caches b.commit.hexsha in memory and returns stale SHAs after
@@ -3301,10 +1118,10 @@ class CommitViewPage(QWidget):
         except Exception:
             pass
 
-        # Keep _branch_head_shas and _branch_depths in sync here — before the
-        # early-return guard — so they are never stale when the canvas skips rebuild.
+        # _branch_head_shas must stay in sync before the early-return guard.
+        # _branch_depths is computed AFTER load_graph (which sets commit.branch);
+        # on early returns the old value is still valid since nothing changed.
         self._branch_head_shas = self._local_tip_shas
-        self._branch_depths    = _compute_branch_depths(commits, self._local_tip_branch, _dflt)
 
         # ── Remote deletion check ─────────────────────────────────────────────
         # Must run before the early-return guard so self._commits (old graph)
@@ -3338,20 +1155,24 @@ class CommitViewPage(QWidget):
         self._last_unpushed    = unpushed
         self._last_stash_shas  = stash_shas
 
-        self._commits  = commits
+        self._commits        = commits
+        self._branch_tip_map = branch_tip_map
         self._panel.set_stash_shas(stash_shas)
-        self._update_position_panel(commits)
-        # Show a red dot on ALL branch tips — both local and remote.
-        # When diverged, both tips get a dot; actions only on local tips.
-        self._remote_tip_shas: set[str] = set()
-        try:
-            if self._tracker and self._tracker.has_remote():
-                for rem in self._tracker._repo.remotes:
-                    for ref in rem.refs:
-                        if not ref.remote_head.upper().startswith("HEAD"):
-                            self._remote_tip_shas.add(ref.commit.hexsha)
-        except Exception:
-            pass
+        # _remote_tip_shas: every branch tip rendered in the canvas that has at
+        # least one remote (non-local-only) branch name.  Derived directly from
+        # branch_tip_map so it is always in sync with what the canvas renders —
+        # no GitPython ref iteration or subprocess filtering needed.
+        # Exclude stale remote shas where the local branch has moved ahead.
+        # When local Shaun is ahead of origin/Shaun, branch_tip_map contains
+        # both the old remote sha and the new local sha under "Shaun". The old
+        # remote sha should not get the remote-tip dot indicator.
+        _local_branch_names = set(self._local_tip_branch.values())
+        self._remote_tip_shas: set[str] = {
+            sha for sha, names in branch_tip_map.items()
+            if any(name not in local_only for name in names)
+            and not (sha not in self._local_tip_branch
+                     and any(name in _local_branch_names for name in names))
+        }
 
         # Local tip is always the authoritative head — show the hollow ring on it
         # regardless of whether remote is ahead or behind.
@@ -3374,8 +1195,11 @@ class CommitViewPage(QWidget):
                                 is_initial=is_initial,
                                 local_tip_shas=local_tip_visible,
                                 remote_tip_shas=self._remote_tip_shas,
-                                action_head_shas=self._branch_head_shas,
-                                default_branch=_dflt)
+                                action_head_shas=self._branch_head_shas)
+        # commit.branch is now set for all commits by load_graph.
+        self._sha_to_branch = {c.sha: c.branch for c in commits}
+        self._update_position_panel(commits)
+        self._branch_depths = _compute_branch_depths(commits, self._local_tip_branch, _dflt)
         self._header.set_count(len(commits))
         self._loading.hide()
 
@@ -3389,9 +1213,28 @@ class CommitViewPage(QWidget):
             if head:
                 self._canvas.jump_to_commit(head)
 
-        all_branches = sorted({c.branch for c in commits if c.branch})
+        all_branches = sorted(
+            {c.branch for c in commits if c.branch}
+            | {name for names in branch_tip_map.values() for name in names}
+        )
         self._filter_rebuilding = True
         self._filter_panel.set_branches(all_branches)
+
+        # Branch list panel — count using effective_branch so FF-merged tips count
+        # toward their own branch name, not the lane (main) they sit on.
+        _lane_counts: dict[str, int] = {}
+        for _c in commits:
+            _tip = branch_tip_map.get(_c.sha, [])
+            _nm  = [_n for _n in _tip if _n not in ('main', 'master')]
+            _eff = _nm[0] if (_nm and _c.branch in ('main', 'master')) else _c.branch
+            if _eff:
+                _lane_counts[_eff] = _lane_counts.get(_eff, 0) + 1
+        for _names in branch_tip_map.values():
+            for _n in _names:
+                if _n and _n not in _lane_counts:
+                    _lane_counts[_n] = 0
+        if _lane_counts:
+            self._on_branch_count_done(_lane_counts)
         self._filter_rebuilding = False
         self._canvas.apply_commit_filter(set())
 
@@ -3406,7 +1249,12 @@ class CommitViewPage(QWidget):
             return
         head_commit = next((c for c in commits if c.sha == head_sha), None)
         if head_commit:
-            branch     = self._branch_for_head()
+            branch = current_branch(self._tracker._path)
+            if not branch:
+                # Detached HEAD — use persistent sha→branch map built from the
+                # last load_graph run (valid even in the early-return path where
+                # fresh CommitInfo objects have branch="" before load_graph runs)
+                branch = self._sha_to_branch.get(head_sha, "") or self._branch_for_head()
             avatar_url = self._avatar_url_for_author(head_commit.author)
             self._position_panel.load(head_commit.message, branch, head_commit.sha, head_commit.author, avatar_url)
             self._reposition_position()
@@ -3450,9 +1298,6 @@ class CommitViewPage(QWidget):
         if self._collab_thread and self._collab_thread.isRunning():
             self._collab_thread.quit()
             self._collab_thread.wait()
-
-        if not (cache_key and collab_cache.get(cache_key)[0] is not None):
-            pass  # collab panel moved to settings tab
 
         self._collab_thread  = QThread()
         self._collab_worker  = _CollabLoader(self._tracker._path, token)
@@ -3532,11 +1377,15 @@ class CommitViewPage(QWidget):
                 w.show()
             if getattr(self, "_pos_panel_was_visible", False):
                 self._position_panel.show()
+            if self._branch_list_panel.isVisible() or getattr(self, "_blp_was_visible", False):
+                self._branch_list_panel.show()
         elif tab == "collaboration":
             self._pos_panel_was_visible = self._position_panel.isVisible()
+            self._blp_was_visible = self._branch_list_panel.isVisible()
             self._content_stack.setCurrentIndex(2)
             for w in [self._zoom_bar, self._minimap, self._orient_bar,
-                      self._filter_btn, self._filter_panel, self._position_panel]:
+                      self._filter_btn, self._filter_panel, self._position_panel,
+                      self._branch_list_panel]:
                 w.hide()
             self._panel.hide_panel()
             self._changes_panel.hide_panel()
@@ -3545,9 +1394,11 @@ class CommitViewPage(QWidget):
         else:
             # "settings"
             self._pos_panel_was_visible = self._position_panel.isVisible()
+            self._blp_was_visible = self._branch_list_panel.isVisible()
             self._content_stack.setCurrentIndex(1)
             for w in [self._zoom_bar, self._minimap, self._orient_bar,
-                      self._filter_btn, self._filter_panel, self._position_panel]:
+                      self._filter_btn, self._filter_panel, self._position_panel,
+                      self._branch_list_panel]:
                 w.hide()
             self._panel.hide_panel()
             self._changes_panel.hide_panel()
@@ -3570,7 +1421,7 @@ class CommitViewPage(QWidget):
             self._toast.show_message("Clearing stash…", kind="loading")
             def _run():
                 try:
-                    from core.git_ops import drop_stash
+                    from core.ops import drop_stash
                     ok = drop_stash(path, stash_ref)
                     err = "" if ok else "drop failed"
                 except Exception as exc:
@@ -3580,7 +1431,7 @@ class CommitViewPage(QWidget):
             self._toast.show_message("Discarding changes…", kind="loading")
             def _run():
                 try:
-                    from core.git_ops import discard_all_changes
+                    from core.ops import discard_all_changes
                     ok, _ = discard_all_changes(path)
                 except Exception as exc:
                     ok = False
@@ -3589,13 +1440,15 @@ class CommitViewPage(QWidget):
         _threading.Thread(target=_run, daemon=True).start()
 
     def _on_clear_stash_done(self, ok: bool, msg: str, conflict_files: list, conflict_content: object):
-        self._panel.unlock_actions()
         if ok:
             self._panel_op_active = False
+            self._panel.unlock_actions()
             self._toast.show_message(msg, kind="success")
             self._panel.refresh_stash_section()
             self._start_load()
         elif msg == "save_conflict":
+            # panel_op_active stays True until _on_conflict_done releases it.
+            # Do NOT call unlock_actions() here — the conflict dialog is about to open.
             branch = getattr(self._panel, "_action_branch", "")
             self._conflict_dialog.show_for_branch(
                 branch, "SAVE CONFLICT",
@@ -3605,6 +1458,7 @@ class CommitViewPage(QWidget):
             self._start_load()
         else:
             self._panel_op_active = False
+            self._panel.unlock_actions()
             self._toast.show_message(f"Failed: {msg[:140]}", kind="error", duration_ms=8000)
             self._start_load()
 
@@ -3631,7 +1485,7 @@ class CommitViewPage(QWidget):
         ]
         if not pull_needed:
             return
-        from core.git_ops import pull_ff
+        from core.ops import pull_ff
         path = self._tracker._path
         def _run():
             pulled = [b for b in pull_needed if pull_ff(path, b)[0]]
@@ -3663,7 +1517,7 @@ class CommitViewPage(QWidget):
         self._toast.show_message("Connecting to GitHub…", kind="loading")
         def _run():
             try:
-                from core.git_ops import create_github_repo, push_to_github
+                from core.ops import create_github_repo, push_to_github
                 ok, err, clone_url = create_github_repo(name, is_private, token)
                 if not ok:
                     self._push_done_sig.emit(False, err, "", [], {})
@@ -3689,8 +1543,8 @@ class CommitViewPage(QWidget):
         path = self._tracker._path
         def _run():
             try:
-                from core.git_ops import merge_branch, checkout_branch
-                from core.git_ops import current_branch as _cur
+                from core.ops import merge_branch, checkout_branch
+                from core.ops import current_branch as _cur
 
                 if _cur(path) != target:
                     ok_co, err_co = checkout_branch(path, target)
@@ -3744,7 +1598,7 @@ class CommitViewPage(QWidget):
         # decisions is a dict {filepath: "ours"|"theirs"}
         def _run():
             try:
-                from core.git_ops import merge_with_decisions
+                from core.ops import merge_with_decisions
                 ok, err = merge_with_decisions(path, source, decisions)
             except Exception as exc:
                 ok, err = False, str(exc)
@@ -3771,7 +1625,7 @@ class CommitViewPage(QWidget):
         path = self._tracker._path
         def _run():
             try:
-                from core.git_ops import save_stash_as_commit
+                from core.ops import save_stash_as_commit
                 ok, err, cf, cc = save_stash_as_commit(path, stash_ref, message, branch)
             except Exception as exc:
                 ok, err, cf, cc = False, str(exc), [], {}
@@ -3782,7 +1636,7 @@ class CommitViewPage(QWidget):
     def _on_pull_branch(self, branch: str):
         if not self._tracker or self._panel_op_active:
             return
-        from core.git_ops import has_uncommitted_changes
+        from core.ops import has_uncommitted_changes
         if has_uncommitted_changes(self._tracker._path):
             self._panel.unlock_actions()
             self._pull_dirty_dialog.show_for_branch(branch)
@@ -3795,7 +1649,7 @@ class CommitViewPage(QWidget):
         path = self._tracker._path
         def _run():
             try:
-                from core.git_ops import pull_ff
+                from core.ops import pull_ff
                 ok, err = pull_ff(path, branch)
             except Exception as exc:
                 ok, err = False, str(exc)
@@ -3815,7 +1669,7 @@ class CommitViewPage(QWidget):
             success_msg = f"Stash re-applied on top of '{branch}'."
             def _run():
                 try:
-                    from core.git_ops import pull_stash_apply
+                    from core.ops import pull_stash_apply
                     ok, err = pull_stash_apply(path, branch)
                 except Exception as exc:
                     ok, err = False, str(exc)
@@ -3824,7 +1678,7 @@ class CommitViewPage(QWidget):
             success_msg = f"Saved changes merged with '{branch}'."
             def _run():
                 try:
-                    from core.git_ops import pull_save_merge
+                    from core.ops import pull_save_merge
                     ok, err, cfiles = pull_save_merge(path, branch)
                 except Exception as exc:
                     ok, err, cfiles = False, str(exc), []
@@ -3833,7 +1687,7 @@ class CommitViewPage(QWidget):
             success_msg = f"Pulled '{branch}' — local changes discarded."
             def _run():
                 try:
-                    from core.git_ops import pull_discard
+                    from core.ops import pull_discard
                     ok, err = pull_discard(path, branch)
                 except Exception as exc:
                     ok, err = False, str(exc)
@@ -3847,16 +1701,21 @@ class CommitViewPage(QWidget):
         if ok:
             self._toast.show_message(success_msg, kind="success", duration_ms=5000)
             self._start_load()
+            self._panel.unlock_actions()
         elif err == "stash_conflict":
+            # Re-lock while the conflict dialog is open — _on_conflict_done will release.
+            self._panel_op_active = True
             self._conflict_dialog.show_for_branch(
                 self._pull_dirty_dialog._branch, "PULL CONFLICT", [], arrow="←", repo_path=self._tracker._path if self._tracker else "")
         elif err == "merge_conflict":
+            # Re-lock while the conflict dialog is open — _on_conflict_done will release.
+            self._panel_op_active = True
             self._conflict_dialog.show_for_branch(
                 self._pull_dirty_dialog._branch, "PULL CONFLICT", conflict_files, arrow="←", repo_path=self._tracker._path if self._tracker else "")
         else:
             msg = "Timed out." if err == "timed_out" else f"Pull failed: {err[:120]}"
             self._toast.show_message(msg, kind="error", duration_ms=6000)
-        self._panel.unlock_actions()
+            self._panel.unlock_actions()
 
     def _on_push_branch(self, branch: str):
         if not self._tracker or self._panel_op_active:
@@ -3866,7 +1725,7 @@ class CommitViewPage(QWidget):
         path = self._tracker._path
         def _run():
             try:
-                from core.git_ops import push_branch
+                from core.ops import push_branch
                 ok, err, conflict_files, conflict_content = push_branch(path, branch)
             except Exception as exc:
                 ok, err, conflict_files, conflict_content = False, str(exc), [], {}
@@ -3911,7 +1770,7 @@ class CommitViewPage(QWidget):
             success_msg = f"Local changes kept as new commit on '{branch}'."
         def _run():
             try:
-                fn = __import__("core.git_ops", fromlist=[fn_name])
+                fn = __import__("core.ops", fromlist=[fn_name])
                 ok, err = getattr(fn, fn_name)(path, branch)
             except Exception as exc:
                 ok, err = False, str(exc)
@@ -3931,7 +1790,7 @@ class CommitViewPage(QWidget):
 
     def _on_hard_revert(self, branch: str, target_sha: str):
         self._run_branch_op(
-            lambda p: __import__("core.git_ops", fromlist=["hard_revert_to"]).hard_revert_to(p, branch, target_sha),
+            lambda p: __import__("core.ops", fromlist=["hard_revert_to"]).hard_revert_to(p, branch, target_sha),
             success_msg=f"Hard reverted '{branch}'.",
             fail_prefix="Hard revert failed",
             start_msg=f"Hard reverting '{branch}'…",
@@ -3940,7 +1799,7 @@ class CommitViewPage(QWidget):
 
     def _on_soft_revert(self, branch: str, tip_sha: str, parent_sha: str):
         self._run_branch_op(
-            lambda p: __import__("core.git_ops", fromlist=["soft_revert_to"]).soft_revert_to(p, branch, tip_sha, parent_sha),
+            lambda p: __import__("core.ops", fromlist=["soft_revert_to"]).soft_revert_to(p, branch, tip_sha, parent_sha),
             success_msg=f"Soft reverted '{branch}'.",
             fail_prefix="Soft revert failed",
             start_msg=f"Soft reverting '{branch}'…",
@@ -3948,7 +1807,7 @@ class CommitViewPage(QWidget):
 
     def _on_delete_branch(self, branch: str, parent_sha: str):
         self._run_branch_op(
-            lambda p: __import__("core.git_ops", fromlist=["delete_branch_full"]).delete_branch_full(p, branch, parent_sha),
+            lambda p: __import__("core.ops", fromlist=["delete_branch_full"]).delete_branch_full(p, branch, parent_sha),
             success_msg=f"Branch '{branch}' deleted.",
             fail_prefix="Delete failed",
             close_panel=True,
@@ -3998,7 +1857,7 @@ class CommitViewPage(QWidget):
         path = self._tracker._path
         def _run():
             try:
-                from core.git_ops import create_branch_with_commit
+                from core.ops import create_branch_with_commit
                 ok, err = create_branch_with_commit(path, branch_name, sha)
             except Exception as exc:
                 ok, err = False, str(exc)
@@ -4044,7 +1903,7 @@ class CommitViewPage(QWidget):
         """User clicked 'Open Pull Request' on a branch head."""
         if not self._tracker:
             return
-        from core.git_ops import has_uncommitted_changes, get_uncommitted_files
+        from core.ops import has_uncommitted_changes, get_uncommitted_files
         path         = self._tracker._path
         dirty_files  = []
         try:
@@ -4092,7 +1951,7 @@ class CommitViewPage(QWidget):
         path = self._tracker._path
         def _run():
             try:
-                from core.git_ops import discard_all_changes
+                from core.ops import discard_all_changes
                 ok, err = discard_all_changes(path)
             except Exception as e:
                 ok, err = False, str(e)
@@ -4107,7 +1966,7 @@ class CommitViewPage(QWidget):
         path = self._tracker._path
         def _run():
             try:
-                from core.git_ops import push_branch
+                from core.ops import push_branch
                 ok, err, _cf, _cc = push_branch(path, branch)
             except Exception as e:
                 ok, err = False, str(e)
@@ -4160,7 +2019,7 @@ class CommitViewPage(QWidget):
 
         def _run():
             try:
-                from core.git_ops import check_pr_conflicts
+                from core.ops import check_pr_conflicts
                 has_conflicts, files, content = check_pr_conflicts(
                     path, feature_branch, target_branch
                 )
@@ -4232,7 +2091,10 @@ class CommitViewPage(QWidget):
                                        tip_shas: set = None) -> Optional[CommitInfo]:
         """Find the latest commit by this user.
         When tip_shas is provided, prefer a tip commit over a non-tip one
-        so the avatar badge lands on the user's latest pushed/local head."""
+        so the avatar badge lands on the user's latest pushed/local head —
+        but only when that tip commit is at least as recent as their overall
+        latest commit.  This prevents stale remote branches (merged into main
+        but never deleted) from pulling the badge back to an older commit."""
         if not self._commits:
             return None
         nl = self._alpha(login)
@@ -4247,11 +2109,14 @@ class CommitViewPage(QWidget):
                 user_commits.append(commit)
         if not user_commits:
             return None
+        best_overall = max(user_commits, key=lambda c: c.date)
         if tip_shas:
             tip_matches = [c for c in user_commits if c.sha in tip_shas]
             if tip_matches:
-                return max(tip_matches, key=lambda c: c.date)
-        return max(user_commits, key=lambda c: c.date)
+                best_tip = max(tip_matches, key=lambda c: c.date)
+                if best_tip.date >= best_overall.date:
+                    return best_tip
+        return best_overall
 
     def _place_contributor_badges(self):
         enriched    = []
@@ -4400,6 +2265,9 @@ class CommitViewPage(QWidget):
         # Commit actions — follow same source of truth as the red dot.
         # Suppress all actions while another operation is in progress.
         is_head = commit.sha in self._branch_head_shas and not self._panel_op_active
+        # Remote tip: a branch tip that exists on the remote but not locally checked out.
+        # Used to gate the Delete button for remote-only / multi-commit branches.
+        is_remote_head = (commit.sha in self._remote_tip_shas) and not self._panel_op_active
         # Use the real git branch name for this tip, not the lane algo's assignment
         branch     = self._local_tip_branch.get(commit.sha, commit.branch)
 
@@ -4415,17 +2283,7 @@ class CommitViewPage(QWidget):
         # "Main" = default branch by name, OR any branch that exists on remote
         is_main = branch == getattr(self._settings_panel, "_default_branch", "main")
 
-        # "First of branch": parent belongs to a different branch (the branch point).
-        # If parent isn't in the canvas at all, default to True — the branch
-        # diverges from outside our graph window, so it's effectively a new branch.
         is_first = not has_parent
-        if has_parent and branch:
-            parent_commit = next((c for c in self._commits if c.sha == parent_sha), None)
-            if parent_commit is None:
-                is_first = True   # parent outside graph — treat as first
-            else:
-                parent_branch = self._local_tip_branch.get(parent_sha, "") or parent_commit.branch
-                is_first = bool(parent_branch) and parent_branch != branch
 
         self._panel.set_commit_actions(
             branch=branch,
@@ -4434,6 +2292,7 @@ class CommitViewPage(QWidget):
             is_first_of_branch=is_first,
             is_main=is_main,
             is_head=is_head,
+            is_remote_head=is_remote_head,
             is_merge_commit=is_merge_commit,
             branch_depth=self._branch_depths.get(branch, 0),
             is_remote_branch=is_remote_branch,
@@ -4610,7 +2469,6 @@ class CommitViewPage(QWidget):
             orientations[self._tracker._path] = orient
             settings_store.save({"repo_orientations": orientations})
         if self._commits:
-            _dflt = getattr(self._settings_panel, "_default_branch", "main")
             self._canvas.load_graph(
                 self._commits,
                 self._last_branch_tips,
@@ -4619,7 +2477,6 @@ class CommitViewPage(QWidget):
                 unpushed_shas=self._last_unpushed,
                 orientation=orient,
                 head_sha=self._last_head_sha,
-                default_branch=_dflt,
             )
 
     def _apply_canvas_filter(self):
@@ -4635,11 +2492,40 @@ class CommitViewPage(QWidget):
         dimmed: set[str] = set()
         for commit in self._commits:
             display   = self._author_display_map.get(commit.author, commit.author)
-            branch_ok = (not commit.branch) or (commit.branch in active_branches)
+            tip_names = self._branch_tip_map.get(commit.sha, [])
+            non_main_tips = [n for n in tip_names if n not in ('main', 'master')]
+            effective_branch = (
+                non_main_tips[0]
+                if (non_main_tips and commit.branch in ('main', 'master'))
+                else commit.branch
+            )
+            branch_ok = (
+                (not effective_branch)
+                or (effective_branch in active_branches)
+            )
             author_ok = (display in active_authors) if (display in all_authors) else True
             if not branch_ok or not author_ok:
                 dimmed.add(commit.sha)
         self._canvas.apply_commit_filter(dimmed)
+
+    def _on_branch_focused(self, name: str):
+        if not name:
+            self._apply_canvas_filter()
+            return
+        tip_sha = next(
+            (sha for sha, names in self._branch_tip_map.items() if name in names),
+            None,
+        )
+        if not tip_sha:
+            return
+        default_branch = getattr(self._settings_panel, "_default_branch", "main")
+        _ok, unique_shas = get_branch_unique_commits(
+            self._tracker._path, tip_sha, default_branch
+        )
+        highlight = set(unique_shas) | {tip_sha}
+        dimmed = {c.sha for c in self._commits if c.sha not in highlight}
+        self._canvas.apply_commit_filter(dimmed)
+        self._canvas.scroll_to_sha(tip_sha)
 
     def _reposition_filter(self):
         fp = self._filter_panel
@@ -4689,5 +2575,11 @@ class CommitViewPage(QWidget):
             self._reposition_position()
         if self._filter_panel.isVisible():
             self._reposition_filter()
+        blp = self._branch_list_panel
+        if blp.isVisible():
+            blp.adjustSize()
+            blp.move(self.width() - blp.width() - margin,
+                     self._header.height() + margin)
+            blp.raise_()
         self._toast.reposition()
 
