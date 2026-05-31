@@ -1,7 +1,7 @@
 import json
 import os
 
-_STORE = os.path.join(os.path.expanduser("~"), ".gitdummy_repos.json")
+_STORE = os.path.join(os.path.expanduser("~"), ".evogit_repos.json")
 
 
 

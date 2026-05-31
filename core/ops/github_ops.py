@@ -87,7 +87,7 @@ def push_to_github(
             return r
 
         subprocess.run(["git", "config", "user.name",  user_name  or username or "User"],       cwd=path)
-        subprocess.run(["git", "config", "user.email", user_email or "user@gitdummy.local"],   cwd=path)
+        subprocess.run(["git", "config", "user.email", user_email or "user@evogit.local"],   cwd=path)
 
         # Stage and commit if no commits yet
         log = subprocess.run(

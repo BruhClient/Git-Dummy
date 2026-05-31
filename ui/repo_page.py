@@ -5,7 +5,9 @@ import os
 import re
 import threading
 
-from PyQt5.QtCore import Qt, pyqtSignal
+import qtawesome as qta
+
+from PyQt5.QtCore import Qt, QSize, pyqtSignal
 from PyQt5.QtGui import QPainter, QColor, QPen, QBrush, QPainterPath, QPixmap, QFont
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
@@ -128,9 +130,10 @@ class DropZone(QWidget):
         layout.setAlignment(Qt.AlignCenter)
         layout.setSpacing(8)
 
-        self._icon = QLabel("⬇")
+        self._icon = QLabel()
+        self._icon.setPixmap(qta.icon("fa5s.upload", color=COLORS["text_muted"]).pixmap(32, 32))
         self._icon.setAlignment(Qt.AlignCenter)
-        self._icon.setStyleSheet(f"background: transparent; font-size: 32px; color: {COLORS['text_muted']};")
+        self._icon.setStyleSheet("background: transparent;")
         layout.addWidget(self._icon)
 
         self._title = QLabel("Drop a project folder here")
@@ -240,7 +243,9 @@ class RepoCard(QWidget):
             self._avatar.show()
             self._avatar.set_owner(owner, token)
 
-        self._rm_btn = QPushButton("✕")
+        self._rm_btn = QPushButton()
+        self._rm_btn.setIcon(qta.icon("fa5s.times", color=COLORS["text_muted"]))
+        self._rm_btn.setIconSize(QSize(12, 12))
         self._rm_btn.setFixedSize(28, 28)
         self._rm_btn.setCursor(Qt.PointingHandCursor)
         self._rm_btn.setStyleSheet(f"""
@@ -291,9 +296,10 @@ class MissingRepoCard(QWidget):
         layout.setContentsMargins(20, 14, 16, 14)
         layout.setSpacing(14)
 
-        icon = QLabel("⚠")
+        icon = QLabel()
         icon.setFixedWidth(28)
-        icon.setStyleSheet(f"background: transparent; font-size: 18px; color: {COLORS['warning']};")
+        icon.setPixmap(qta.icon("fa5s.exclamation-triangle", color=COLORS["warning"]).pixmap(20, 20))
+        icon.setStyleSheet("background: transparent;")
         layout.addWidget(icon)
 
         info = QVBoxLayout()
@@ -333,7 +339,9 @@ class MissingRepoCard(QWidget):
         locate_btn.clicked.connect(lambda: self.locate_requested.emit(self._path))
         layout.addWidget(locate_btn)
 
-        rm_btn = QPushButton("✕")
+        rm_btn = QPushButton()
+        rm_btn.setIcon(qta.icon("fa5s.times", color=COLORS["text_muted"]))
+        rm_btn.setIconSize(QSize(12, 12))
         rm_btn.setToolTip("Remove from tracking")
         rm_btn.setFixedSize(34, 34)
         rm_btn.setCursor(Qt.PointingHandCursor)

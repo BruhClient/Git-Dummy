@@ -5,6 +5,8 @@ import hashlib
 import threading
 from typing import Optional
 
+import qtawesome as qta
+
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QPainter, QColor, QBrush, QPen, QPixmap, QPainterPath, QFont
 from PyQt5.QtWidgets import (
@@ -142,8 +144,9 @@ class _CollabRow(QWidget):
         name_row.addWidget(name_lbl)
 
         if is_owner:
-            crown = QLabel("👑")
-            crown.setStyleSheet("background: transparent; font-size: 11px;")
+            crown = QLabel()
+            crown.setPixmap(qta.icon("fa5s.crown", color=COLORS["warning"]).pixmap(12, 12))
+            crown.setStyleSheet("background: transparent;")
             name_row.addWidget(crown)
 
         name_row.addStretch()

@@ -107,6 +107,32 @@ def _compute_lanes(
         if non_main:
             _walk_first_parent(tip_sha, non_main, stop_at=main_fp_set)
 
+    # Walk 2nd-parent chains from merge commits on each named branch's first-parent
+    # chain.  This attributes commits merged INTO a branch (sync/squash merges) to
+    # that branch, so the post-pass can correctly place them even when a new local
+    # branch temporarily "steals" those commits via the free-slot mechanism.
+    for _tip, _names in branch_tip_map.items():
+        _bname = next(
+            (n for n in _names if n not in ('main', 'master', primary or '')), None
+        )
+        if not _bname:
+            continue
+        _sha = _tip
+        while _sha in commit_sha_set and _sha not in main_fp_set:
+            _c = commit_by_sha.get(_sha)
+            if not _c or not _c.parents:
+                break
+            if len(_c.parents) >= 2:
+                _p2 = _c.parents[1]
+                while _p2 in commit_sha_set and _p2 not in main_fp_set:
+                    if _p2 not in commit_owner:
+                        commit_owner[_p2] = _bname
+                    _p2c = commit_by_sha.get(_p2)
+                    if not _p2c or not _p2c.parents:
+                        break
+                    _p2 = _p2c.parents[0]
+            _sha = _c.parents[0]
+
     # Mark main's first-parent chain (everything not already claimed)
     for sha in main_fp_set:
         if sha not in commit_owner:
@@ -220,7 +246,9 @@ def _compute_lanes(
             lane_idx = waiting[0] if waiting else None
 
         if lane_idx is None:
-            free = next((i for i, s in enumerate(lanes) if s is None), None)
+            # Prefer unnamed free slots; don't reuse closed named-branch lanes as
+            # catch-alls (orphan commits would inherit the wrong branch label).
+            free = next((i for i, s in enumerate(lanes) if s is None and i not in lane_branch), None)
             if free is not None:
                 lane_idx = free
             else:
@@ -271,7 +299,7 @@ def _compute_lanes(
                 lanes[lane_idx] = parent0
             for p in parents[1:]:
                 if not any(s == p for s in lanes):
-                    free = next((i for i, s in enumerate(lanes) if s is None), None)
+                    free = next((i for i, s in enumerate(lanes) if s is None and i not in lane_branch), None)
                     if free is not None:
                         new_lane_idx = free
                         lanes[free] = p

@@ -14,7 +14,7 @@ def init_repo(path: str, user_name: str = "", user_email: str = "") -> tuple[boo
 
         # Set identity from the logged-in user; fall back only if nothing provided
         subprocess.run(["git", "config", "user.name",  user_name  or "User"],               cwd=path)
-        subprocess.run(["git", "config", "user.email", user_email or "user@gitdummy.local"], cwd=path)
+        subprocess.run(["git", "config", "user.email", user_email or "user@evogit.local"], cwd=path)
 
         subprocess.run(["git", "add", "."], cwd=path, capture_output=True)
         c = subprocess.run(

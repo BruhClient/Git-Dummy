@@ -729,6 +729,7 @@ class CommitViewPage(QWidget):
 
     def load_repo(self, repo_path: str):
         self._stop_all_threads()
+        self._tab_bar._select("schema")
 
         # Clear the canvas and show the overlay immediately so the old project's
         # graph is never visible when this page becomes visible after the switch.
@@ -1172,8 +1173,23 @@ class CommitViewPage(QWidget):
 
         all_branches = sorted(
             {c.branch for c in commits if c.branch}
-            | {name for names in branch_tip_map.values() for name in names}
         )
+
+        # DEBUG: print commits grouped by branch
+        from collections import defaultdict as _dd
+        _by_branch = _dd(list)
+        _rendered = [_c for _c in commits if _c.branch]
+        _filtered_count = len(commits) - len(_rendered)
+        for _c in _rendered:
+            _by_branch[_c.branch].append(_c)
+        print(f"\n=== Graph commits by branch ({len(_rendered)} rendered, {_filtered_count} filtered from deleted branches) ===")
+        for _br in sorted(_by_branch):
+            _cs = _by_branch[_br]
+            print(f"  [{_br}] {len(_cs)} commits")
+            for _c in _cs:
+                print(f"    {_c.sha[:8]}  {_c.message[:60]}")
+        print("=== end ===\n")
+
         self._filter_rebuilding = True
         self._filter_panel.set_branches(all_branches)
 
@@ -2234,7 +2250,10 @@ class CommitViewPage(QWidget):
         # "Main" = default branch by name, OR any branch that exists on remote
         is_main = branch == getattr(self._settings_panel, "_default_branch", "main")
 
-        is_first = not has_parent
+        parent_branch = self._sha_to_branch.get(parent_sha, "")
+        canonical_branch = commit.branch  # lane-assigned; stable when multiple local branches share a SHA
+        branch_commit_count = sum(1 for b in self._sha_to_branch.values() if b == canonical_branch)
+        is_first = not has_parent or (parent_branch and parent_branch != canonical_branch and branch_commit_count <= 1)
 
         self._panel.set_commit_actions(
             branch=branch,

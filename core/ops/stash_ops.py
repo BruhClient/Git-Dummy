@@ -28,7 +28,7 @@ def get_stash_files(path: str, stash_id: str = "") -> list[str]:
 def create_auto_stash(path: str) -> tuple[list[str], str]:
     """Stash uncommitted changes. Returns (stashed_files, stash_id) or ([], '') on failure."""
     import uuid
-    stash_id = "gitdummy-autostash-" + uuid.uuid4().hex[:8]
+    stash_id = "evogit-autostash-" + uuid.uuid4().hex[:8]
 
     # Try with untracked files first, fall back to tracked-only if that fails.
     for cmd in [

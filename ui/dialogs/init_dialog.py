@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import os
 
+import qtawesome as qta
+
 from PyQt5.QtCore import Qt, QThread, QObject, pyqtSignal
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
@@ -59,7 +61,7 @@ class _StepInit(QWidget):
 
         layout.addWidget(_label("This folder isn't tracked yet", 18, bold=True))
         layout.addWidget(_label(
-            f"<b>{os.path.basename(folder)}</b> isn't being tracked by Git Dummy.",
+            f"<b>{os.path.basename(folder)}</b> isn't being tracked by Evo Git.",
             13, COLORS["text_secondary"], wrap=True,
         ))
         layout.addWidget(_label(folder, 11, COLORS["text_muted"]))
@@ -200,15 +202,15 @@ class _StepDone(QWidget):
         layout.addWidget(close_btn)
 
     def show_success(self, title: str, body: str):
-        self._icon.setText("✓")
-        self._icon.setStyleSheet(f"background: transparent; font-size: 40px; color: {COLORS['accent']};")
+        self._icon.setPixmap(qta.icon("fa5s.check", color=COLORS["accent"]).pixmap(40, 40))
+        self._icon.setStyleSheet("background: transparent;")
         self._title.setText(title)
         self._title.setStyleSheet(f"background: transparent; font-size: 18px; font-weight: 600; color: {COLORS['text_primary']};")
         self._body.setText(body)
 
     def show_error(self, title: str, body: str):
-        self._icon.setText("✕")
-        self._icon.setStyleSheet(f"background: transparent; font-size: 40px; color: {COLORS['danger']};")
+        self._icon.setPixmap(qta.icon("fa5s.times", color=COLORS["danger"]).pixmap(40, 40))
+        self._icon.setStyleSheet("background: transparent;")
         self._title.setText(title)
         self._title.setStyleSheet(f"background: transparent; font-size: 18px; font-weight: 600; color: {COLORS['danger']};")
         self._body.setText(body)

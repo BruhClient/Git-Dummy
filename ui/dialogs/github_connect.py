@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import os
 
-from PyQt5.QtCore import Qt, pyqtSignal, QPropertyAnimation, QEasingCurve
+import qtawesome as qta
+
+from PyQt5.QtCore import Qt, QSize, pyqtSignal, QPropertyAnimation, QEasingCurve
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QLineEdit,
     QGraphicsOpacityEffect,
@@ -115,7 +117,9 @@ class _GitHubConnectDialog(QWidget):
         """)
         cancel_btn.clicked.connect(self.hide)
 
-        upload_btn = QPushButton("☁  Upload to GitHub")
+        upload_btn = QPushButton("Upload to GitHub")
+        upload_btn.setIcon(qta.icon("fa5s.cloud-upload-alt", color="#ffffff"))
+        upload_btn.setIconSize(QSize(14, 14))
         upload_btn.setFixedHeight(40)
         upload_btn.setCursor(Qt.PointingHandCursor)
         upload_btn.setStyleSheet(f"""

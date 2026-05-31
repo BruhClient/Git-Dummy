@@ -1,7 +1,9 @@
 """Top header bar for CommitViewPage."""
 from __future__ import annotations
 
-from PyQt5.QtCore import Qt, pyqtSignal
+import qtawesome as qta
+
+from PyQt5.QtCore import Qt, QSize, pyqtSignal
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
 )
@@ -64,6 +66,12 @@ class _Header(QWidget):
 
         layout.addStretch(1)
 
+        self._op_icon = QLabel()
+        self._op_icon.setPixmap(qta.icon("fa5s.cog", color=COLORS["warning"]).pixmap(12, 12))
+        self._op_icon.setStyleSheet("background: transparent;")
+        self._op_icon.hide()
+        layout.addWidget(self._op_icon)
+
         self._op_badge = QLabel("")
         self._op_badge.setStyleSheet(f"""
             background: #2d2010; border: 1px solid {COLORS['warning']};
@@ -108,9 +116,11 @@ class _Header(QWidget):
 
     def set_operation(self, op: str):
         if op:
-            self._op_badge.setText(f"⚙ {op}…")
+            self._op_badge.setText(f"{op}…")
+            self._op_icon.show()
             self._op_badge.show()
         else:
+            self._op_icon.hide()
             self._op_badge.hide()
 
     def _update_height(self):
@@ -125,7 +135,7 @@ class _Header(QWidget):
     def set_url(self, url: str, visibility: str = ""):
         if visibility == "not_found":
             self._url.setText(
-                '<span style="color:#ef4444; font-size:11px;">⚠ Repository deleted on GitHub</span>'
+                '<span style="color:#ef4444; font-size:11px;">Repository deleted on GitHub</span>'
             )
             self._url.setFixedHeight(16)
             self._url.show()

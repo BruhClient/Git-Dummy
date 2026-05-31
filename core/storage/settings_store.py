@@ -1,7 +1,7 @@
 import json
 import os
 
-_FILE = os.path.join(os.path.expanduser("~"), ".gitdummy_settings.json")
+_FILE = os.path.join(os.path.expanduser("~"), ".evogit_settings.json")
 
 
 def load() -> dict:

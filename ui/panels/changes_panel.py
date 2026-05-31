@@ -1,7 +1,9 @@
 """Slide-in panel showing a single file's diff."""
 from __future__ import annotations
 
-from PyQt5.QtCore import Qt, QPropertyAnimation, QEasingCurve, QRect, QPoint, pyqtSignal
+import qtawesome as qta
+
+from PyQt5.QtCore import Qt, QSize, QPropertyAnimation, QEasingCurve, QRect, QPoint, pyqtSignal
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QFrame,
@@ -87,7 +89,9 @@ class ChangesPanel(QWidget):
         self._source_badge.hide()
         hl.addWidget(self._source_badge)
 
-        close_btn = QPushButton("✕")
+        close_btn = QPushButton()
+        close_btn.setIcon(qta.icon("fa5s.times", color=COLORS["text_muted"]))
+        close_btn.setIconSize(QSize(12, 12))
         close_btn.setFixedSize(40, 40)
         close_btn.setCursor(Qt.PointingHandCursor)
         close_btn.setStyleSheet(_close_btn_style(COLORS))

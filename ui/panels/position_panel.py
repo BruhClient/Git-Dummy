@@ -267,7 +267,7 @@ class PositionPanel(QWidget):
                 f"background: transparent; font-size: 8px; color: {COLORS['warning']};"
             )
             if stashed_files:
-                self._stash_lbl.setText("📦 Saved changes")
+                self._stash_lbl.setText("Saved changes")
                 self._stash_lbl.show()
                 self._render_stash_files(stashed_files)
             else:

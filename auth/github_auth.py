@@ -20,7 +20,7 @@ CLIENT_SECRET = os.environ.get("GITHUB_CLIENT_SECRET", "")
 REDIRECT_URI = "http://localhost:9876/callback"
 SCOPES = "read:user repo"
 
-TOKEN_FILE = os.path.join(os.path.expanduser("~"), ".gitdummy_token.json")
+TOKEN_FILE = os.path.join(os.path.expanduser("~"), ".evogit_token.json")
 
 
 class _CallbackHandler(BaseHTTPRequestHandler):
@@ -60,11 +60,11 @@ _SUCCESS_HTML = """
   body { background:#0f0f0f; color:#ededed; font-family:system-ui;
          display:flex; flex-direction:column; align-items:center;
          justify-content:center; height:100vh; margin:0; }
-  h1   { color:#3ecf8e; font-size:2rem; margin-bottom:.5rem; }
+  h1   { color:#e05535; font-size:2rem; margin-bottom:.5rem; }
   p    { color:#a1a1a1; }
 </style></head><body>
 <h1>Authenticated!</h1>
-<p>You can close this tab and return to Git Dummy.</p>
+<p>You can close this tab and return to Evo Git.</p>
 </body></html>
 """
 

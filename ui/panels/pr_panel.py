@@ -7,7 +7,9 @@ from datetime import datetime, timezone
 
 import requests
 
-from PyQt5.QtCore import Qt, QTimer, pyqtSignal
+import qtawesome as qta
+
+from PyQt5.QtCore import Qt, QSize, QTimer, pyqtSignal
 from PyQt5.QtGui import QColor, QBrush, QPainter, QPixmap
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
@@ -187,15 +189,21 @@ class _PRRow(QWidget):
             btn_row.setSpacing(6)
             btn_row.setContentsMargins(20, 2, 0, 0)
 
-            approve_btn = _action_btn("✓  Approve", accent=True)
+            approve_btn = _action_btn("Approve", accent=True)
+            approve_btn.setIcon(qta.icon("fa5s.check", color="#ffffff"))
+            approve_btn.setIconSize(QSize(12, 12))
             approve_btn.clicked.connect(lambda: self.approve_clicked.emit(self._number))
             btn_row.addWidget(approve_btn)
 
-            merge_btn = _action_btn("⤵  Merge", accent=True)
+            merge_btn = _action_btn("Merge", accent=True)
+            merge_btn.setIcon(qta.icon("fa5s.code-branch", color="#ffffff"))
+            merge_btn.setIconSize(QSize(12, 12))
             merge_btn.clicked.connect(lambda: self.merge_clicked.emit(self._pr))
             btn_row.addWidget(merge_btn)
 
-            close_btn = _action_btn("✕  Close", accent=False)
+            close_btn = _action_btn("Close", accent=False)
+            close_btn.setIcon(qta.icon("fa5s.times", color=COLORS["text_muted"]))
+            close_btn.setIconSize(QSize(12, 12))
             close_btn.clicked.connect(lambda: self.close_clicked.emit(self._number))
             btn_row.addWidget(close_btn)
 

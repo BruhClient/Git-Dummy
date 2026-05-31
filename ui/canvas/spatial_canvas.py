@@ -289,7 +289,21 @@ class SpatialCanvas(QGraphicsView):
 
         for commit in commits:
             lane = lane_map.get(commit.sha, 0)
-            if lane == 0 or not commit.parents:
+            if lane == 0:
+                continue
+            if not commit.parents:
+                if commit.sha not in positions:
+                    continue
+                cx, cy = positions[commit.sha]
+                if orientation == ORIENT_LR:
+                    px, py = cx - ROW_H, V_PAD
+                elif orientation == ORIENT_RL:
+                    px, py = cx + ROW_H, V_PAD
+                elif orientation == ORIENT_BT:
+                    px, py = H_PAD, cy - ROW_H
+                else:
+                    px, py = H_PAD, cy + ROW_H
+                candidate_info[commit.sha] = (cx, cy, px, py, lane, False)
                 continue
             p_sha = commit.parents[0]
             parent_lane = lane_map.get(p_sha, 0)
@@ -420,11 +434,8 @@ class SpatialCanvas(QGraphicsView):
                 self._scene.addItem(auth_item)
             else:
                 text_x = cx + NODE_R + 14
-                dh = date_item.boundingRect().height()
                 ah = auth_item.boundingRect().height()
-                date_item.setPos(text_x, cy - dh / 2 - 7)
-                auth_item.setPos(text_x, cy - ah / 2 + 7)
-                self._scene.addItem(date_item)
+                auth_item.setPos(text_x, cy - ah / 2)
                 self._scene.addItem(auth_item)
                 self._author_items[commit.sha] = auth_item
                 self._update_author_item(auth_item, commit.sha, commit)

@@ -188,7 +188,7 @@ class SettingsPage(QWidget):
 
         root.addSpacing(4)
 
-        sub = QLabel("Customise Git Dummy to your liking.")
+        sub = QLabel("Customise Evo Git to your liking.")
         sub.setStyleSheet(f"font-size: 14px; color: {COLORS['text_secondary']};")
         root.addWidget(sub)
 

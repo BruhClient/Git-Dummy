@@ -6,6 +6,7 @@ import os
 import re
 import threading
 
+import qtawesome as qta
 import requests
 
 from PyQt5.QtCore import (Qt, QPropertyAnimation, QEasingCurve, QTimer,
@@ -175,13 +176,15 @@ class _SCollabRow(QWidget):
 
         # Crown icons based on role
         if role == "owner":
-            crown = QLabel("👑")
-            crown.setStyleSheet("background: transparent; font-size: 11px;")
+            crown = QLabel()
+            crown.setPixmap(qta.icon("fa5s.crown", color=COLORS["warning"]).pixmap(12, 12))
+            crown.setStyleSheet("background: transparent;")
             crown.setToolTip("Owner")
             name_row.addWidget(crown)
         elif role in ("admin", "maintain"):
-            crown = QLabel("🥈")
-            crown.setStyleSheet("background: transparent; font-size: 11px;")
+            crown = QLabel()
+            crown.setPixmap(qta.icon("fa5s.medal", color=COLORS["text_muted"]).pixmap(12, 12))
+            crown.setStyleSheet("background: transparent;")
             crown.setToolTip("Admin")
             name_row.addWidget(crown)
 
@@ -265,12 +268,36 @@ def _divider() -> QFrame:
     return f
 
 
+# ── Icon stat widget ──────────────────────────────────────────────────────────
+
+class _IconStat(QWidget):
+    def __init__(self, icon_name: str, parent=None):
+        super().__init__(parent)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(4)
+        icon_lbl = QLabel()
+        icon_lbl.setPixmap(qta.icon(icon_name, color=COLORS["text_muted"]).pixmap(12, 12))
+        icon_lbl.setStyleSheet("background: transparent;")
+        lay.addWidget(icon_lbl)
+        self._count_lbl = QLabel("—")
+        self._count_lbl.setStyleSheet(
+            f"background: transparent; font-size: 11px; color: {COLORS['text_muted']};"
+        )
+        lay.addWidget(self._count_lbl)
+
+    def set_count(self, n: int):
+        self._count_lbl.setText(str(n))
+
+
 # ── Settings panel ────────────────────────────────────────────────────────────
 
 class SettingsPanel(QWidget):
     protection_changed  = pyqtSignal(bool)
     _protection_ready   = pyqtSignal(bool)   # thread → main: fetched state
-    _push_done          = pyqtSignal(str)     # thread → main: result message
+    _push_done          = pyqtSignal(str, bool, bool)  # message, ok, intended_state
+    _repo_info_ready    = pyqtSignal(dict)   # thread → main: repo API data
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -286,6 +313,7 @@ class SettingsPanel(QWidget):
 
         self._protection_ready.connect(self._apply_protection)
         self._push_done.connect(self._set_status)
+        self._repo_info_ready.connect(self._apply_repo_info)
 
         # Root scroll
         scroll = QScrollArea(self)
@@ -358,12 +386,11 @@ class SettingsPanel(QWidget):
         stats_row = QHBoxLayout()
         stats_row.setSpacing(16)
         stats_row.setContentsMargins(0, 4, 0, 0)
-        self._stars_lbl   = self._stat_lbl("⭐ —")
-        self._forks_lbl   = self._stat_lbl("⑂ —")
-        self._issues_lbl  = self._stat_lbl("◎ —")
-        self._lang_lbl    = self._stat_lbl("")
-        for lbl in (self._stars_lbl, self._forks_lbl, self._issues_lbl, self._lang_lbl):
-            stats_row.addWidget(lbl)
+        self._stars_stat = _IconStat("fa5s.star")
+        self._forks_stat = _IconStat("fa5s.code-branch")
+        self._watch_stat = _IconStat("fa5s.eye")
+        for w in (self._stars_stat, self._forks_stat, self._watch_stat):
+            stats_row.addWidget(w)
         stats_row.addStretch()
         rc_layout.addLayout(stats_row)
         self._content_layout.addWidget(self._repo_card)
@@ -587,14 +614,6 @@ class SettingsPanel(QWidget):
         self._collab_toggle.setText("▾" if self._collab_expanded else "▸")
         self._collab_card.adjustSize()
 
-    @staticmethod
-    def _stat_lbl(text: str) -> QLabel:
-        lbl = QLabel(text)
-        lbl.setStyleSheet(
-            f"background: transparent; font-size: 11px; color: {COLORS['text_muted']};"
-        )
-        return lbl
-
     def _fetch_repo_info(self):
         try:
             url = self._tracker.remote_url()
@@ -610,7 +629,7 @@ class SettingsPanel(QWidget):
             )
             if r.status_code == 200:
                 data = r.json()
-                QTimer.singleShot(0, lambda d=data: self._apply_repo_info(d))
+                self._repo_info_ready.emit(data)
         except Exception:
             pass
 
@@ -623,15 +642,9 @@ class SettingsPanel(QWidget):
         if desc:
             self._repo_desc.setText(desc)
             self._repo_desc.show()
-        self._stars_lbl.setText(f"⭐ {data.get('stargazers_count', 0)}")
-        self._forks_lbl.setText(f"⑂ {data.get('forks_count', 0)}")
-        self._issues_lbl.setText(f"◎ {data.get('open_issues_count', 0)}")
-        lang = data.get("language") or ""
-        if lang:
-            self._lang_lbl.setText(f"● {lang}")
-            self._lang_lbl.show()
-        else:
-            self._lang_lbl.hide()
+        self._stars_stat.set_count(data.get("stargazers_count", 0))
+        self._forks_stat.set_count(data.get("forks_count", 0))
+        self._watch_stat.set_count(data.get("subscribers_count", 0))
 
     def _fetch_protection(self):
         try:
@@ -657,6 +670,7 @@ class SettingsPanel(QWidget):
         self.protection_changed.emit(enabled)
 
     def _on_protection_toggled(self, on: bool):
+        self._prot_toggle.setEnabled(False)
         self._protection_enabled = on
         self.protection_changed.emit(on)
         self._prot_status.setText("Updating…")
@@ -692,13 +706,25 @@ class SettingsPanel(QWidget):
 
             if ok:
                 msg = "Protection enabled." if enable else "Protection disabled."
+            elif r.status_code == 403:
+                msg = "Failed — branch protection requires GitHub Pro (or Team/Enterprise) for private repos."
             else:
-                msg = f"Failed ({r.status_code}) — check permissions."
-            self._push_done.emit(msg)
+                try:
+                    detail = r.json().get("message", "")
+                except Exception:
+                    detail = ""
+                msg = f"Failed ({r.status_code}){' — ' + detail if detail else ' — check repo permissions'}."
+            self._push_done.emit(msg, ok, enable)
         except Exception:
-            self._push_done.emit("Error contacting GitHub.")
+            self._push_done.emit("Error contacting GitHub.", False, enable)
 
-    def _set_status(self, msg: str):
+    def _set_status(self, msg: str, ok: bool, intended: bool):
+        if not ok:
+            reverted = not intended
+            self._protection_enabled = reverted
+            self._prot_toggle.set_state(reverted)
+            self.protection_changed.emit(reverted)
+        self._prot_toggle.setEnabled(True)
         self._prot_status.setText(msg)
         self._prot_status.show()
         QTimer.singleShot(3000, self._prot_status.hide)

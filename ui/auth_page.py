@@ -1,5 +1,9 @@
+import os
+
+import qtawesome as qta
+
 from PyQt5.QtCore import Qt, QSize
-from PyQt5.QtGui import QFont, QPixmap, QPainter, QColor, QPen, QBrush
+from PyQt5.QtGui import QFont, QPixmap, QPainter, QColor, QPen, QBrush, QPainterPath
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QSizePolicy,
     QFrame, QSpacerItem,
@@ -35,28 +39,24 @@ class GitHubIcon(QWidget):
         painter.end()
 
 
-class LogoMark(QWidget):
-    """Git Dummy branded logo mark — a stylised 'GD' badge."""
+class LogoMark(QLabel):
+    """Evo Git branded logo mark."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setFixedSize(48, 48)
-
-    def paintEvent(self, _event):
-        painter = QPainter(self)
+        _logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "logo", "optimised_logo1.png")
+        src = QPixmap(_logo_path).scaled(48, 48, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        rounded = QPixmap(48, 48)
+        rounded.fill(Qt.transparent)
+        painter = QPainter(rounded)
         painter.setRenderHint(QPainter.Antialiasing)
-
-        # Background circle
-        painter.setBrush(QBrush(QColor(COLORS["accent"])))
-        painter.setPen(Qt.NoPen)
-        painter.drawRoundedRect(0, 0, 48, 48, 10, 10)
-
-        # Text
-        painter.setPen(QPen(QColor("#000000")))
-        font = QFont("Inter", 14, QFont.Bold)
-        painter.setFont(font)
-        painter.drawText(self.rect(), Qt.AlignCenter, "GD")
+        clip = QPainterPath()
+        clip.addRoundedRect(0, 0, 48, 48, 10, 10)
+        painter.setClipPath(clip)
+        painter.drawPixmap(0, 0, src)
         painter.end()
+        self.setPixmap(rounded)
 
 
 class AuthPage(QWidget):
@@ -95,7 +95,7 @@ class AuthPage(QWidget):
         logo_row = QHBoxLayout()
         logo_row.setSpacing(12)
         logo_row.addWidget(LogoMark())
-        app_name = QLabel("Git Dummy")
+        app_name = QLabel("Evo Git")
         app_name.setStyleSheet(f"background: transparent; font-size: 20px; font-weight: 700; color: {COLORS['text_primary']};")
         logo_row.addWidget(app_name)
         logo_row.addStretch()
@@ -123,13 +123,24 @@ class AuthPage(QWidget):
 
         # Feature pills
         for text in ["Visual commit history", "See all your versions", "GitHub integration"]:
-            pill = QLabel(f"✓  {text}")
-            pill.setStyleSheet(f"background: transparent; font-size: 13px; color: {COLORS['accent']}; margin-bottom: 6px;")
-            left_layout.addWidget(pill)
+            pill_row = QWidget()
+            pill_row.setStyleSheet("background: transparent;")
+            pill_layout = QHBoxLayout(pill_row)
+            pill_layout.setContentsMargins(0, 0, 0, 6)
+            pill_layout.setSpacing(6)
+            check_lbl = QLabel()
+            check_lbl.setPixmap(qta.icon("fa5s.check", color=COLORS["accent"]).pixmap(10, 10))
+            check_lbl.setStyleSheet("background: transparent;")
+            pill_layout.addWidget(check_lbl)
+            text_lbl = QLabel(text)
+            text_lbl.setStyleSheet(f"background: transparent; font-size: 13px; color: {COLORS['accent']};")
+            pill_layout.addWidget(text_lbl)
+            pill_layout.addStretch()
+            left_layout.addWidget(pill_row)
 
         left_layout.addSpacerItem(QSpacerItem(0, 32, QSizePolicy.Minimum, QSizePolicy.Fixed))
 
-        footer = QLabel("© 2026 Git Dummy")
+        footer = QLabel("© 2026 Evo Git")
         footer.setStyleSheet(f"background: transparent; font-size: 12px; color: {COLORS['text_muted']};")
         left_layout.addWidget(footer)
 
@@ -199,7 +210,7 @@ class AuthPage(QWidget):
 
         note = QLabel(
             "By continuing, you agree to our Terms of Service.\n"
-            "Git Dummy only reads your projects — it never makes changes."
+            "Evo Git only reads your projects — it never makes changes."
         )
         note.setStyleSheet(f"background: transparent; font-size: 11px; color: {COLORS['text_muted']}; line-height: 1.5;")
         note.setWordWrap(True)

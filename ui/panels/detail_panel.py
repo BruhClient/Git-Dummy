@@ -4,7 +4,9 @@ from __future__ import annotations
 import hashlib
 import threading
 
-from PyQt5.QtCore import Qt, QPropertyAnimation, QEasingCurve, QRect, QPoint, QTimer, pyqtSignal
+import qtawesome as qta
+
+from PyQt5.QtCore import Qt, QSize, QPropertyAnimation, QEasingCurve, QRect, QPoint, QTimer, pyqtSignal
 from PyQt5.QtGui import QPainter, QColor, QBrush, QPen, QPainterPath, QPixmap, QFont
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
@@ -301,7 +303,9 @@ class DetailPanel(QWidget):
         header_layout.addLayout(name_block)
         header_layout.addStretch()
 
-        close_btn = QPushButton("✕")
+        close_btn = QPushButton()
+        close_btn.setIcon(qta.icon("fa5s.times", color=COLORS["text_muted"]))
+        close_btn.setIconSize(QSize(12, 12))
         close_btn.setFixedSize(40, 40)
         close_btn.setCursor(Qt.PointingHandCursor)
         close_btn.setStyleSheet(_close_btn_style(COLORS))
@@ -438,11 +442,20 @@ class DetailPanel(QWidget):
         _pb_layout.setContentsMargins(12, 12, 12, 12)
         _pb_layout.setSpacing(8)
 
-        self._pb_title = QLabel("⚠  You're on main")
+        _pb_title_row = QHBoxLayout()
+        _pb_title_row.setSpacing(6)
+        _pb_title_row.setContentsMargins(0, 0, 0, 0)
+        self._pb_icon = QLabel()
+        self._pb_icon.setPixmap(qta.icon("fa5s.exclamation-triangle", color=COLORS["warning"]).pixmap(12, 12))
+        self._pb_icon.setStyleSheet("background: transparent;")
+        _pb_title_row.addWidget(self._pb_icon)
+        self._pb_title = QLabel("You're on main")
         self._pb_title.setStyleSheet(
             f"font-size: 12px; font-weight: 700; color: {COLORS['warning']};"
         )
-        _pb_layout.addWidget(self._pb_title)
+        _pb_title_row.addWidget(self._pb_title)
+        _pb_title_row.addStretch()
+        _pb_layout.addLayout(_pb_title_row)
 
         self._pb_desc = QLabel("Changes to main go through a PR.\nCreate a branch to continue.")
         self._pb_desc.setWordWrap(True)
@@ -819,7 +832,7 @@ class DetailPanel(QWidget):
         self._push_branch     = branch
         self._is_on_protected = is_protected
         if is_protected and branch:
-            self._pb_title.setText(f"⚠  You're on {branch}")
+            self._pb_title.setText(f"You're on {branch}")
             self._pb_desc.setText(
                 f"Changes to {branch} go through a PR.\nCreate a branch to continue."
             )

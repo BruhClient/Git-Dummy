@@ -1,6 +1,8 @@
 """Transient toast notification widget."""
 from __future__ import annotations
 
+import qtawesome as qta
+
 from PyQt5.QtCore import Qt, QTimer, QPropertyAnimation, QEasingCurve, QPoint
 from PyQt5.QtWidgets import QWidget, QHBoxLayout, QLabel
 
@@ -9,10 +11,10 @@ from styles.theme import COLORS
 
 class _Toast(QWidget):
     _STYLES = {
-        "loading": (COLORS["warning"],   "⏳"),
-        "success": (COLORS["accent"],    "✓"),
-        "error":   (COLORS["danger"],    "✕"),
-        "info":    (COLORS["text_muted"], "ℹ"),
+        "loading": (COLORS["warning"],    "fa5s.spinner"),
+        "success": (COLORS["accent"],     "fa5s.check"),
+        "error":   (COLORS["danger"],     "fa5s.times"),
+        "info":    (COLORS["text_muted"], "fa5s.info-circle"),
     }
     _MARGIN = 20
 
@@ -58,9 +60,9 @@ class _Toast(QWidget):
         layout.addWidget(self._msg)
 
     def show_message(self, text: str, kind: str = "info", duration_ms: int = 4000):
-        color, icon = self._STYLES.get(kind, self._STYLES["info"])
-        self._icon_lbl.setText(icon)
-        self._icon_lbl.setStyleSheet(f"background: transparent; font-size: 14px; color: {color};")
+        color, icon_name = self._STYLES.get(kind, self._STYLES["info"])
+        self._icon_lbl.setPixmap(qta.icon(icon_name, color=color).pixmap(14, 14))
+        self._icon_lbl.setStyleSheet("background: transparent;")
         self._msg.setText(text)
         self.setStyleSheet(f"""
             #toastWidget {{

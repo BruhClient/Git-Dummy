@@ -1,7 +1,9 @@
 """Full-screen overlay showing every file's before/after changes."""
 from __future__ import annotations
 
-from PyQt5.QtCore import Qt
+import qtawesome as qta
+
+from PyQt5.QtCore import Qt, QSize
 from PyQt5.QtGui import QPainter, QColor
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame,
@@ -81,7 +83,9 @@ class AllChangesPopup(QWidget):
         )
         hl.addWidget(count)
 
-        close_btn = QPushButton("✕")
+        close_btn = QPushButton()
+        close_btn.setIcon(qta.icon("fa5s.times", color=COLORS["text_muted"]))
+        close_btn.setIconSize(QSize(12, 12))
         close_btn.setFixedSize(40, 40)
         close_btn.setCursor(Qt.PointingHandCursor)
         close_btn.setStyleSheet(_close_btn_style(COLORS))

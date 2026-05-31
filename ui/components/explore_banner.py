@@ -1,6 +1,8 @@
 """Banner shown when the user is exploring a past commit."""
 from __future__ import annotations
 
+import qtawesome as qta
+
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import QWidget, QHBoxLayout, QLabel, QPushButton
 
@@ -23,8 +25,9 @@ class _ExploreBanner(QWidget):
         layout.setContentsMargins(20, 0, 20, 0)
         layout.setSpacing(12)
 
-        icon = QLabel("🔍")
-        icon.setStyleSheet("background: transparent; font-size: 14px;")
+        icon = QLabel()
+        icon.setPixmap(qta.icon("fa5s.search", color=COLORS["text_muted"]).pixmap(14, 14))
+        icon.setStyleSheet("background: transparent;")
         layout.addWidget(icon)
 
         msg = QLabel("You're exploring the past — your current work is safe.")

@@ -1,6 +1,8 @@
 """No-remote placeholder view and compact banner."""
 from __future__ import annotations
 
+import qtawesome as qta
+
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QLineEdit,
@@ -21,8 +23,8 @@ class _NoRemoteView(QWidget):
         layout.setAlignment(Qt.AlignCenter)
         layout.setSpacing(12)
 
-        icon = QLabel("☁")
-        icon.setStyleSheet(f"background: transparent; font-size: 52px; color: {COLORS['text_muted']};")
+        icon = QLabel()
+        icon.setPixmap(qta.icon("fa5s.cloud", color=COLORS["text_muted"]).pixmap(52, 52))
         icon.setAlignment(Qt.AlignCenter)
         layout.addWidget(icon)
 
@@ -99,8 +101,9 @@ class _NoRemoteBanner(QWidget):
         layout.setContentsMargins(20, 0, 20, 0)
         layout.setSpacing(10)
 
-        icon = QLabel("☁")
-        icon.setStyleSheet(f"background: transparent; font-size: 15px; color: {COLORS['text_muted']};")
+        icon = QLabel()
+        icon.setPixmap(qta.icon("fa5s.cloud", color=COLORS["text_muted"]).pixmap(15, 15))
+        icon.setStyleSheet("background: transparent;")
         layout.addWidget(icon)
 
         self._msg_lbl = QLabel("Not on GitHub yet —")

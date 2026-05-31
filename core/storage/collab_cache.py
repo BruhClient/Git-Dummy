@@ -5,7 +5,7 @@ import json
 import os
 import time
 
-_FILE = os.path.join(os.path.expanduser("~"), ".gitdummy_collab_cache.json")
+_FILE = os.path.join(os.path.expanduser("~"), ".evogit_collab_cache.json")
 _TTL  = 3600  # seconds before a cache entry is considered stale
 
 

@@ -1,3 +1,4 @@
+import os
 import threading
 
 from PyQt5.QtCore import Qt, pyqtSignal, QObject, pyqtSlot
@@ -9,22 +10,22 @@ from PyQt5.QtWidgets import (
 from styles.theme import COLORS, make_global_style
 
 
-class _LogoMark(QWidget):
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setFixedSize(28, 28)
-
-    def paintEvent(self, _):
-        p = QPainter(self)
-        p.setRenderHint(QPainter.Antialiasing)
-        p.setBrush(QBrush(QColor(COLORS["accent"])))
-        p.setPen(Qt.NoPen)
-        p.drawRoundedRect(0, 0, 28, 28, 6, 6)
-        p.setPen(QPen(QColor("#000")))
-        font = QFont("Inter", 9, QFont.Bold)
-        p.setFont(font)
-        p.drawText(self.rect(), Qt.AlignCenter, "GD")
-        p.end()
+def _LogoMark(parent=None):
+    lbl = QLabel(parent)
+    lbl.setFixedSize(28, 28)
+    _logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "logo", "optimised_logo1.png")
+    src = QPixmap(_logo_path).scaled(28, 28, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+    rounded = QPixmap(28, 28)
+    rounded.fill(Qt.transparent)
+    p = QPainter(rounded)
+    p.setRenderHint(QPainter.Antialiasing)
+    clip = QPainterPath()
+    clip.addRoundedRect(0, 0, 28, 28, 6, 6)
+    p.setClipPath(clip)
+    p.drawPixmap(0, 0, src)
+    p.end()
+    lbl.setPixmap(rounded)
+    return lbl
 
 
 class _AvatarCircle(QWidget):
@@ -32,7 +33,7 @@ class _AvatarCircle(QWidget):
         super().__init__(parent)
         self.setFixedSize(size, size)
         self._size = size
-        self._initials = "GD"
+        self._initials = "EG"
         self._pixmap: QPixmap | None = None
 
     def set_initials(self, initials: str):
@@ -107,7 +108,7 @@ class TopNav(QWidget):
         logo = _LogoMark()
         layout.addWidget(logo)
 
-        self._app_name = QLabel("Git Dummy")
+        self._app_name = QLabel("Evo Git")
         self._app_name.setStyleSheet(
             f"font-size: 14px; font-weight: 700; color: {COLORS['text_primary']};"
         )
@@ -181,7 +182,7 @@ class TopNav(QWidget):
     def set_user(self, user: dict):
         login = user.get("login", "")
         name  = user.get("name") or login
-        self._avatar.set_initials(name[:2].upper() if name else "GD")
+        self._avatar.set_initials(name[:2].upper() if name else "EG")
         self._username.setText(f"@{login}")
 
         avatar_url = user.get("avatar_url", "")
@@ -217,7 +218,7 @@ class TopNav(QWidget):
         self._page_label.setText(repo_name)
         self._page_label.show()
         # Hide the app name when the breadcrumb is showing — avoids
-        # "Git Dummy › Git Dummy" when the project has the same name
+        # "Evo Git › Evo Git" when the project has the same name
         self._app_name.hide()
 
 class MainWindow(QMainWindow):
@@ -228,7 +229,7 @@ class MainWindow(QMainWindow):
     def __init__(self, github_auth, parent=None):
         super().__init__(parent)
         self._auth = github_auth
-        self.setWindowTitle("Git Dummy")
+        self.setWindowTitle("Evo Git")
         self.setMinimumSize(1100, 680)
         self.setStyleSheet(make_global_style())
 

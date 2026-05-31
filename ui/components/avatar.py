@@ -7,7 +7,7 @@ import os
 from PyQt5.QtGui import QPixmap
 
 _AVATAR_CACHE: dict[str, QPixmap] = {}
-_AVATAR_DIR = os.path.join(os.path.expanduser("~"), ".gitdummy_cache", "avatars")
+_AVATAR_DIR = os.path.join(os.path.expanduser("~"), ".evogit_cache", "avatars")
 os.makedirs(_AVATAR_DIR, exist_ok=True)
 
 
