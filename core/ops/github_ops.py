@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import subprocess
 from urllib.parse import urlparse
 
@@ -98,13 +99,18 @@ def push_to_github(
             run("git", "add", ".")
             run("git", "commit", "--allow-empty", "-m", "Initial commit")
 
-        # Embed token into HTTPS URL so Git doesn't prompt
-        parsed = urlparse(clone_url)
-        auth_url = f"https://{username}:{token}@{parsed.netloc}{parsed.path}"
-
-        # Add remote (remove existing one silently first)
+        # Add remote with the clean URL (no token embedded — stored as http header below).
         subprocess.run(["git", "remote", "remove", "origin"], cwd=path, capture_output=True)
-        run("git", "remote", "add", "origin", auth_url)
+        run("git", "remote", "add", "origin", clone_url)
+
+        # Authenticate via HTTP Basic header so the token never appears in the remote URL
+        # or in `git remote -v` output.  Disable the credential helper for GitHub so git
+        # doesn't prompt or double-send credentials.
+        b64 = base64.b64encode(f"{username}:{token}".encode()).decode()
+        run("git", "config", "--local", "credential.https://github.com.helper", "")
+        run("git", "config", "--local",
+            f"http.{clone_url}.extraHeader", f"Authorization: Basic {b64}")
+
         run("git", "push", "-u", "origin", "HEAD")
 
         return True, ""

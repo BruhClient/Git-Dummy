@@ -372,10 +372,12 @@ class RepoPage(QWidget):
         self._user: dict | None = None
         self.setAcceptDrops(True)
         self._setup_ui()
-        self._load_saved()
 
     def set_user(self, user: dict):
         self._user = user
+        self._repos = []
+        self._missing = []
+        self._load_saved()
         self._refresh_cards()
 
     # ── UI ────────────────────────────────────────────────────────────────────
@@ -450,7 +452,10 @@ class RepoPage(QWidget):
     # ── persistence ───────────────────────────────────────────────────────────
 
     def _load_saved(self):
-        saved = repo_store.load()
+        login = self._user.get("login", "") if self._user else ""
+        if not login:
+            return
+        saved = repo_store.load(login)
         for path in saved:
             if os.path.isdir(os.path.join(path, ".git")):
                 if path not in self._repos:
@@ -482,7 +487,9 @@ class RepoPage(QWidget):
         self._validate_paths()
 
     def _persist(self):
-        repo_store.save(self._repos + self._missing)
+        login = self._user.get("login", "") if self._user else ""
+        if login:
+            repo_store.save(login, self._repos + self._missing)
 
     # ── drag & drop ───────────────────────────────────────────────────────────
 

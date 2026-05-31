@@ -200,8 +200,22 @@ def save_stash_as_commit(path: str, stash_ref: str = "", message: str = "",
             if not ok_co:
                 subprocess.run(["git", "checkout", original_sha],
                                cwd=path, capture_output=True, timeout=10)
-                subprocess.run(["git", "cherry-pick", "--no-commit", saved_sha],
-                               cwd=path, capture_output=True, timeout=30)
+                # Prefer re-applying the stash (never popped, still exists) over cherry-pick.
+                restored = False
+                if stash_ref:
+                    r_sa = subprocess.run(
+                        ["git", "stash", "apply", stash_ref],
+                        cwd=path, capture_output=True, timeout=30,
+                    )
+                    restored = r_sa.returncode == 0
+                if not restored:
+                    r_cp = subprocess.run(
+                        ["git", "cherry-pick", "--no-commit", saved_sha],
+                        cwd=path, capture_output=True, timeout=30,
+                    )
+                    if r_cp.returncode != 0:
+                        subprocess.run(["git", "cherry-pick", "--abort"],
+                                       cwd=path, capture_output=True, timeout=10)
                 return False, f"Could not switch to '{branch}': {err_co}", [], {}
 
             ok_m, err_m = _run(path, ["git", "merge", "--no-ff", saved_sha,
@@ -213,8 +227,22 @@ def save_stash_as_commit(path: str, stash_ref: str = "", message: str = "",
                                cwd=path, capture_output=True, timeout=10)
                 subprocess.run(["git", "checkout", original_sha],
                                cwd=path, capture_output=True, timeout=10)
-                subprocess.run(["git", "cherry-pick", "--no-commit", saved_sha],
-                               cwd=path, capture_output=True, timeout=30)
+                # Prefer re-applying the stash (never popped, still exists) over cherry-pick.
+                restored = False
+                if stash_ref:
+                    r_sa = subprocess.run(
+                        ["git", "stash", "apply", stash_ref],
+                        cwd=path, capture_output=True, timeout=30,
+                    )
+                    restored = r_sa.returncode == 0
+                if not restored:
+                    r_cp = subprocess.run(
+                        ["git", "cherry-pick", "--no-commit", saved_sha],
+                        cwd=path, capture_output=True, timeout=30,
+                    )
+                    if r_cp.returncode != 0:
+                        subprocess.run(["git", "cherry-pick", "--abort"],
+                                       cwd=path, capture_output=True, timeout=10)
                 return False, "save_conflict", conflict_files, conflict_content
 
             if stash_ref:

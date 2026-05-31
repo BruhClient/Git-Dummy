@@ -94,6 +94,13 @@ def conflict_keep_local(path: str, branch: str) -> tuple[bool, str]:
     except Exception as e:
         return False, str(e)
 
+    # Remember where we are so we can roll back if apply fails after the reset.
+    saved_r = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=path, capture_output=True, text=True, timeout=5,
+    )
+    saved_sha = saved_r.stdout.strip()
+
     for cmd in (["git", "fetch", "origin"],
                 ["git", "reset", "--hard", f"origin/{branch}"]):
         ok, err = _run(path, cmd)
@@ -107,8 +114,20 @@ def conflict_keep_local(path: str, branch: str) -> tuple[bool, str]:
                 input=patch, cwd=path, capture_output=True, text=True, timeout=30,
             )
             if r.returncode != 0:
-                return False, r.stderr.strip() or r.stdout.strip()
+                # Apply failed — restore to our pre-reset state so no local work is lost.
+                if saved_sha:
+                    subprocess.run(
+                        ["git", "reset", "--hard", saved_sha],
+                        cwd=path, capture_output=True, text=True, timeout=10,
+                    )
+                return False, (r.stderr.strip() or r.stdout.strip() or
+                               "Could not re-apply local changes after syncing to remote.")
         except Exception as e:
+            if saved_sha:
+                subprocess.run(
+                    ["git", "reset", "--hard", saved_sha],
+                    cwd=path, capture_output=True, text=True, timeout=10,
+                )
             return False, str(e)
         for cmd in (["git", "add", "-A"],
                     ["git", "commit", "-m", "local changes on top of remote"]):

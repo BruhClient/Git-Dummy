@@ -61,20 +61,142 @@ class App(QStackedWidget):
 
         self._auth.auth_success.connect(self._on_auth_success)
         self._auth.auth_failed.connect(self._on_auth_failed)
+        self._auth.account_added.connect(self._on_account_added)
+        self._auth.add_account_failed.connect(self._on_add_account_failed)
         self._repo_page.repo_selected.connect(self._on_repo_selected)
         self._main_window.logout_requested.connect(self._on_logout)
+        self._main_window.switch_account_requested.connect(self._auth.switch_account)
+        self._main_window.add_account_requested.connect(self._on_add_account_requested)
+        self._auth_page.account_selected.connect(self._auth.switch_account)
+        self._auth_page.add_account_clicked.connect(self._auth.start_oauth_flow)
 
         if self._auth.has_saved_token():
-            self._auth.load_saved_token()
+            self._auth_page.show_account_picker(self._auth.get_all_accounts())
         else:
-            self.setCurrentWidget(self._auth_page)
+            self._auth_page.show_sign_in()
+        self.setCurrentWidget(self._auth_page)
 
     def _on_auth_success(self, user: dict):
         self._main_window.set_user(user)
         self._repo_page.set_user(user)
         self._commit_page.set_user(user)
+        self._main_window.set_accounts(self._auth.get_all_accounts(), user.get("login", ""))
         self._main_window.show_page(MainWindow.PAGE_REPOS)
         self.setCurrentWidget(self._main_window)
+
+    def _on_account_added(self, user: dict):
+        """New account added while already logged in — switch to it."""
+        self._on_auth_success(user)
+
+    def _on_add_account_requested(self):
+        import webbrowser
+        from PyQt5.QtWidgets import QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton
+        from styles.theme import COLORS
+
+        dlg = QDialog(self._main_window)
+        dlg.setWindowTitle("Add GitHub Account")
+        dlg.setFixedWidth(400)
+        dlg.setStyleSheet(f"""
+            QDialog {{
+                background: {COLORS['bg_secondary']};
+            }}
+            QLabel {{
+                background: transparent;
+                color: {COLORS['text_primary']};
+            }}
+        """)
+
+        layout = QVBoxLayout(dlg)
+        layout.setContentsMargins(24, 24, 24, 20)
+        layout.setSpacing(12)
+
+        heading = QLabel("Add a GitHub account")
+        heading.setStyleSheet(f"font-size: 15px; font-weight: 700; color: {COLORS['text_primary']};")
+        layout.addWidget(heading)
+
+        body = QLabel(
+            "GitHub will sign you in as your <b>current logged-in account</b> "
+            "unless you sign out of GitHub first.\n\n"
+            "Steps:\n"
+            "  1. Click <b>Open GitHub logout</b> below\n"
+            "  2. Sign out in the browser\n"
+            "  3. Click <b>Continue</b> to authorize a new account"
+        )
+        body.setWordWrap(True)
+        body.setStyleSheet(f"font-size: 13px; color: {COLORS['text_secondary']}; line-height: 1.5;")
+        layout.addWidget(body)
+
+        logout_btn = QPushButton("Open GitHub logout")
+        logout_btn.setCursor(Qt.PointingHandCursor)
+        logout_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: transparent;
+                border: 1px solid {COLORS['border']};
+                border-radius: 6px;
+                color: {COLORS['text_primary']};
+                font-size: 13px;
+                padding: 8px 14px;
+                text-align: left;
+            }}
+            QPushButton:hover {{
+                border-color: {COLORS['accent']};
+                color: {COLORS['accent']};
+            }}
+        """)
+        logout_btn.clicked.connect(lambda: webbrowser.open("https://github.com/logout"))
+        layout.addWidget(logout_btn)
+
+        layout.addSpacing(4)
+
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(8)
+        btn_row.addStretch()
+
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.setCursor(Qt.PointingHandCursor)
+        cancel_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: transparent;
+                border: 1px solid {COLORS['border']};
+                border-radius: 6px;
+                color: {COLORS['text_muted']};
+                font-size: 13px;
+                padding: 7px 16px;
+            }}
+            QPushButton:hover {{
+                border-color: {COLORS['text_muted']};
+                color: {COLORS['text_primary']};
+            }}
+        """)
+        cancel_btn.clicked.connect(dlg.reject)
+        btn_row.addWidget(cancel_btn)
+
+        continue_btn = QPushButton("Continue →")
+        continue_btn.setCursor(Qt.PointingHandCursor)
+        continue_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: {COLORS['accent']};
+                border: none;
+                border-radius: 6px;
+                color: #fff;
+                font-size: 13px;
+                font-weight: 600;
+                padding: 7px 16px;
+            }}
+            QPushButton:hover {{
+                background: {COLORS['accent_hover']};
+            }}
+        """)
+        continue_btn.clicked.connect(dlg.accept)
+        btn_row.addWidget(continue_btn)
+
+        layout.addLayout(btn_row)
+
+        if dlg.exec_() == QDialog.Accepted:
+            self._auth.start_add_account_flow()
+
+    def _on_add_account_failed(self, message: str):
+        self._main_window.show_toast(message, kind="error")
 
     def _on_auth_failed(self, message: str):
         self.setCurrentWidget(self._auth_page)
@@ -83,7 +205,7 @@ class App(QStackedWidget):
     def _on_logout(self):
         self._commit_page.reset()
         self._main_window.show_page(MainWindow.PAGE_REPOS)
-        self._auth_page.reset()
+        self._auth_page.reset()  # calls show_sign_in() — all accounts were cleared by logout
         self.setCurrentWidget(self._auth_page)
 
     def _on_repo_selected(self, repo_path: str):

@@ -10,7 +10,14 @@ def init_repo(path: str, user_name: str = "", user_email: str = "") -> tuple[boo
     try:
         r = subprocess.run(["git", "init", "-b", "main"], cwd=path, capture_output=True, text=True)
         if r.returncode != 0:
-            return False, r.stderr.strip()
+            # git < 2.28 does not support -b; init then manually point HEAD at main.
+            r = subprocess.run(["git", "init"], cwd=path, capture_output=True, text=True)
+            if r.returncode != 0:
+                return False, r.stderr.strip()
+            subprocess.run(
+                ["git", "symbolic-ref", "HEAD", "refs/heads/main"],
+                cwd=path, capture_output=True, text=True,
+            )
 
         # Set identity from the logged-in user; fall back only if nothing provided
         subprocess.run(["git", "config", "user.name",  user_name  or "User"],               cwd=path)
@@ -73,12 +80,19 @@ def pull_stash_apply(path: str, branch: str) -> tuple[bool, str]:
 
 def pull_save_merge(path: str, branch: str) -> tuple[bool, str, list]:
     """Commit unsaved changes then merge remote into local."""
-    for cmd in (["git", "add", "-A"],
-                ["git", "commit", "-m", "saved changes before pull"],
-                ["git", "fetch", "origin"]):
-        ok, err = _run(path, cmd)
+    _run(path, ["git", "add", "-A"])
+    # Only commit when there are actual staged changes; nothing-to-commit is not an error.
+    status_r = subprocess.run(
+        ["git", "status", "--porcelain"],
+        cwd=path, capture_output=True, text=True, timeout=5,
+    )
+    if status_r.stdout.strip():
+        ok, err = _run(path, ["git", "commit", "-m", "saved changes before pull"])
         if not ok:
             return False, err, []
+    ok, err = _run(path, ["git", "fetch", "origin"])
+    if not ok:
+        return False, err, []
     ok3, err3 = _run(path, ["git", "merge", f"origin/{branch}"])
     if not ok3:
         conflict_files = get_conflict_files(path)
