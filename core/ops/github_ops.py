@@ -29,7 +29,20 @@ def create_github_repo(name: str, private: bool, token: str) -> tuple[bool, str,
         return False, str(e), ""
 
 
-def push_branch(path: str, branch: str) -> tuple[bool, str, list, dict]:
+def push_branch(
+    path: str,
+    branch: str,
+    username: str = "",
+    token: str = "",
+    remote_url: str = "",
+) -> tuple[bool, str, list, dict]:
+    if username and token and remote_url:
+        b64 = base64.b64encode(f"{username}:{token}".encode()).decode()
+        subprocess.run(
+            ["git", "config", "--local", f"http.{remote_url}.extraHeader",
+             f"Authorization: Basic {b64}"],
+            cwd=path, capture_output=True,
+        )
     r = subprocess.run(
         ["git", "push", "-u", "origin", branch],
         cwd=path, capture_output=True, text=True, timeout=60,

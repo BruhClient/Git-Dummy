@@ -71,7 +71,7 @@ class ChangesPanel(QWidget):
 
         self._title = QLabel("—")
         self._title.setStyleSheet(
-            f"background: transparent; font-size: 13px; font-weight: 600;"
+            f"background: transparent; font-size: 13px; font-weight: 600; font-family: 'Tilt Warp';"
             f" color: {COLORS['text_primary']};"
         )
         self._subtitle = QLabel("")
@@ -127,7 +127,7 @@ class ChangesPanel(QWidget):
         self._source_badge.setText(badge_text)
         self._source_badge.setStyleSheet(
             f"background: {badge_bg}; color: {badge_color};"
-            f" font-size: 9px; font-weight: 700; letter-spacing: 0.08em;"
+            f" font-size: 9px; font-weight: 700; font-family: 'Tilt Warp'; letter-spacing: 0.08em;"
             f" border-radius: 4px; padding: 0 7px;"
         )
         self._source_badge.show()
@@ -195,7 +195,7 @@ class ChangesPanel(QWidget):
         hl.setContentsMargins(12, 0, 12, 0)
         lbl = QLabel(title)
         lbl.setStyleSheet(
-            f"background: transparent; font-size: 10px; font-weight: 700;"
+            f"background: transparent; font-size: 10px; font-weight: 700; font-family: 'Tilt Warp';"
             f" color: {color}; letter-spacing: 0.08em;"
         )
         hl.addWidget(lbl)

@@ -93,7 +93,7 @@ class _MiniAvatar(QWidget):
             p.drawEllipse(0, 0, s, s)
             p.setClipping(False)
             p.setPen(QPen(QColor(COLORS["accent"])))
-            p.setFont(QFont("Inter", s // 3, QFont.Bold))
+            p.setFont(QFont("Tilt Warp", s // 3, QFont.Bold))
             p.drawText(self.rect(), Qt.AlignCenter, self._initials)
         p.setClipping(False)
         p.setPen(QPen(QColor(COLORS["accent"]), 1.5))
@@ -157,7 +157,7 @@ class AuthPage(QWidget):
         logo_row.setSpacing(12)
         logo_row.addWidget(LogoMark())
         app_name = QLabel("Evo Git")
-        app_name.setStyleSheet(f"background: transparent; font-size: 20px; font-weight: 700; color: {COLORS['text_primary']};")
+        app_name.setStyleSheet(f"background: transparent; font-size: 20px; font-weight: 700; font-family: 'Tilt Warp'; color: {COLORS['text_primary']};")
         logo_row.addWidget(app_name)
         logo_row.addStretch()
         left_layout.addLayout(logo_row)
@@ -165,7 +165,7 @@ class AuthPage(QWidget):
         left_layout.addSpacerItem(QSpacerItem(0, 48, QSizePolicy.Minimum, QSizePolicy.Fixed))
 
         tagline = QLabel("Every change you've made,\nbeautifully visualised.")
-        tagline.setStyleSheet(f"background: transparent; font-size: 28px; font-weight: 700; color: {COLORS['text_primary']}; line-height: 1.3;")
+        tagline.setStyleSheet(f"background: transparent; font-size: 28px; font-weight: 700; font-family: 'Tilt Warp'; color: {COLORS['text_primary']}; line-height: 1.3;")
         tagline.setWordWrap(True)
         left_layout.addWidget(tagline)
 
@@ -234,7 +234,7 @@ class AuthPage(QWidget):
         sb_layout.setSpacing(16)
 
         title = QLabel("Sign in")
-        title.setStyleSheet(f"background: transparent; font-size: 22px; font-weight: 700; color: {COLORS['text_primary']};")
+        title.setStyleSheet(f"background: transparent; font-size: 22px; font-weight: 700; font-family: 'Tilt Warp'; color: {COLORS['text_primary']};")
         sb_layout.addWidget(title)
 
         desc = QLabel("Connect your GitHub account to explore\nyour projects and their full history.")
@@ -290,7 +290,7 @@ class AuthPage(QWidget):
 
         picker_title = QLabel("Choose an account")
         picker_title.setStyleSheet(
-            f"background: transparent; font-size: 22px; font-weight: 700; color: {COLORS['text_primary']};"
+            f"background: transparent; font-size: 22px; font-weight: 700; font-family: 'Tilt Warp'; color: {COLORS['text_primary']};"
         )
         pb_layout.addWidget(picker_title)
 
@@ -317,7 +317,7 @@ class AuthPage(QWidget):
                 border: 1px solid {COLORS['border']};
                 border-radius: 8px;
                 font-size: 13px;
-                font-weight: 600;
+                font-weight: 600; font-family: 'Tilt Warp';
                 color: {COLORS['accent']};
             }}
             QPushButton:hover {{
@@ -404,11 +404,13 @@ class AuthPage(QWidget):
         h.addWidget(avatar)
 
         text_col = QVBoxLayout()
-        text_col.setSpacing(1)
+        text_col.setContentsMargins(0, 0, 0, 0)
+        text_col.setSpacing(2)
+        text_col.setAlignment(Qt.AlignVCenter)
 
         name_lbl = QLabel(name)
         name_lbl.setStyleSheet(
-            f"background: transparent; font-size: 13px; font-weight: 600; color: {COLORS['text_primary']};"
+            f"background: transparent; font-size: 13px; font-weight: 400; font-family: 'Tilt Warp'; color: {COLORS['text_primary']};"
         )
         text_col.addWidget(name_lbl)
 

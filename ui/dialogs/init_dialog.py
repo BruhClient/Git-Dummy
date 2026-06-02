@@ -32,7 +32,7 @@ class _Worker(QObject):
 
 def _label(text, size=13, color=None, bold=False, wrap=False) -> QLabel:
     lbl = QLabel(text)
-    weight = "font-weight: 600;" if bold else ""
+    weight = "font-weight: 600; font-family: 'Tilt Warp';" if bold else ""
     col = color or COLORS["text_primary"]
     lbl.setStyleSheet(f"background: transparent; font-size: {size}px; color: {col}; {weight}")
     if wrap:
@@ -205,14 +205,14 @@ class _StepDone(QWidget):
         self._icon.setPixmap(qta.icon("fa5s.check", color=COLORS["accent"]).pixmap(40, 40))
         self._icon.setStyleSheet("background: transparent;")
         self._title.setText(title)
-        self._title.setStyleSheet(f"background: transparent; font-size: 18px; font-weight: 600; color: {COLORS['text_primary']};")
+        self._title.setStyleSheet(f"background: transparent; font-size: 18px; font-weight: 600; font-family: 'Tilt Warp'; color: {COLORS['text_primary']};")
         self._body.setText(body)
 
     def show_error(self, title: str, body: str):
         self._icon.setPixmap(qta.icon("fa5s.times", color=COLORS["danger"]).pixmap(40, 40))
         self._icon.setStyleSheet("background: transparent;")
         self._title.setText(title)
-        self._title.setStyleSheet(f"background: transparent; font-size: 18px; font-weight: 600; color: {COLORS['danger']};")
+        self._title.setStyleSheet(f"background: transparent; font-size: 18px; font-weight: 600; font-family: 'Tilt Warp'; color: {COLORS['danger']};")
         self._body.setText(body)
 
 

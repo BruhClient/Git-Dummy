@@ -87,7 +87,7 @@ class _ModeCard(QWidget):
         text_color = COLORS["accent"] if self._selected else COLORS["text_secondary"]
         weight = QFont.DemiBold if self._selected else QFont.Normal
         p.setPen(QPen(QColor(text_color)))
-        p.setFont(QFont("Inter", 11, weight))
+        p.setFont(QFont("Tilt Warp", 11, weight))
         p.drawText(
             0, card_h + 6, self.width(), 18,
             Qt.AlignHCenter | Qt.AlignTop,
@@ -149,7 +149,7 @@ class _ThemeSwatch(QWidget):
         text_color = self._accent if self._selected else COLORS["text_secondary"]
         p.setPen(QPen(QColor(text_color)))
         weight = QFont.DemiBold if self._selected else QFont.Normal
-        p.setFont(QFont("Inter", 11, weight))
+        p.setFont(QFont("Tilt Warp", 11, weight))
         p.drawText(
             0, cy + cw + 10, self.width(), 20,
             Qt.AlignHCenter | Qt.AlignTop,
@@ -182,7 +182,7 @@ class SettingsPage(QWidget):
 
         title = QLabel("Settings")
         title.setStyleSheet(
-            f"font-size: 26px; font-weight: 700; color: {COLORS['text_primary']};"
+            f"font-size: 26px; font-weight: 700; font-family: 'Tilt Warp'; color: {COLORS['text_primary']};"
         )
         root.addWidget(title)
 
@@ -200,7 +200,7 @@ class SettingsPage(QWidget):
         # ── Mode ──────────────────────────────────────────────────────────────
         mode_title = QLabel("Interface mode")
         mode_title.setStyleSheet(
-            f"font-size: 15px; font-weight: 600; color: {COLORS['text_primary']};"
+            f"font-size: 15px; font-weight: 600; font-family: 'Tilt Warp'; color: {COLORS['text_primary']};"
         )
         root.addWidget(mode_title)
 
@@ -229,7 +229,7 @@ class SettingsPage(QWidget):
         # ── Theme ─────────────────────────────────────────────────────────────
         theme_title = QLabel("Accent theme")
         theme_title.setStyleSheet(
-            f"font-size: 15px; font-weight: 600; color: {COLORS['text_primary']};"
+            f"font-size: 15px; font-weight: 600; font-family: 'Tilt Warp'; color: {COLORS['text_primary']};"
         )
         root.addWidget(theme_title)
 
@@ -257,7 +257,7 @@ class SettingsPage(QWidget):
     def _add_section_header(self, layout: QVBoxLayout, text: str):
         label = QLabel(text.upper())
         label.setStyleSheet(
-            f"font-size: 11px; font-weight: 600; color: {COLORS['text_muted']}; "
+            f"font-size: 11px; font-weight: 600; font-family: 'Tilt Warp'; color: {COLORS['text_muted']}; "
             f"letter-spacing: 1px;"
         )
         layout.addWidget(label)

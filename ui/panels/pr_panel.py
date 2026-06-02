@@ -73,7 +73,7 @@ def _action_btn(text: str, accent: bool = True) -> QPushButton:
         btn.setStyleSheet(f"""
             QPushButton {{
                 background: {COLORS['accent_dim']}; border: 1px solid {COLORS['accent']};
-                border-radius: 6px; font-size: 11px; font-weight: 600;
+                border-radius: 6px; font-size: 11px; font-weight: 600; font-family: 'Tilt Warp';
                 color: {COLORS['accent']}; padding: 0 12px;
             }}
             QPushButton:hover {{
@@ -134,7 +134,7 @@ class _PRRow(QWidget):
 
         title = QLabel(pr.get("title", "(untitled)"))
         title.setStyleSheet(
-            f"background: transparent; font-size: 13px; font-weight: 600;"
+            f"background: transparent; font-size: 13px; font-weight: 600; font-family: 'Tilt Warp';"
             f" color: {COLORS['text_primary']};"
         )
         title.setWordWrap(True)
@@ -296,7 +296,7 @@ class PullRequestsPanel(QWidget):
 
         title = QLabel("Pull Requests")
         title.setStyleSheet(
-            f"background: transparent; font-size: 16px; font-weight: 700;"
+            f"background: transparent; font-size: 16px; font-weight: 700; font-family: 'Tilt Warp';"
             f" color: {COLORS['text_primary']};"
         )
         hl.addWidget(title)
@@ -308,7 +308,7 @@ class PullRequestsPanel(QWidget):
         self._refresh_btn.setStyleSheet(f"""
             QPushButton {{
                 background: transparent; border: 1px solid {COLORS['border']};
-                border-radius: 6px; font-size: 11px; font-weight: 600;
+                border-radius: 6px; font-size: 11px; font-weight: 600; font-family: 'Tilt Warp';
                 color: {COLORS['text_muted']}; padding: 0 12px;
             }}
             QPushButton:hover {{
@@ -438,7 +438,7 @@ class PullRequestsPanel(QWidget):
             return f"""
                 QPushButton {{
                     background: {COLORS['accent_dim']}; border: 1px solid {COLORS['accent']};
-                    border-radius: 5px; font-size: 11px; font-weight: 600;
+                    border-radius: 5px; font-size: 11px; font-weight: 600; font-family: 'Tilt Warp';
                     color: {COLORS['accent']}; padding: 0 12px;
                 }}
             """

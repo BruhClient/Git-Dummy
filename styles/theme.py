@@ -1,4 +1,5 @@
-FONT_FAMILY = "Inter, Segoe UI, system-ui, sans-serif"
+FONT_FAMILY   = "Urbanist, Inter, Segoe UI, system-ui, sans-serif"
+DISPLAY_FONT  = "'Tilt Warp', system-ui, sans-serif"
 
 COLORS: dict[str, str] = {
     "bg_primary":    "#0f0f0f",
@@ -96,6 +97,10 @@ QToolTip {{
     border-radius: 6px;
     padding: 6px 10px;
     font-size: 12px;
+}}
+
+QPushButton {{
+    font-family: {DISPLAY_FONT};
 }}
 """
 
@@ -237,3 +242,11 @@ QHeaderView::section:last {{
     border-top-right-radius: 8px;
 }}
 """
+
+
+def heading_style(size: int, weight: int = 700, color: str = "") -> str:
+    c = color or COLORS["text_primary"]
+    return (
+        f"font-family: {DISPLAY_FONT}; font-size: {size}px; "
+        f"font-weight: {weight}; color: {c}; background: transparent;"
+    )

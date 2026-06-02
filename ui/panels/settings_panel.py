@@ -124,7 +124,7 @@ class _Avatar(QWidget):
             p.drawEllipse(0, 0, s, s)
             p.setClipping(False)
             p.setPen(QPen(self._color))
-            p.setFont(QFont("Inter", s // 3, QFont.Bold))
+            p.setFont(QFont("Tilt Warp", s // 3, QFont.Bold))
             p.drawText(self.rect(), Qt.AlignCenter, self._login[:2].upper())
         p.setClipping(False)
         p.setPen(QPen(self._color, 1.5))
@@ -169,7 +169,7 @@ class _SCollabRow(QWidget):
         nm = QLabel(raw if len(raw) <= 20 else raw[:19] + "…")
         nm.setToolTip(raw)
         nm.setStyleSheet(
-            f"background: transparent; font-size: 12px; font-weight: 600;"
+            f"background: transparent; font-size: 12px; font-weight: 600; font-family: 'Tilt Warp';"
             f" color: {COLORS['text_primary']};"
         )
         name_row.addWidget(nm)
@@ -255,7 +255,7 @@ class _Skeleton(QWidget):
 def _section_lbl(text: str) -> QLabel:
     lbl = QLabel(text)
     lbl.setStyleSheet(
-        f"background: transparent; font-size: 10px; font-weight: 600;"
+        f"background: transparent; font-size: 10px; font-weight: 600; font-family: 'Tilt Warp';"
         f" color: {COLORS['text_muted']}; letter-spacing: 0.08em;"
     )
     return lbl
@@ -358,7 +358,7 @@ class SettingsPanel(QWidget):
         name_row.setSpacing(8)
         self._repo_name_lbl = QLabel("—")
         self._repo_name_lbl.setStyleSheet(
-            f"background: transparent; font-size: 15px; font-weight: 700;"
+            f"background: transparent; font-size: 15px; font-weight: 700; font-family: 'Tilt Warp';"
             f" color: {COLORS['text_primary']};"
         )
         name_row.addWidget(self._repo_name_lbl)
@@ -424,7 +424,7 @@ class SettingsPanel(QWidget):
         ch_layout.setSpacing(8)
         ch_lbl = QLabel("Contributors")
         ch_lbl.setStyleSheet(
-            f"background: transparent; font-size: 12px; font-weight: 600;"
+            f"background: transparent; font-size: 12px; font-weight: 600; font-family: 'Tilt Warp';"
             f" color: {COLORS['text_muted']};"
         )
         ch_layout.addWidget(ch_lbl)
@@ -433,7 +433,7 @@ class SettingsPanel(QWidget):
         self._collab_count.setAlignment(Qt.AlignCenter)
         self._collab_count.setStyleSheet(
             f"background: {COLORS['bg_primary']}; border-radius: 9px;"
-            f" font-size: 10px; font-weight: 600; color: {COLORS['text_muted']};"
+            f" font-size: 10px; font-weight: 600; font-family: 'Tilt Warp'; color: {COLORS['text_muted']};"
             f" padding: 0 8px;"
         )
         self._collab_count.hide()
@@ -503,7 +503,7 @@ class SettingsPanel(QWidget):
         toggle_lbl_col.setSpacing(2)
         prot_lbl = QLabel("Require pull requests")
         prot_lbl.setStyleSheet(
-            f"background: transparent; font-size: 13px; font-weight: 600;"
+            f"background: transparent; font-size: 13px; font-weight: 600; font-family: 'Tilt Warp';"
             f" color: {COLORS['text_primary']};"
         )
         toggle_lbl_col.addWidget(prot_lbl)

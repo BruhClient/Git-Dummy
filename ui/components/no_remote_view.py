@@ -30,7 +30,7 @@ class _NoRemoteView(QWidget):
 
         title = QLabel("Not on GitHub yet")
         title.setStyleSheet(
-            f"background: transparent; font-size: 17px; font-weight: 700; color: {COLORS['text_primary']};"
+            f"background: transparent; font-size: 17px; font-weight: 700; font-family: 'Tilt Warp'; color: {COLORS['text_primary']};"
         )
         title.setAlignment(Qt.AlignCenter)
         layout.addWidget(title)
@@ -49,7 +49,7 @@ class _NoRemoteView(QWidget):
         self._btn.setStyleSheet(f"""
             QPushButton {{
                 background: {COLORS['accent']}; border: none; border-radius: 8px;
-                color: white; font-size: 13px; font-weight: 600; padding: 0 28px;
+                color: white; font-size: 13px; font-weight: 600; font-family: 'Tilt Warp'; padding: 0 28px;
             }}
             QPushButton:hover {{ background: {COLORS['accent_dim']}; }}
             QPushButton:disabled {{ background: {COLORS['border']}; color: {COLORS['text_muted']}; }}
@@ -86,7 +86,7 @@ class _NoRemoteBanner(QWidget):
         QPushButton {{
             background: {bg}; border: 1px solid {border};
             border-radius: 5px; color: {fg};
-            font-size: 11px; font-weight: 600; padding: 3px 12px;
+            font-size: 11px; font-weight: 600; font-family: 'Tilt Warp'; padding: 3px 12px;
         }}
     """
 
@@ -142,7 +142,7 @@ class _NoRemoteBanner(QWidget):
         self._btn.setStyleSheet(f"""
             QPushButton {{
                 background: {COLORS['accent']}; border: none; border-radius: 6px;
-                color: white; font-size: 12px; font-weight: 600; padding: 0 16px;
+                color: white; font-size: 12px; font-weight: 600; font-family: 'Tilt Warp'; padding: 0 16px;
             }}
             QPushButton:hover {{ background: {COLORS['accent_dim']}; }}
             QPushButton:disabled {{ background: {COLORS['border']}; color: {COLORS['text_muted']}; }}

@@ -299,7 +299,7 @@ class ContributorBadge(QGraphicsObject):
             painter.drawEllipse(QPointF(0, 0), r, r)
             painter.setClipping(False)
             painter.setPen(QPen(c))
-            font = QFont("Inter", max(6, r // 2), QFont.Bold)
+            font = QFont("Tilt Warp", max(6, r // 2), QFont.Bold)
             painter.setFont(font)
             painter.drawText(
                 QRectF(-r, -r, r * 2, r * 2), Qt.AlignCenter,

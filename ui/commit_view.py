@@ -13,6 +13,7 @@ from PyQt5.QtCore import QRect, QPropertyAnimation, QEasingCurve
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QScrollArea, QFrame, QLineEdit, QCheckBox, QStackedWidget, QSizePolicy,
+    QMessageBox,
 )
 from styles.theme import COLORS
 from core.git_tracker import GitTracker, CommitInfo
@@ -35,7 +36,7 @@ from ui.components.avatar import _AVATAR_CACHE, _AVATAR_DIR, _avatar_disk_path, 
 from ui.workers.commit_workers import (
     _CollabLoader, _Loader, _CommitDetailWorker, _VisibilityWorker,
     _FetchWorker, _UncommittedRefreshWorker, _NavigateWorker,
-    _FirstCommitWorker, _CreateRepoWorker,
+    _FirstCommitWorker, _CreateRepoWorker, _PermCheckWorker,
 )
 from ui.dialogs.github_connect import _GitHubConnectDialog
 from ui.components.loading_overlay import _LoadingOverlay
@@ -107,7 +108,7 @@ class _FilterPanel(QWidget):
         hl.setContentsMargins(14, 0, 8, 0)
         title_lbl = QLabel("Filters")
         title_lbl.setStyleSheet(
-            f"background: transparent; font-size: 12px; font-weight: 600;"
+            f"background: transparent; font-size: 12px; font-weight: 600; font-family: 'Tilt Warp';"
             f" color: {COLORS['text_muted']};"
         )
         hl.addWidget(title_lbl)
@@ -140,7 +141,7 @@ class _FilterPanel(QWidget):
 
         bl = QLabel("BRANCHES")
         bl.setStyleSheet(
-            f"background: transparent; font-size: 10px; font-weight: 700;"
+            f"background: transparent; font-size: 10px; font-weight: 700; font-family: 'Tilt Warp';"
             f" color: {COLORS['text_muted']}; letter-spacing: 0.06em;"
         )
         body.addWidget(bl)
@@ -168,7 +169,7 @@ class _FilterPanel(QWidget):
 
         al = QLabel("COLLABORATORS")
         al.setStyleSheet(
-            f"background: transparent; font-size: 10px; font-weight: 700;"
+            f"background: transparent; font-size: 10px; font-weight: 700; font-family: 'Tilt Warp';"
             f" color: {COLORS['text_muted']}; letter-spacing: 0.06em;"
         )
         body.addWidget(al)
@@ -266,7 +267,7 @@ class _OrientBar(QWidget):
     _ACTIVE = f"""
         QPushButton {{
             background: {COLORS['accent']}; border: none; border-radius: 6px;
-            color: white; font-size: 14px; font-weight: 600;
+            color: white; font-size: 14px; font-weight: 600; font-family: 'Tilt Warp';
         }}
     """
     _INACTIVE = f"""
@@ -387,6 +388,13 @@ class _TabBar(QWidget):
     def select(self, key: str):
         self._select(key)
 
+    def set_viewer_mode(self, is_viewer: bool):
+        for key, btn in self._buttons.items():
+            if key != "schema":
+                btn.setVisible(not is_viewer)
+        if is_viewer and self._active != "schema":
+            self._select("schema")
+
 
 def _compute_branch_depths(commits: list, local_tip_branch: dict,
                            default_branch: str = "main") -> dict[str, int]:
@@ -425,6 +433,191 @@ def _compute_branch_depths(commits: list, local_tip_branch: dict,
     return depths
 
 
+class _CreateRemoteDialog(QWidget):
+    """Overlay dialog shown when a repo has no remote or its remote was deleted."""
+    create_requested = pyqtSignal(str, bool)   # name, is_private
+    cancelled        = pyqtSignal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setAttribute(Qt.WA_StyledBackground, True)
+        self.setStyleSheet(f"background: {COLORS['bg_primary']};")
+        self.setAttribute(Qt.WA_TransparentForMouseEvents, False)
+
+        outer = QVBoxLayout(self)
+        outer.setAlignment(Qt.AlignCenter)
+        outer.setContentsMargins(0, 0, 0, 0)
+
+        card = QWidget()
+        card.setFixedWidth(420)
+        card.setObjectName("createRemoteCard")
+        card.setAttribute(Qt.WA_StyledBackground, True)
+        card.setStyleSheet(f"""
+            QWidget#createRemoteCard {{
+                background: {COLORS['bg_secondary']};
+                border: 1px solid {COLORS['border']};
+                border-radius: 12px;
+            }}
+        """)
+        outer.addWidget(card)
+
+        inner = QVBoxLayout(card)
+        inner.setContentsMargins(28, 28, 28, 24)
+        inner.setSpacing(12)
+
+        self._title_lbl = QLabel()
+        self._title_lbl.setStyleSheet(
+            f"background: transparent; border: none; font-size: 15px; font-weight: 700;"
+            f" font-family: 'Tilt Warp'; color: {COLORS['text_primary']};"
+        )
+        self._title_lbl.setWordWrap(True)
+        inner.addWidget(self._title_lbl)
+
+        self._subtitle_lbl = QLabel()
+        self._subtitle_lbl.setStyleSheet(
+            f"background: transparent; border: none; font-size: 13px;"
+            f" color: {COLORS['text_secondary']};"
+        )
+        self._subtitle_lbl.setWordWrap(True)
+        inner.addWidget(self._subtitle_lbl)
+
+        inner.addSpacing(4)
+
+        name_lbl = QLabel("Repository name")
+        name_lbl.setStyleSheet(
+            f"background: transparent; border: none; font-size: 12px;"
+            f" font-weight: 600; color: {COLORS['text_muted']};"
+        )
+        inner.addWidget(name_lbl)
+
+        self._name_edit = QLineEdit()
+        self._name_edit.setFixedHeight(34)
+        self._name_edit.setStyleSheet(f"""
+            QLineEdit {{
+                background: {COLORS['bg_primary']}; border: 1px solid {COLORS['border']};
+                border-radius: 6px; color: {COLORS['text_primary']};
+                font-size: 13px; padding: 0 10px;
+            }}
+            QLineEdit:focus {{ border-color: {COLORS['accent']}; }}
+        """)
+        inner.addWidget(self._name_edit)
+
+        toggle_row = QHBoxLayout()
+        toggle_row.setSpacing(8)
+
+        self._pub_btn  = QPushButton("Public")
+        self._priv_btn = QPushButton("Private")
+        for btn in (self._pub_btn, self._priv_btn):
+            btn.setFixedHeight(30)
+            btn.setCheckable(True)
+            btn.setCursor(Qt.PointingHandCursor)
+        self._pub_btn.setChecked(False)
+        self._priv_btn.setChecked(True)
+        self._pub_btn.clicked.connect(lambda: self._set_privacy(False))
+        self._priv_btn.clicked.connect(lambda: self._set_privacy(True))
+        self._apply_toggle_style()
+        toggle_row.addWidget(self._pub_btn)
+        toggle_row.addWidget(self._priv_btn)
+        toggle_row.addStretch()
+        inner.addLayout(toggle_row)
+
+        self._status_lbl = QLabel("")
+        self._status_lbl.setStyleSheet(
+            f"background: transparent; border: none; font-size: 12px; color: #ef4444;"
+        )
+        self._status_lbl.setWordWrap(True)
+        self._status_lbl.hide()
+        inner.addWidget(self._status_lbl)
+
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(8)
+
+        self._cancel_btn = QPushButton("Cancel")
+        self._cancel_btn.setFixedHeight(34)
+        self._cancel_btn.setCursor(Qt.PointingHandCursor)
+        self._cancel_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: transparent; border: 1px solid {COLORS['border']};
+                border-radius: 6px; color: {COLORS['text_muted']};
+                font-size: 13px; padding: 0 16px;
+            }}
+            QPushButton:hover {{ border-color: {COLORS['text_muted']}; color: {COLORS['text_primary']}; }}
+        """)
+        self._cancel_btn.clicked.connect(self.cancelled)
+
+        self._create_btn = QPushButton("Create Repository")
+        self._create_btn.setFixedHeight(34)
+        self._create_btn.setCursor(Qt.PointingHandCursor)
+        self._create_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: {COLORS['accent']}; border: none;
+                border-radius: 6px; color: #fff;
+                font-size: 13px; font-weight: 600; font-family: 'Tilt Warp'; padding: 0 16px;
+            }}
+            QPushButton:hover {{ background: {COLORS['accent_hover']}; }}
+            QPushButton:disabled {{ background: {COLORS['border']}; color: {COLORS['text_muted']}; }}
+        """)
+        self._create_btn.clicked.connect(self._on_create_clicked)
+
+        btn_row.addWidget(self._cancel_btn)
+        btn_row.addStretch()
+        btn_row.addWidget(self._create_btn)
+        inner.addLayout(btn_row)
+
+        self._is_private = True
+
+    def setup(self, title: str, subtitle: str, repo_name: str):
+        self._title_lbl.setText(title)
+        self._subtitle_lbl.setText(subtitle)
+        self._name_edit.setText(repo_name)
+        self._status_lbl.hide()
+        self._status_lbl.setText("")
+        self._create_btn.setEnabled(True)
+        self._create_btn.setText("Create Repository")
+        self._set_privacy(True)
+
+    def _set_privacy(self, is_private: bool):
+        self._is_private = is_private
+        self._pub_btn.setChecked(not is_private)
+        self._priv_btn.setChecked(is_private)
+        self._apply_toggle_style()
+
+    def _apply_toggle_style(self):
+        active   = f"background: {COLORS['accent']}; border: none; border-radius: 6px; color: #fff; font-size: 12px; font-weight: 600; font-family: 'Tilt Warp';"
+        inactive = f"background: transparent; border: 1px solid {COLORS['border']}; border-radius: 6px; color: {COLORS['text_muted']}; font-size: 12px;"
+        self._priv_btn.setStyleSheet(f"QPushButton {{ {active if self._is_private else inactive} }}")
+        self._pub_btn.setStyleSheet(f"QPushButton {{ {inactive if self._is_private else active} }}")
+
+    def _on_create_clicked(self):
+        name = self._name_edit.text().strip()
+        if not name:
+            self._show_status("Please enter a repository name.")
+            return
+        self.create_requested.emit(name, self._is_private)
+
+    def set_creating(self, active: bool):
+        self._create_btn.setEnabled(not active)
+        self._create_btn.setText("Creating…" if active else "Create Repository")
+        self._cancel_btn.setEnabled(not active)
+        if active:
+            self._status_lbl.hide()
+
+    def set_error(self, msg: str):
+        self._create_btn.setEnabled(True)
+        self._create_btn.setText("Create Repository")
+        self._cancel_btn.setEnabled(True)
+        self._show_status(msg)
+
+    def _show_status(self, msg: str):
+        self._status_lbl.setText(msg)
+        self._status_lbl.show()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if self.parent():
+            self.setGeometry(self.parent().rect())
+
+
 class CommitViewPage(QWidget):
     _op_done        = pyqtSignal(bool, str, str, str, bool)  # ok, err, success_msg, fail_prefix, close_panel
     _auto_pulled    = pyqtSignal(list)                       # list of branch names pulled
@@ -441,6 +634,10 @@ class CommitViewPage(QWidget):
     _wizard_pr_done_sig     = pyqtSignal(bool, str)          # ok, err
     # PR merge conflict check (thread → main)
     _pr_conflict_check_sig  = pyqtSignal(bool, list, object, object)  # has_conflicts, files, content, pr
+    # Collaborator permission check (thread → main)
+    _perm_check_done_sig    = pyqtSignal(bool)
+    # Emitted when repo access is denied (private / inaccessible) — carries repo path
+    access_denied           = pyqtSignal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -574,6 +771,7 @@ class CommitViewPage(QWidget):
         self._wizard_push_done_sig.connect(self._on_wizard_push_done)
         self._wizard_pr_done_sig.connect(self._on_wizard_pr_done)
         self._pr_conflict_check_sig.connect(self._on_pr_conflict_check)
+        self._perm_check_done_sig.connect(self._on_perm_check_done)
         self._pending_merge_pr: dict = {}
 
         self._orientation: str = ORIENT_LR
@@ -586,6 +784,12 @@ class CommitViewPage(QWidget):
         self._collab_roles:     dict  = {}   # login → "owner"|"admin"|"maintain"|"write"
         self._collab_thread:    Optional[QThread] = None
         self._collab_worker     = None
+        self._perm_thread:           Optional[QThread] = None
+        self._perm_worker            = None
+        self._is_viewer:             bool              = False
+        self._pending_viewer_check:  bool              = False
+        self._pending_create_remote: bool              = False
+        self._create_remote_dlg                        = None
         self._fetch_thread:     Optional[QThread] = None
         self._detail_thread:    Optional[QThread] = None
         self._detail_gen: int   = 0
@@ -618,6 +822,7 @@ class CommitViewPage(QWidget):
         self._last_remote_pusher:  str  = ""
         self._panel_op_active:     bool = False
         self._pending_init_path: str  = ""
+        self._current_tab:         str  = "schema"
         self._inflight: list = []   # keeps (thread, worker) pairs alive until C++ threads finish
 
         self._poll_timer = QTimer()
@@ -669,6 +874,10 @@ class CommitViewPage(QWidget):
         if self._tracker:
             self._tracker.close()
             self._tracker = None
+        if self._create_remote_dlg:
+            self._create_remote_dlg.hide()
+            self._create_remote_dlg = None
+        self._pending_create_remote = False
         self._thread = self._collab_thread = None
         self._commits = []
         self._collaborators = []
@@ -694,7 +903,7 @@ class CommitViewPage(QWidget):
     def _stop_all_threads(self):
         # 1. Disconnect all worker signals FIRST so no callbacks fire after this point
         for attr in ("_worker", "_collab_worker", "_fetch_worker",
-                     "_detail_worker", "_vis_worker"):
+                     "_detail_worker", "_vis_worker", "_perm_worker"):
             w = getattr(self, attr, None)
             if w is not None:
                 try:
@@ -712,6 +921,7 @@ class CommitViewPage(QWidget):
             ("_vis_thread",      "_vis_worker"),
             ("_navigate_thread",    "_navigate_worker"),
             ("_uncommitted_thread", "_uncommitted_worker"),
+            ("_perm_thread",        "_perm_worker"),
         ):
             t = getattr(self, t_attr, None)
             w = getattr(self, w_attr, None)
@@ -734,6 +944,14 @@ class CommitViewPage(QWidget):
         # Clear the canvas and show the overlay immediately so the old project's
         # graph is never visible when this page becomes visible after the switch.
         self._canvas.load_graph([], {})
+        self._is_viewer            = False
+        self._pending_viewer_check = False
+        self._pending_create_remote = False
+        if self._create_remote_dlg:
+            self._create_remote_dlg.hide()
+            self._create_remote_dlg = None
+        self._tab_bar.set_viewer_mode(False)
+        self._header.set_viewer_mode(False)
         self._loading.show()
         self._loading.raise_()
 
@@ -812,6 +1030,25 @@ class CommitViewPage(QWidget):
         self._last_stash_id = ""
         self._uncommitted_timer.start()
         self._setup_fs_watcher(self._tracker._repo.git_dir)
+
+        if not has_remote:
+            self._pending_create_remote = True
+            self._show_create_remote_dialog(
+                "Create GitHub Repository",
+                "This repository isn't on GitHub yet. Create one to enable collaboration and backups.",
+                self._tracker.repo_name,
+            )
+            return
+
+        owner    = self._tracker.repo_owner() if has_remote else ""
+        my_login = self._user.get("login", "")
+        token    = self._user.get("access_token", "")
+        if has_remote and token and owner and owner != my_login:
+            # Defer: _on_visibility_ready will check if public/private before spawning
+            # _PermCheckWorker. _VisibilityWorker is already running from above.
+            self._pending_viewer_check = True
+            return
+
         self._start_load(initial=True)
         self._load_collaborators()
 
@@ -819,6 +1056,10 @@ class CommitViewPage(QWidget):
 
     def _start_load(self, initial: bool = False):
         if not self._tracker:
+            return
+        if self._pending_viewer_check:
+            return
+        if self._pending_create_remote:
             return
 
         # If a load is already running, queue another attempt instead of blocking
@@ -842,10 +1083,46 @@ class CommitViewPage(QWidget):
 
     def _on_visibility_ready(self, url: str, visibility: str):
         self._header.set_url(url, visibility)
-        if visibility == "not_found" and self._tracker:
-            self._no_remote_banner.set_repo_name(self._tracker.repo_name)
-            self._no_remote_banner.show_deleted()
-            self._no_remote_banner.show()
+        owner = self._tracker.repo_owner() if self._tracker else ""
+        is_owner = bool(owner) and self._user.get("login", "") == owner
+        if visibility == "not_found" and self._tracker and is_owner:
+            self._loading.show()
+            self._loading.raise_()
+            self._pending_create_remote = True
+            self._show_create_remote_dialog(
+                "Remote Repository Deleted",
+                f'The GitHub repository for "{self._tracker.repo_name}" no longer exists. Recreate it to restore your backup.',
+                self._tracker.repo_name,
+            )
+            return
+
+        if self._pending_viewer_check:
+            self._pending_viewer_check = False
+            if visibility != "public":
+                dlg = QMessageBox(self)
+                dlg.setWindowTitle("Repository Not Accessible")
+                if visibility in ("private", "not_found"):
+                    dlg.setText("This repository is private or does not exist.")
+                else:
+                    dlg.setText("This repository is not accessible.")
+                dlg.setInformativeText(
+                    "You can only view public repositories you're not a collaborator on."
+                )
+                dlg.setIcon(QMessageBox.Warning)
+                dlg.exec_()
+                self.access_denied.emit(self._tracker._path if self._tracker else "")
+                return
+            # Confirmed public — proceed with collaborator permission check
+            my_login = self._user.get("login", "")
+            token    = self._user.get("access_token", "")
+            self._perm_thread = QThread()
+            self._perm_worker = _PermCheckWorker(owner, self._tracker.repo_name, my_login, token)
+            self._perm_worker.moveToThread(self._perm_thread)
+            self._perm_thread.started.connect(self._perm_worker.run)
+            self._perm_worker.finished.connect(self._perm_check_done_sig)
+            self._perm_worker.finished.connect(self._perm_thread.quit)
+            self._perm_thread.finished.connect(lambda: setattr(self, "_perm_thread", None))
+            self._perm_thread.start()
 
     def _poll_remote(self):
         if not self._tracker or not self._tracker.has_remote():
@@ -874,6 +1151,7 @@ class CommitViewPage(QWidget):
         if changed:
             self._reload_from_remote = True
             self._start_load()
+        self._load_collaborators()
 
     def _find_nearest_surviving_ancestor(self, deleted_sha: str, new_sha_set: set) -> str:
         """BFS up the old commit graph from deleted_sha, returning the first
@@ -978,7 +1256,8 @@ class CommitViewPage(QWidget):
         user_email = self._user.get("email", "")
         if not token or not username:
             return
-        self._no_remote_banner.set_creating(True)
+        if self._create_remote_dlg:
+            self._create_remote_dlg.set_creating(True)
         self._create_thread  = QThread()
         self._create_worker  = _CreateRepoWorker(
             self._tracker._path, name, token, username, private, user_name, user_email,
@@ -991,14 +1270,19 @@ class CommitViewPage(QWidget):
 
     def _on_create_done(self, success: bool, error: str, clone_url: str):
         if not success:
-            self._no_remote_banner.set_creating(False)
-            self._no_remote_banner.set_error(error or "Something went wrong.")
+            if self._create_remote_dlg:
+                self._create_remote_dlg.set_error(error or "Something went wrong.")
             return
+        # Success — close dialog, clear pending flag, proceed with normal load
+        if self._create_remote_dlg:
+            self._create_remote_dlg.hide()
+            self._create_remote_dlg = None
+        self._pending_create_remote = False
         self._tracker.close()
         self._tracker.open()
-        self._no_remote_banner.hide()
         token = self._user.get("access_token", "")
         self._header.set_url(self._tracker.remote_url())
+        self._header.set_connection_state(True)
         if token:
             self._vis_thread  = QThread()
             self._vis_worker  = _VisibilityWorker(self._tracker._path, token)
@@ -1007,8 +1291,31 @@ class CommitViewPage(QWidget):
             self._vis_worker.finished.connect(self._on_visibility_ready)
             self._vis_worker.finished.connect(self._vis_thread.quit)
             self._vis_thread.start()
-        self._start_load()
+        self._poll_timer.start()
+        self._start_load(initial=True)
         self._load_collaborators()
+
+    def _show_create_remote_dialog(self, title: str, subtitle: str, repo_name: str):
+        if self._create_remote_dlg:
+            self._create_remote_dlg.hide()
+        dlg = _CreateRemoteDialog(self)
+        dlg.setup(title, subtitle, repo_name)
+        dlg.create_requested.connect(self._on_create_remote_requested)
+        dlg.cancelled.connect(self._on_create_remote_cancelled)
+        self._create_remote_dlg = dlg
+        dlg.show()
+        dlg.raise_()
+
+    def _on_create_remote_requested(self, name: str, is_private: bool):
+        self._start_create_repo(name, is_private)
+
+    def _on_create_remote_cancelled(self):
+        self._pending_create_remote = False
+        if self._create_remote_dlg:
+            self._create_remote_dlg.hide()
+            self._create_remote_dlg = None
+        path = self._tracker._path if self._tracker else ""
+        self.access_denied.emit(path)
 
     def _on_loaded(self, commits: list[CommitInfo], branch_tip_map: dict,
                    local_only: set, unpushed: set, stash_shas: set = None):
@@ -1280,9 +1587,18 @@ class CommitViewPage(QWidget):
         self._collab_worker.finished.connect(self._collab_thread.quit)
         self._collab_thread.start()
 
+    @pyqtSlot(bool)
+    def _on_perm_check_done(self, has_access: bool):
+        if not has_access:
+            self._is_viewer = True
+        self._start_load(initial=True)
+        self._load_collaborators()
+
     def _on_collabs_loaded(self, collabs: list[dict]):
         login = self._user.get("login", "")
-        if login and not any(c.get("login") == login for c in collabs):
+        # Capture real collab status before the synthetic self-entry is added
+        is_real_collab = bool(login) and any(c.get("login") == login for c in collabs)
+        if login and not is_real_collab:
             collabs = [{
                 "login":         login,
                 "avatar_url":    self._user.get("avatar_url", ""),
@@ -1304,6 +1620,23 @@ class CommitViewPage(QWidget):
         # Push the current user's role to the detail panel for branch-protection gating
         my_login = self._user.get("login", "")
         my_role  = self._collab_roles.get(my_login, "write")
+        is_owner = bool(owner) and my_login == owner
+
+        # Detect viewer ↔ collaborator transitions (skip for repo owner)
+        if not is_owner:
+            if self._is_viewer and is_real_collab:
+                # Promoted: viewer → collaborator
+                self._is_viewer = False
+                self._tab_bar.set_viewer_mode(False)
+                self._header.set_viewer_mode(False)
+            elif not self._is_viewer and not is_real_collab:
+                # Demoted: collaborator → viewer (removed from repo)
+                self._is_viewer = True
+            if self._is_viewer:
+                my_role = "viewer"
+                self._tab_bar.set_viewer_mode(True)
+                self._header.set_viewer_mode(True)
+
         self._panel.set_user_role(my_role)
 
         if self._tracker:
@@ -1312,7 +1645,6 @@ class CommitViewPage(QWidget):
                 self._collab_cache[cache_key] = collabs
                 collab_cache.save(cache_key, collabs)
 
-        is_owner = bool(owner) and self._user.get("login", "") == owner
         token = self._user.get("access_token", "")
         if not self._settings_loaded and self._tracker:
             self._settings_panel.setup(self._tracker, self._user, is_owner, token)
@@ -1327,13 +1659,13 @@ class CommitViewPage(QWidget):
         if protected:
             return (f"QPushButton {{ background: {COLORS['accent_dim']};"
                     f" border: 1px solid {COLORS['accent']}; border-radius: 8px;"
-                    f" color: {COLORS['accent']}; font-size: 12px; font-weight: 600;"
+                    f" color: {COLORS['accent']}; font-size: 12px; font-weight: 600; font-family: 'Tilt Warp';"
                     f" padding: 0 12px; }}"
                     f"QPushButton:hover {{ background: {COLORS['accent']};"
                     f" color: {COLORS['text_on_accent']}; }}")
         return (f"QPushButton {{ background: {COLORS['bg_card']};"
                 f" border: 1px solid {COLORS['border']}; border-radius: 8px;"
-                f" color: {COLORS['text_muted']}; font-size: 12px; font-weight: 600;"
+                f" color: {COLORS['text_muted']}; font-size: 12px; font-weight: 600; font-family: 'Tilt Warp';"
                 f" padding: 0 12px; }}"
                 f"QPushButton:hover {{ color: {COLORS['text_primary']};"
                 f" background: {COLORS['bg_hover']}; }}")
@@ -1350,8 +1682,10 @@ class CommitViewPage(QWidget):
                 w.show()
             if getattr(self, "_pos_panel_was_visible", False):
                 self._position_panel.show()
+                self._reposition_position()
         elif tab == "collaboration":
-            self._pos_panel_was_visible = self._position_panel.isVisible()
+            if self._current_tab == "schema":
+                self._pos_panel_was_visible = self._position_panel.isVisible()
             self._content_stack.setCurrentIndex(2)
             for w in [self._zoom_bar, self._minimap, self._orient_bar,
                       self._filter_btn, self._filter_panel, self._position_panel]:
@@ -1362,7 +1696,8 @@ class CommitViewPage(QWidget):
             self._load_pr_inbox()
         else:
             # "settings"
-            self._pos_panel_was_visible = self._position_panel.isVisible()
+            if self._current_tab == "schema":
+                self._pos_panel_was_visible = self._position_panel.isVisible()
             self._content_stack.setCurrentIndex(1)
             for w in [self._zoom_bar, self._minimap, self._orient_bar,
                       self._filter_btn, self._filter_panel, self._position_panel]:
@@ -1378,6 +1713,7 @@ class CommitViewPage(QWidget):
                     self._user.get("access_token", ""),
                 )
                 self._settings_loaded = True
+        self._current_tab = tab
 
     def _on_clear_stash(self, sha: str, stash_ref: str):
         if not self._tracker or self._panel_op_active:
@@ -1689,11 +2025,14 @@ class CommitViewPage(QWidget):
             return
         self._panel_op_active = True
         self._reload_debounce.stop()
-        path = self._tracker._path
+        path       = self._tracker._path
+        username   = self._user.get("login", "")
+        token      = self._user.get("access_token", "")
+        remote_url = self._tracker.remote_url() if self._tracker else ""
         def _run():
             try:
                 from core.ops import push_branch
-                ok, err, conflict_files, conflict_content = push_branch(path, branch)
+                ok, err, conflict_files, conflict_content = push_branch(path, branch, username, token, remote_url)
             except Exception as exc:
                 ok, err, conflict_files, conflict_content = False, str(exc), [], {}
             self._push_done_sig.emit(ok, err, branch, conflict_files, conflict_content)
@@ -1930,11 +2269,14 @@ class CommitViewPage(QWidget):
         """Wizard Step 2: push branch."""
         if not self._tracker:
             return
-        path = self._tracker._path
+        path       = self._tracker._path
+        username   = self._user.get("login", "")
+        token      = self._user.get("access_token", "")
+        remote_url = self._tracker.remote_url() if self._tracker else ""
         def _run():
             try:
                 from core.ops import push_branch
-                ok, err, _cf, _cc = push_branch(path, branch)
+                ok, err, _cf, _cc = push_branch(path, branch, username, token, remote_url)
             except Exception as e:
                 ok, err = False, str(e)
             self._wizard_push_done_sig.emit(ok, err)

@@ -8,6 +8,33 @@ from PyQt5.QtCore import QObject, pyqtSlot, pyqtSignal
 from core.git_tracker import GitTracker
 
 
+class _PermCheckWorker(QObject):
+    """Checks whether the current user has collaborator access to a GitHub repo."""
+    finished = pyqtSignal(bool)  # True = has access, False = viewer
+
+    def __init__(self, owner: str, repo: str, login: str, token: str):
+        super().__init__()
+        self._owner = owner
+        self._repo  = repo
+        self._login = login
+        self._token = token
+
+    @pyqtSlot()
+    def run(self):
+        try:
+            import requests
+            r = requests.get(
+                f"https://api.github.com/repos/{self._owner}/{self._repo}"
+                f"/collaborators/{self._login}/permission",
+                headers={"Authorization": f"Bearer {self._token}",
+                         "Accept": "application/vnd.github+json"},
+                timeout=8,
+            )
+            self.finished.emit(r.status_code != 404)
+        except Exception:
+            self.finished.emit(True)
+
+
 class _CollabLoader(QObject):
     """Fetches collaborators on a worker thread, emits list to main thread."""
     finished = pyqtSignal(list)

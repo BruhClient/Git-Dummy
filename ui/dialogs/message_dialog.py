@@ -38,7 +38,7 @@ class CommitMessageDialog(QDialog):
 
         title_lbl = QLabel(title)
         title_lbl.setStyleSheet(
-            f"font-size: 15px; font-weight: 700; color: {COLORS['text_primary']};"
+            f"font-size: 15px; font-weight: 700; font-family: 'Tilt Warp'; color: {COLORS['text_primary']};"
             f" background: transparent;"
         )
         vl.addWidget(title_lbl)
@@ -71,7 +71,7 @@ class CommitMessageDialog(QDialog):
                 border: 1px solid {COLORS['border']};
                 border-radius: 8px;
                 color: {COLORS['text_secondary']};
-                font-size: 12px; font-weight: 600;
+                font-size: 12px; font-weight: 600; font-family: 'Tilt Warp';
             }}
             QPushButton:hover {{ border-color: {COLORS['text_secondary']}; }}
         """)
@@ -86,7 +86,7 @@ class CommitMessageDialog(QDialog):
                 border: none;
                 border-radius: 8px;
                 color: #000;
-                font-size: 12px; font-weight: 700;
+                font-size: 12px; font-weight: 700; font-family: 'Tilt Warp';
             }}
             QPushButton:hover {{ background: {COLORS.get('accent_hover', COLORS['accent'])}; }}
             QPushButton:disabled {{ background: {COLORS['border']}; color: {COLORS['text_muted']}; }}

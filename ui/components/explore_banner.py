@@ -42,7 +42,7 @@ class _ExploreBanner(QWidget):
         btn.setStyleSheet(f"""
             QPushButton {{
                 background: {COLORS['accent']}; border: none; border-radius: 6px;
-                color: white; font-size: 12px; font-weight: 600; padding: 5px 14px;
+                color: white; font-size: 12px; font-weight: 600; font-family: 'Tilt Warp'; padding: 5px 14px;
             }}
             QPushButton:hover {{ background: {COLORS['accent_dim']}; }}
         """)

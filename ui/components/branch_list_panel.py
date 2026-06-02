@@ -64,7 +64,7 @@ class BranchListPanel(QWidget):
             #blpHeader {{
                 color: {COLORS['text_muted']};
                 font-size: 10px;
-                font-weight: 600;
+                font-weight: 600; font-family: 'Tilt Warp';
             }}
             QScrollArea {{
                 background: transparent;
@@ -145,7 +145,7 @@ class _BranchRow(QWidget):
             color: {COLORS['accent']};
             border-radius: 9px;
             font-size: 10px;
-            font-weight: 600;
+            font-weight: 600; font-family: 'Tilt Warp';
         """)
 
         layout.addWidget(self._name_lbl, 1)
@@ -154,7 +154,7 @@ class _BranchRow(QWidget):
     def set_focused(self, focused: bool):
         if focused:
             self._name_lbl.setStyleSheet(
-                f"color: {COLORS['accent']}; font-size: 12px; font-weight: 700; background: transparent;"
+                f"color: {COLORS['accent']}; font-size: 12px; font-weight: 700; font-family: 'Tilt Warp'; background: transparent;"
             )
         else:
             self._name_lbl.setStyleSheet(

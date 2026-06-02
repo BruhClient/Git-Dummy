@@ -64,7 +64,7 @@ class AllChangesPopup(QWidget):
 
         title = QLabel("All Changes")
         title.setStyleSheet(
-            f"background: transparent; font-size: 15px; font-weight: 700;"
+            f"background: transparent; font-size: 15px; font-weight: 700; font-family: 'Tilt Warp';"
             f" color: {COLORS['text_primary']};"
         )
         hl.addWidget(title)
@@ -147,7 +147,7 @@ class AllChangesPopup(QWidget):
         name = QLabel(_trunc(info["name"], 36))
         name.setToolTip(info["name"])
         name.setStyleSheet(
-            f"background: transparent; font-size: 13px; font-weight: 600;"
+            f"background: transparent; font-size: 13px; font-weight: 600; font-family: 'Tilt Warp';"
             f" color: {COLORS['text_primary']};"
         )
         fhl.addWidget(name)
@@ -223,7 +223,7 @@ class AllChangesPopup(QWidget):
         hhl.setContentsMargins(16, 0, 16, 0)
         lbl = QLabel(title)
         lbl.setStyleSheet(
-            f"background: transparent; font-size: 10px; font-weight: 700;"
+            f"background: transparent; font-size: 10px; font-weight: 700; font-family: 'Tilt Warp';"
             f" color: {color}; letter-spacing: 0.08em;"
         )
         hhl.addWidget(lbl)

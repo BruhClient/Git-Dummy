@@ -29,7 +29,7 @@ def _btn(text: str, accent: bool = True) -> QPushButton:
         b.setStyleSheet(f"""
             QPushButton {{
                 background: {COLORS['accent']}; border: none;
-                border-radius: 8px; font-size: 13px; font-weight: 600;
+                border-radius: 8px; font-size: 13px; font-weight: 600; font-family: 'Tilt Warp';
                 color: white; padding: 0 20px;
             }}
             QPushButton:hover {{ background: {COLORS['accent_hover'] if 'accent_hover' in COLORS else COLORS['accent']}; }}
@@ -109,7 +109,7 @@ class PROpenWizard(QWidget):
         # Step indicator
         self._step_lbl = QLabel("")
         self._step_lbl.setStyleSheet(
-            f"background: transparent; font-size: 11px; font-weight: 600;"
+            f"background: transparent; font-size: 11px; font-weight: 600; font-family: 'Tilt Warp';"
             f" color: {COLORS['text_muted']}; letter-spacing: 0.06em;"
         )
         card_vl.addWidget(self._step_lbl)
@@ -117,7 +117,7 @@ class PROpenWizard(QWidget):
         # Step title
         self._title_lbl = QLabel("")
         self._title_lbl.setStyleSheet(
-            f"background: transparent; font-size: 18px; font-weight: 700;"
+            f"background: transparent; font-size: 18px; font-weight: 700; font-family: 'Tilt Warp';"
             f" color: {COLORS['text_primary']};"
         )
         card_vl.addWidget(self._title_lbl)
@@ -148,7 +148,7 @@ class PROpenWizard(QWidget):
 
         commit_label = QLabel("Commit message")
         commit_label.setStyleSheet(
-            f"background: transparent; font-size: 12px; font-weight: 600;"
+            f"background: transparent; font-size: 12px; font-weight: 600; font-family: 'Tilt Warp';"
             f" color: {COLORS['text_secondary']};"
         )
         s1.addWidget(commit_label)
@@ -218,7 +218,7 @@ class PROpenWizard(QWidget):
 
         title_label = QLabel("Title")
         title_label.setStyleSheet(
-            f"background: transparent; font-size: 12px; font-weight: 600;"
+            f"background: transparent; font-size: 12px; font-weight: 600; font-family: 'Tilt Warp';"
             f" color: {COLORS['text_secondary']};"
         )
         s3.addWidget(title_label)
@@ -237,7 +237,7 @@ class PROpenWizard(QWidget):
 
         desc_label = QLabel("Description  (optional)")
         desc_label.setStyleSheet(
-            f"background: transparent; font-size: 12px; font-weight: 600;"
+            f"background: transparent; font-size: 12px; font-weight: 600; font-family: 'Tilt Warp';"
             f" color: {COLORS['text_secondary']};"
         )
         s3.addWidget(desc_label)

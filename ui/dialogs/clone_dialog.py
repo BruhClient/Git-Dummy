@@ -62,7 +62,7 @@ class _RepoRow(QWidget):
 
         name_lbl = QLabel(repo.get("name", ""))
         name_lbl.setStyleSheet(
-            f"background: transparent; font-size: 13px; font-weight: 600; color: {COLORS['text_primary']};"
+            f"background: transparent; font-size: 13px; font-weight: 600; font-family: 'Tilt Warp'; color: {COLORS['text_primary']};"
         )
         name_lbl.setAttribute(Qt.WA_TransparentForMouseEvents, True)
         layout.addWidget(name_lbl)
@@ -72,12 +72,12 @@ class _RepoRow(QWidget):
         if is_private:
             badge.setStyleSheet(
                 f"background: {COLORS['accent_dim']}; color: {COLORS['accent']};"
-                f" font-size: 10px; font-weight: 600; border-radius: 4px; padding: 1px 0;"
+                f" font-size: 10px; font-weight: 600; font-family: 'Tilt Warp'; border-radius: 4px; padding: 1px 0;"
             )
         else:
             badge.setStyleSheet(
                 f"background: {COLORS['bg_hover']}; color: {COLORS['text_muted']};"
-                f" font-size: 10px; font-weight: 600; border-radius: 4px; padding: 1px 0;"
+                f" font-size: 10px; font-weight: 600; font-family: 'Tilt Warp'; border-radius: 4px; padding: 1px 0;"
             )
         badge.setAttribute(Qt.WA_TransparentForMouseEvents, True)
         layout.addWidget(badge)
@@ -161,7 +161,7 @@ class CloneDialog(QDialog):
         # Title
         title = QLabel("Connect to a repo")
         title.setStyleSheet(
-            f"font-size: 16px; font-weight: 700; color: {COLORS['text_primary']}; background: transparent;"
+            f"font-size: 16px; font-weight: 700; font-family: 'Tilt Warp'; color: {COLORS['text_primary']}; background: transparent;"
         )
         vl.addWidget(title)
 
@@ -295,7 +295,7 @@ class CloneDialog(QDialog):
             QPushButton {{
                 background: {COLORS['bg_primary']}; border: 1px solid {COLORS['border']};
                 border-radius: 8px; color: {COLORS['text_secondary']};
-                font-size: 12px; font-weight: 600;
+                font-size: 12px; font-weight: 600; font-family: 'Tilt Warp';
             }}
             QPushButton:hover {{ border-color: {COLORS['accent']}; color: {COLORS['accent']}; }}
         """)
@@ -323,7 +323,7 @@ class CloneDialog(QDialog):
             QPushButton {{
                 background: transparent; border: 1px solid {COLORS['border']};
                 border-radius: 8px; color: {COLORS['text_secondary']};
-                font-size: 13px; font-weight: 600;
+                font-size: 13px; font-weight: 600; font-family: 'Tilt Warp';
             }}
             QPushButton:hover {{ border-color: {COLORS['text_secondary']}; }}
         """)
@@ -337,7 +337,7 @@ class CloneDialog(QDialog):
             QPushButton {{
                 background: {COLORS['accent']}; border: none;
                 border-radius: 8px; color: white;
-                font-size: 13px; font-weight: 700;
+                font-size: 13px; font-weight: 700; font-family: 'Tilt Warp';
             }}
             QPushButton:hover {{ background: {COLORS.get('accent_hover', COLORS['accent'])}; }}
             QPushButton:disabled {{ background: {COLORS['border']}; color: {COLORS['text_muted']}; }}

@@ -31,7 +31,7 @@ class ConfirmDialog(QDialog):
 
         title_lbl = QLabel(title)
         title_lbl.setStyleSheet(
-            f"font-size: 15px; font-weight: 700; color: {COLORS['text_primary']};"
+            f"font-size: 15px; font-weight: 700; font-family: 'Tilt Warp'; color: {COLORS['text_primary']};"
             f" background: transparent;"
         )
         vl.addWidget(title_lbl)
@@ -55,7 +55,7 @@ class ConfirmDialog(QDialog):
             QPushButton {{
                 background: transparent; border: 1px solid {COLORS['border']};
                 border-radius: 8px; color: {COLORS['text_secondary']};
-                font-size: 13px; font-weight: 600; padding: 0 16px;
+                font-size: 13px; font-weight: 600; font-family: 'Tilt Warp'; padding: 0 16px;
             }}
             QPushButton:hover {{ border-color: {COLORS['text_secondary']}; }}
         """)
@@ -72,7 +72,7 @@ class ConfirmDialog(QDialog):
             QPushButton {{
                 background: {confirm_bg}; border: none;
                 border-radius: 8px; color: white;
-                font-size: 13px; font-weight: 700; padding: 0 16px;
+                font-size: 13px; font-weight: 700; font-family: 'Tilt Warp'; padding: 0 16px;
             }}
             QPushButton:hover {{ background: {confirm_hover}; }}
         """)
@@ -105,7 +105,7 @@ class AlertDialog(QDialog):
 
         title_lbl = QLabel(title)
         title_lbl.setStyleSheet(
-            f"font-size: 15px; font-weight: 700; color: {COLORS['text_primary']};"
+            f"font-size: 15px; font-weight: 700; font-family: 'Tilt Warp'; color: {COLORS['text_primary']};"
             f" background: transparent;"
         )
         vl.addWidget(title_lbl)
@@ -128,7 +128,7 @@ class AlertDialog(QDialog):
             QPushButton {{
                 background: transparent; border: 1px solid {COLORS['border']};
                 border-radius: 8px; color: {COLORS['text_secondary']};
-                font-size: 13px; font-weight: 600; padding: 0 16px;
+                font-size: 13px; font-weight: 600; font-family: 'Tilt Warp'; padding: 0 16px;
             }}
             QPushButton:hover {{ border-color: {COLORS['text_secondary']}; }}
         """)

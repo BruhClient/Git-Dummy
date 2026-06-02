@@ -38,7 +38,7 @@ class _Legend(QWidget):
 
         title = QLabel("KEY")
         title.setStyleSheet(
-            f"background: transparent; font-size: 9px; font-weight: 700; color: {COLORS['text_muted']};"
+            f"background: transparent; font-size: 9px; font-weight: 700; font-family: 'Tilt Warp'; color: {COLORS['text_muted']};"
             " letter-spacing: 0.08em;"
         )
         layout.addWidget(title)

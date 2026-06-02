@@ -50,7 +50,7 @@ class _GitHubConnectDialog(QWidget):
 
         title = QLabel("Connect to GitHub")
         title.setStyleSheet(
-            f"background: transparent; font-size: 15px; font-weight: 700;"
+            f"background: transparent; font-size: 15px; font-weight: 700; font-family: 'Tilt Warp';"
             f" color: {COLORS['text_primary']};"
         )
         vl.addWidget(title)
@@ -77,7 +77,7 @@ class _GitHubConnectDialog(QWidget):
 
         _ON  = (f"QPushButton {{ background: {COLORS['accent']}; border: 1px solid {COLORS['accent']};"
                 f" border-radius: 6px; color: white; font-size: 12px;"
-                f" font-weight: 600; padding: 4px 16px; }}")
+                f" font-weight: 600; font-family: 'Tilt Warp'; padding: 4px 16px; }}")
         _OFF = (f"QPushButton {{ background: transparent; border: 1px solid {COLORS['border']};"
                 f" border-radius: 6px; color: {COLORS['text_muted']}; font-size: 12px;"
                 f" padding: 4px 16px; }}"
@@ -111,7 +111,7 @@ class _GitHubConnectDialog(QWidget):
             QPushButton {{
                 background: transparent; border: 1px solid {COLORS['border']};
                 border-radius: 8px; color: {COLORS['text_secondary']};
-                font-size: 12px; font-weight: 600;
+                font-size: 12px; font-weight: 600; font-family: 'Tilt Warp';
             }}
             QPushButton:hover {{ border-color: {COLORS['text_secondary']}; }}
         """)
@@ -126,7 +126,7 @@ class _GitHubConnectDialog(QWidget):
             QPushButton {{
                 background: {COLORS['accent']}; border: none;
                 border-radius: 8px; color: white;
-                font-size: 12px; font-weight: 700;
+                font-size: 12px; font-weight: 700; font-family: 'Tilt Warp';
             }}
             QPushButton:hover {{ background: {COLORS.get('accent_hover', COLORS['accent'])}; }}
         """)

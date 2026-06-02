@@ -405,8 +405,8 @@ class SpatialCanvas(QGraphicsView):
 
 
     def _draw_text_labels(self, commits, positions, orientation):
-        date_font   = QFont("Inter, Segoe UI", 8)
-        author_font = QFont("Inter, Segoe UI", 8)
+        date_font   = QFont("Urbanist", 8)
+        author_font = QFont("Urbanist", 8)
         date_color   = QBrush(QColor(COLORS["text_secondary"]))
         author_color = QBrush(QColor(COLORS["text_muted"]))
 

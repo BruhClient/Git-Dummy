@@ -260,7 +260,7 @@ def _side_header() -> QWidget:
         cl.setContentsMargins(40, 0, 12, 0)
         lbl = QLabel(label)
         lbl.setStyleSheet(
-            f"background: transparent; font-size: 10px; font-weight: 700;"
+            f"background: transparent; font-size: 10px; font-weight: 700; font-family: 'Tilt Warp';"
             f" color: {color}; letter-spacing: 0.08em;"
         )
         cl.addWidget(lbl)
@@ -376,7 +376,7 @@ class _Row(QWidget):
 
         lbl = QLabel(label.upper())
         lbl.setStyleSheet(
-            f"background: transparent; font-size: 10px; font-weight: 600;"
+            f"background: transparent; font-size: 10px; font-weight: 600; font-family: 'Tilt Warp';"
             f" color: {COLORS['text_muted']}; letter-spacing: 0.07em;"
         )
         layout.addWidget(lbl)

@@ -84,6 +84,7 @@ class GitHubAuth(QObject):
     auth_failed = pyqtSignal(str)
     account_added = pyqtSignal(dict)
     add_account_failed = pyqtSignal(str)
+    add_account_needs_signout = pyqtSignal(str)  # carries the blocking account login
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -242,10 +243,7 @@ class GitHubAuth(QObject):
         self._save_account(user, token)
 
         if adding and login in existing_logins:
-            self.auth_failed.emit(
-                f"@{login} is already saved.\n"
-                "To add a different account, sign out of GitHub in your browser first."
-            )
+            self.add_account_needs_signout.emit(login)
             return
 
         if adding:

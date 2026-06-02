@@ -35,7 +35,7 @@ class _Header(QWidget):
 
         self._name = QLabel("—")
         self._name.setStyleSheet(
-            f"background: transparent; font-size: 14px; font-weight: 600; color: {COLORS['text_primary']};"
+            f"background: transparent; font-size: 14px; font-weight: 600; font-family: 'Tilt Warp'; color: {COLORS['text_primary']};"
         )
         name_block.addWidget(self._name)
 
@@ -76,14 +76,14 @@ class _Header(QWidget):
         self._op_badge.setStyleSheet(f"""
             background: #2d2010; border: 1px solid {COLORS['warning']};
             border-radius: 5px; color: {COLORS['warning']};
-            font-size: 11px; font-weight: 600; padding: 2px 10px;
+            font-size: 11px; font-weight: 600; font-family: 'Tilt Warp'; padding: 2px 10px;
         """)
         self._op_badge.hide()
         layout.addWidget(self._op_badge)
 
         self._status_badge = QLabel("● Local")
         self._status_badge.setStyleSheet(
-            f"background: transparent; font-size: 11px; font-weight: 600;"
+            f"background: transparent; font-size: 11px; font-weight: 600; font-family: 'Tilt Warp';"
             f" color: {COLORS['text_muted']};"
         )
         self._status_badge.hide()
@@ -96,13 +96,21 @@ class _Header(QWidget):
             QPushButton {{
                 background: transparent; border: 1px solid {COLORS['border']};
                 border-radius: 5px; color: {COLORS['text_muted']};
-                font-size: 11px; font-weight: 600; padding: 0 10px;
+                font-size: 11px; font-weight: 600; font-family: 'Tilt Warp'; padding: 0 10px;
             }}
             QPushButton:hover {{ border-color: {COLORS['accent']}; color: {COLORS['accent']}; }}
         """)
         self._connect_btn.clicked.connect(self.connect_requested)
         self._connect_btn.hide()
         layout.addWidget(self._connect_btn)
+
+        self._viewer_badge = QLabel("Viewing")
+        self._viewer_badge.setStyleSheet(
+            f"background: transparent; color: {COLORS['accent']};"
+            f" font-size: 11px; font-weight: 600; font-family: 'Tilt Warp';"
+        )
+        self._viewer_badge.hide()
+        layout.addWidget(self._viewer_badge)
 
         self._count = QLabel("")
         self._count.setStyleSheet(f"background: transparent; font-size: 12px; color: {COLORS['text_muted']};")
@@ -167,7 +175,7 @@ class _Header(QWidget):
         if has_remote:
             self._status_badge.setText("● Remote")
             self._status_badge.setStyleSheet(
-                f"background: transparent; font-size: 11px; font-weight: 600;"
+                f"background: transparent; font-size: 11px; font-weight: 600; font-family: 'Tilt Warp';"
                 f" color: {COLORS['accent']};"
             )
             self._status_badge.show()
@@ -175,7 +183,7 @@ class _Header(QWidget):
         else:
             self._status_badge.setText("● Local")
             self._status_badge.setStyleSheet(
-                f"background: transparent; font-size: 11px; font-weight: 600;"
+                f"background: transparent; font-size: 11px; font-weight: 600; font-family: 'Tilt Warp';"
                 f" color: {COLORS['text_muted']};"
             )
             self._status_badge.show()
@@ -183,3 +191,6 @@ class _Header(QWidget):
 
     def set_count(self, n: int, branch: str = "main"):
         self._count.setText(f"{n} on {branch}")
+
+    def set_viewer_mode(self, is_viewer: bool):
+        self._viewer_badge.setVisible(is_viewer)

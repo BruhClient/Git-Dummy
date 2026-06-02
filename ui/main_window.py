@@ -70,7 +70,7 @@ class _AvatarCircle(QWidget):
             p.drawEllipse(0, 0, s, s)
             p.setClipping(False)
             p.setPen(QPen(QColor(COLORS["accent"])))
-            font = QFont("Inter", s // 3, QFont.Bold)
+            font = QFont("Tilt Warp", s // 3, QFont.Bold)
             p.setFont(font)
             p.drawText(self.rect(), Qt.AlignCenter, self._initials)
 
@@ -175,7 +175,7 @@ class _AccountDropdown(QFrame):
 
         name_lbl = QLabel(name)
         name_lbl.setStyleSheet(
-            f"font-size: 13px; font-weight: 600; color: {COLORS['text_primary']}; background: transparent;"
+            f"font-size: 13px; font-weight: 600; font-family: 'Tilt Warp'; color: {COLORS['text_primary']}; background: transparent;"
         )
         text_col.addWidget(name_lbl)
 
@@ -266,7 +266,7 @@ class TopNav(QWidget):
 
         self._app_name = QLabel("Evo Git")
         self._app_name.setStyleSheet(
-            f"font-size: 14px; font-weight: 700; color: {COLORS['text_primary']};"
+            f"font-size: 14px; font-weight: 700; font-family: 'Tilt Warp'; color: {COLORS['text_primary']};"
         )
         layout.addWidget(self._app_name)
 
@@ -299,7 +299,7 @@ class TopNav(QWidget):
 
         self._page_label = QLabel("")
         self._page_label.setStyleSheet(
-            f"font-size: 13px; font-weight: 600; color: {COLORS['text_primary']};"
+            f"font-size: 13px; font-weight: 600; font-family: 'Tilt Warp'; color: {COLORS['text_primary']};"
         )
         self._page_label.hide()
         layout.addWidget(self._page_label)

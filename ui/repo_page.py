@@ -8,7 +8,7 @@ import threading
 import qtawesome as qta
 
 from PyQt5.QtCore import Qt, QSize, pyqtSignal
-from PyQt5.QtGui import QPainter, QColor, QPen, QBrush, QPainterPath, QPixmap, QFont
+from PyQt5.QtGui import QPainter, QColor, QPen, QBrush
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QFileDialog, QScrollArea, QFrame, QSizePolicy,
@@ -43,75 +43,70 @@ def _remote_url(repo_path: str) -> str:
         return ""
 
 
-class _OwnerAvatar(QWidget):
-    """Small circular avatar showing the repo owner."""
+def _remote_repo(repo_path: str) -> str:
+    """Get the GitHub repo name from .git/config origin URL."""
+    try:
+        cfg = configparser.ConfigParser()
+        cfg.read(os.path.join(repo_path, ".git", "config"), encoding="utf-8")
+        url = cfg.get('remote "origin"', "url", fallback="")
+        if url:
+            m = re.search(r"github\.com[:/][^/]+/([^/]+?)(?:\.git)?$", url)
+            return m.group(1) if m else ""
+    except Exception:
+        pass
+    return ""
 
-    _pixmap_ready = pyqtSignal()
-    SIZE = 28
+
+class _RoleBadge(QLabel):
+    """Pill badge showing the current user's role in a repo."""
+
+    _role_ready = pyqtSignal(str)
+
+    _LABELS = {
+        "owner": "Owner",
+        "admin": "Admin",
+        "collaborator": "Collaborator",
+    }
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setFixedSize(self.SIZE, self.SIZE)
-        self._pixmap: QPixmap | None = None
-        self._initials = ""
-        self._pixmap_ready.connect(self.update)
+        self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        self._role_ready.connect(self._apply)
 
-    def set_owner(self, login: str, token: str):
-        self._initials = login[:2].upper() if login else ""
-        self.update()
-        if login and token:
-            threading.Thread(target=self._fetch, args=(login, token), daemon=True).start()
+    def start(self, owner: str, repo: str, login: str, token: str):
+        if login and login == owner:
+            self._apply("owner")
+        elif login and token and owner and repo:
+            threading.Thread(
+                target=self._fetch, args=(owner, repo, login, token), daemon=True
+            ).start()
 
-    def _fetch(self, login: str, token: str):
+    def _fetch(self, owner: str, repo: str, login: str, token: str):
         try:
             import requests
             r = requests.get(
-                f"https://api.github.com/users/{login}",
+                f"https://api.github.com/repos/{owner}/{repo}/collaborators/{login}/permission",
                 headers={"Authorization": f"Bearer {token}",
                          "Accept": "application/vnd.github+json"},
                 timeout=8,
             )
             if r.status_code == 200:
-                avatar_url = r.json().get("avatar_url", "")
-                if avatar_url:
-                    img = requests.get(avatar_url, timeout=8)
-                    if img.status_code == 200:
-                        pm = QPixmap()
-                        pm.loadFromData(img.content)
-                        if not pm.isNull():
-                            s = self.SIZE
-                            self._pixmap = pm.scaled(s, s, Qt.KeepAspectRatioByExpanding,
-                                                     Qt.SmoothTransformation)
-                            self._pixmap_ready.emit()
+                perm = r.json().get("permission", "none")
+                if perm == "admin":
+                    self._role_ready.emit("admin")
+                elif perm in ("write", "maintain"):
+                    self._role_ready.emit("collaborator")
         except Exception:
             pass
 
-    def paintEvent(self, _):
-        p = QPainter(self)
-        p.setRenderHint(QPainter.Antialiasing)
-        s = self.SIZE
-        clip = QPainterPath()
-        clip.addEllipse(0, 0, s, s)
-        p.setClipPath(clip)
-        if self._pixmap:
-            src = self._pixmap
-            x = (src.width() - s) // 2
-            y = (src.height() - s) // 2
-            p.drawPixmap(0, 0, src, x, y, s, s)
-        else:
-            p.setBrush(QBrush(QColor(COLORS["accent_dim"])))
-            p.setPen(Qt.NoPen)
-            p.drawEllipse(0, 0, s, s)
-            if self._initials:
-                p.setClipping(False)
-                p.setPen(QPen(QColor(COLORS["accent"])))
-                p.setFont(QFont("Inter", s // 4, QFont.Bold))
-                p.drawText(self.rect(), Qt.AlignCenter, self._initials)
-        p.setClipping(False)
-        p.setBrush(Qt.NoBrush)
-        p.setPen(QPen(QColor(COLORS["border"]), 1))
-        p.drawEllipse(0, 0, s, s)
-        p.end()
+    def _apply(self, role: str):
+        if role not in self._LABELS:
+            return
+        self.setText(self._LABELS[role])
+        self.setStyleSheet(
+            f"background: transparent; color: {COLORS['text_muted']}; font-size: 12px;"
+        )
+        self.show()
 
 
 # ── Drop zone ─────────────────────────────────────────────────────────────────
@@ -139,7 +134,7 @@ class DropZone(QWidget):
         self._title = QLabel("Drop a project folder here")
         self._title.setAlignment(Qt.AlignCenter)
         self._title.setStyleSheet(
-            f"background: transparent; font-size: 15px; font-weight: 600; color: {COLORS['text_secondary']};"
+            f"background: transparent; font-size: 15px; font-weight: 600; font-family: 'Tilt Warp'; color: {COLORS['text_secondary']};"
         )
         layout.addWidget(self._title)
 
@@ -172,7 +167,7 @@ class DropZone(QWidget):
             f"background: transparent; font-size: 32px; color: {accent if active else muted};"
         )
         self._title.setStyleSheet(
-            f"background: transparent; font-size: 15px; font-weight: 600; "
+            f"background: transparent; font-size: 15px; font-weight: 600; font-family: 'Tilt Warp'; "
             f"color: {accent if active else secondary};"
         )
         self.update()
@@ -213,35 +208,23 @@ class RepoCard(QWidget):
 
         name_label = QLabel(os.path.basename(self._path))
         name_label.setStyleSheet(
-            f"background: transparent; font-size: 14px; font-weight: 600; color: {COLORS['text_primary']};"
+            f"background: transparent; font-size: 14px; font-weight: 600; font-family: 'Tilt Warp'; color: {COLORS['text_primary']};"
         )
         name_label.setAttribute(Qt.WA_TransparentForMouseEvents, True)
         info.addWidget(name_label)
         layout.addLayout(info)
         layout.addStretch()
 
-        # Owner avatar + name (right side, always visible when remote exists)
-        self._avatar = _OwnerAvatar()
-        self._avatar.setAttribute(Qt.WA_TransparentForMouseEvents, True)
-        self._avatar.hide()
-
-        self._owner_label = QLabel("")
-        self._owner_label.setStyleSheet(
-            f"background: transparent; font-size: 12px; color: {COLORS['text_muted']};"
-        )
-        self._owner_label.setAttribute(Qt.WA_TransparentForMouseEvents, True)
-        self._owner_label.hide()
-
-        layout.addWidget(self._avatar)
-        layout.addWidget(self._owner_label)
+        self._role_badge = _RoleBadge()
+        self._role_badge.hide()
+        layout.addWidget(self._role_badge)
 
         owner = _remote_owner(repo_path)
-        if owner:
+        repo  = _remote_repo(repo_path)
+        if owner and repo:
             token = (user or {}).get("access_token", "")
-            self._owner_label.setText(owner)
-            self._owner_label.show()
-            self._avatar.show()
-            self._avatar.set_owner(owner, token)
+            login = (user or {}).get("login", "")
+            self._role_badge.start(owner, repo, login, token)
 
         self._rm_btn = QPushButton()
         self._rm_btn.setIcon(qta.icon("fa5s.times", color=COLORS["text_muted"]))
@@ -306,7 +289,7 @@ class MissingRepoCard(QWidget):
         info.setSpacing(2)
         name_label = QLabel(os.path.basename(self._path))
         name_label.setStyleSheet(
-            f"background: transparent; font-size: 14px; font-weight: 600; color: {COLORS['text_muted']};"
+            f"background: transparent; font-size: 14px; font-weight: 600; font-family: 'Tilt Warp'; color: {COLORS['text_muted']};"
         )
         path_label = QLabel(self._path)
         path_label.setStyleSheet(f"background: transparent; font-size: 12px; color: {COLORS['text_muted']};")
@@ -317,7 +300,7 @@ class MissingRepoCard(QWidget):
 
         missing_badge = QLabel(" not found ")
         missing_badge.setStyleSheet(f"""
-            font-size: 11px; font-weight: 600;
+            font-size: 11px; font-weight: 600; font-family: 'Tilt Warp';
             color: {COLORS['warning']}; background: #2d2010;
             border-radius: 4px; padding: 2px 8px;
         """)
@@ -393,7 +376,7 @@ class RepoPage(QWidget):
 
         title = QLabel("Your Projects")
         title.setStyleSheet(
-            f"background: transparent; font-size: 22px; font-weight: 700; color: {COLORS['text_primary']};"
+            f"background: transparent; font-size: 22px; font-weight: 700; font-family: 'Tilt Warp'; color: {COLORS['text_primary']};"
         )
         header_row.addWidget(title)
         header_row.addStretch()
@@ -405,7 +388,7 @@ class RepoPage(QWidget):
             QPushButton {{
                 background: transparent; border: 1px solid {COLORS['border']};
                 border-radius: 8px; color: {COLORS['text_secondary']};
-                font-size: 13px; font-weight: 600; padding: 0 14px;
+                font-size: 13px; font-weight: 600; font-family: 'Tilt Warp'; padding: 0 14px;
             }}
             QPushButton:hover {{ border-color: {COLORS['accent']}; color: {COLORS['accent']}; }}
         """)
@@ -426,7 +409,7 @@ class RepoPage(QWidget):
 
         self._section_label = QLabel("ADDED PROJECTS")
         self._section_label.setStyleSheet(
-            f"background: transparent; font-size: 10px; font-weight: 600; color: {COLORS['text_muted']}; letter-spacing: 0.08em;"
+            f"background: transparent; font-size: 10px; font-weight: 600; font-family: 'Tilt Warp'; color: {COLORS['text_muted']}; letter-spacing: 0.08em;"
         )
         self._section_label.hide()
         root.addWidget(self._section_label)
