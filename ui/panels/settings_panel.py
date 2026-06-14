@@ -673,6 +673,9 @@ class SettingsPanel(QWidget):
         self._prot_toggle.setEnabled(False)
         self._protection_enabled = on
         self.protection_changed.emit(on)
+        self._prot_status.setStyleSheet(
+            f"background: transparent; font-size: 11px; color: {COLORS['text_muted']};"
+        )
         self._prot_status.setText("Updating…")
         self._prot_status.show()
         threading.Thread(target=self._push_protection, args=(on,), daemon=True).start()
@@ -725,6 +728,8 @@ class SettingsPanel(QWidget):
             self._prot_toggle.set_state(reverted)
             self.protection_changed.emit(reverted)
         self._prot_toggle.setEnabled(True)
+        color = COLORS["text_muted"] if ok else COLORS["danger"]
+        self._prot_status.setStyleSheet(f"background: transparent; font-size: 11px; color: {color};")
         self._prot_status.setText(msg)
         self._prot_status.show()
         QTimer.singleShot(3000, self._prot_status.hide)
