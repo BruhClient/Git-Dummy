@@ -85,7 +85,7 @@ class CommitMessageDialog(QDialog):
                 background: {COLORS['accent']};
                 border: none;
                 border-radius: 8px;
-                color: #000;
+                color: {COLORS['text_on_accent']};
                 font-size: 12px; font-weight: 700; font-family: 'Tilt Warp';
             }}
             QPushButton:hover {{ background: {COLORS.get('accent_hover', COLORS['accent'])}; }}

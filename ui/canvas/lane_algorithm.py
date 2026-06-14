@@ -180,8 +180,11 @@ def _compute_lanes(
     # contributing branch.  BFS handles nested merges like:
     #   main_fp_set entry → 2nd parent: sync commit (e.g. "Merge branch
     #   'main' into brennen") → whose 2nd parent is the actual PR merge.
+    # Non-greedy org/user segment so branch names containing "/" (e.g.
+    # "feature/login-page") are captured in full rather than truncated to
+    # their last path component.
     _MERGE_FROM = _re.compile(
-        r'from\s+\S+/(\S+?)(?:\s|$)', _re.MULTILINE | _re.IGNORECASE
+        r'from\s+\S+?/(\S+)', _re.MULTILINE | _re.IGNORECASE
     )
     _bfs_queue: _collections.deque[str] = _collections.deque(
         sorted(

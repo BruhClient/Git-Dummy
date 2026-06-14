@@ -22,7 +22,7 @@ from styles.theme import COLORS
 
 _STATE_COLORS = {
     "open":   "#3ecf8e",
-    "closed": "#666666",
+    "closed": COLORS["text_muted"],
     "merged": "#8b5cf6",
 }
 
