@@ -1,14 +1,13 @@
 import os
 import threading
 
-from PyQt5.QtCore import Qt, pyqtSignal, QObject, pyqtSlot, QPoint
+from PyQt5.QtCore import Qt, pyqtSignal, QPoint
 from PyQt5.QtGui import QFont, QPainter, QColor, QBrush, QPen, QPixmap, QPainterPath
 from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QLabel,
-    QPushButton, QStackedWidget, QFrame, QApplication,
+    QPushButton, QStackedWidget, QFrame,
 )
 from styles.theme import COLORS, make_global_style
-from ui.components.toast import _Toast
 
 
 def _LogoMark(parent=None):
@@ -376,7 +375,6 @@ class MainWindow(QMainWindow):
 
         self._pages: dict[str, QWidget] = {}
         self._current_repo_name = ""
-        self._toast = _Toast(self._central)
 
     def add_page(self, key: str, widget: QWidget):
         self._stack.addWidget(widget)
@@ -394,9 +392,6 @@ class MainWindow(QMainWindow):
 
     def set_user(self, user: dict):
         self.topnav.set_user(user)
-
-    def show_toast(self, msg: str, kind: str = "info", duration_ms: int = 6000):
-        self._toast.show_message(msg, kind=kind, duration_ms=duration_ms)
 
     def set_repo_name(self, name: str):
         self._current_repo_name = name
