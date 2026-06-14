@@ -1,10 +1,9 @@
 import os
-import threading
 
 import qtawesome as qta
 
-from PyQt5.QtCore import Qt, QSize, pyqtSignal
-from PyQt5.QtGui import QFont, QPixmap, QPainter, QColor, QPen, QBrush, QPainterPath
+from PyQt5.QtCore import Qt, pyqtSignal
+from PyQt5.QtGui import QPixmap, QPainter, QColor, QPen, QBrush, QPainterPath
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QSizePolicy,
     QFrame, QSpacerItem, QScrollArea,
@@ -57,75 +56,8 @@ class LogoMark(QLabel):
         self.setPixmap(rounded)
 
 
-class _MiniAvatar(QWidget):
-    """Small circular avatar with initials fallback."""
-
-    def __init__(self, size=32, parent=None):
-        super().__init__(parent)
-        self.setFixedSize(size, size)
-        self._size = size
-        self._initials = ""
-        self._pixmap: QPixmap | None = None
-
-    def set_initials(self, initials: str):
-        self._initials = initials
-        self._pixmap = None
-        self.update()
-
-    def set_pixmap(self, pixmap: QPixmap):
-        s = self._size
-        self._pixmap = pixmap.scaled(s, s, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
-        self.update()
-
-    def paintEvent(self, _):
-        p = QPainter(self)
-        p.setRenderHint(QPainter.Antialiasing)
-        s = self._size
-        clip = QPainterPath()
-        clip.addEllipse(0, 0, s, s)
-        p.setClipPath(clip)
-        if self._pixmap:
-            src = self._pixmap
-            p.drawPixmap(0, 0, src, (src.width() - s) // 2, (src.height() - s) // 2, s, s)
-        else:
-            p.setBrush(QBrush(QColor(COLORS["accent_dim"])))
-            p.setPen(Qt.NoPen)
-            p.drawEllipse(0, 0, s, s)
-            p.setClipping(False)
-            p.setPen(QPen(QColor(COLORS["accent"])))
-            p.setFont(QFont("Tilt Warp", s // 3, QFont.Bold))
-            p.drawText(self.rect(), Qt.AlignCenter, self._initials)
-        p.setClipping(False)
-        p.setPen(QPen(QColor(COLORS["accent"]), 1.5))
-        p.setBrush(Qt.NoBrush)
-        p.drawEllipse(1, 1, s - 2, s - 2)
-        p.end()
-
-
-def _fetch_avatar(url: str, widget: _MiniAvatar):
-    try:
-        import requests
-        r = requests.get(url, timeout=8)
-        if r.status_code == 200:
-            pm = QPixmap()
-            pm.loadFromData(r.content)
-            if not pm.isNull():
-                widget.set_pixmap(pm)
-    except Exception:
-        pass
-
-
 class AuthPage(QWidget):
-    """
-    Full-screen login/account-picker page.
-
-    Signals:
-        account_selected(str)  — login of the saved account the user clicked
-        add_account_clicked()  — user wants to add a new account via OAuth
-    """
-
-    account_selected = pyqtSignal(str)
-    add_account_clicked = pyqtSignal()
+    """Full-screen sign-in page."""
 
     def __init__(self, github_auth, parent=None):
         super().__init__(parent)
@@ -281,82 +213,13 @@ class AuthPage(QWidget):
 
         self._card_layout.addWidget(self._signin_block)
 
-        # ── Account picker block ──────────────────────────────────────────────
-        self._picker_block = QWidget()
-        self._picker_block.setStyleSheet("background: transparent;")
-        pb_layout = QVBoxLayout(self._picker_block)
-        pb_layout.setContentsMargins(0, 0, 0, 0)
-        pb_layout.setSpacing(12)
-
-        picker_title = QLabel("Choose an account")
-        picker_title.setStyleSheet(
-            f"background: transparent; font-size: 22px; font-weight: 700; font-family: 'Tilt Warp'; color: {COLORS['text_primary']};"
-        )
-        pb_layout.addWidget(picker_title)
-
-        picker_sub = QLabel("Select an account to continue, or add a new one.")
-        picker_sub.setStyleSheet(
-            f"background: transparent; font-size: 13px; color: {COLORS['text_secondary']};"
-        )
-        pb_layout.addWidget(picker_sub)
-
-        # Account rows container (rebuilt on each show_account_picker call)
-        self._accounts_container = QWidget()
-        self._accounts_container.setStyleSheet("background: transparent;")
-        self._accounts_layout = QVBoxLayout(self._accounts_container)
-        self._accounts_layout.setContentsMargins(0, 0, 0, 0)
-        self._accounts_layout.setSpacing(6)
-        pb_layout.addWidget(self._accounts_container)
-
-        add_btn = QPushButton("+ Add account")
-        add_btn.setFixedHeight(40)
-        add_btn.setCursor(Qt.PointingHandCursor)
-        add_btn.setStyleSheet(f"""
-            QPushButton {{
-                background: transparent;
-                border: 1px solid {COLORS['border']};
-                border-radius: 8px;
-                font-size: 13px;
-                font-weight: 600; font-family: 'Tilt Warp';
-                color: {COLORS['accent']};
-            }}
-            QPushButton:hover {{
-                background: {COLORS['bg_hover']};
-                border-color: {COLORS['accent']};
-            }}
-        """)
-        add_btn.clicked.connect(self._on_add_account_click)
-        pb_layout.addWidget(add_btn)
-
-        self._picker_block.hide()
-        self._card_layout.addWidget(self._picker_block)
-
         right_layout.addWidget(card)
         root.addWidget(right)
 
     # ── public ────────────────────────────────────────────────────────────────
 
     def show_sign_in(self):
-        self._picker_block.hide()
         self._signin_block.show()
-
-    def show_account_picker(self, accounts: list[dict]):
-        self._signin_block.hide()
-
-        # Rebuild account rows
-        while self._accounts_layout.count():
-            item = self._accounts_layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
-
-        for acc in accounts:
-            login = acc.get("login", "")
-            name = acc.get("name") or login
-            avatar_url = acc.get("avatar_url", "")
-            row = self._make_account_row(login, name, avatar_url)
-            self._accounts_layout.addWidget(row)
-
-        self._picker_block.show()
 
     def show_error(self, message: str):
         self._github_btn.setEnabled(True)
@@ -374,68 +237,9 @@ class AuthPage(QWidget):
 
     # ── internals ────────────────────────────────────────────────────────────
 
-    def _make_account_row(self, login: str, name: str, avatar_url: str) -> QPushButton:
-        row = QPushButton()
-        row.setFlat(True)
-        row.setCursor(Qt.PointingHandCursor)
-        row.setFixedHeight(52)
-        row.setStyleSheet(f"""
-            QPushButton {{
-                background: {COLORS['bg_secondary']};
-                border: 1px solid {COLORS['border']};
-                border-radius: 8px;
-                text-align: left;
-                padding: 0;
-            }}
-            QPushButton:hover {{
-                background: {COLORS['bg_hover']};
-                border-color: {COLORS['accent']};
-            }}
-        """)
-
-        h = QHBoxLayout(row)
-        h.setContentsMargins(12, 0, 12, 0)
-        h.setSpacing(12)
-
-        avatar = _MiniAvatar(32)
-        avatar.set_initials((name[:2].upper()) if name else "EG")
-        if avatar_url:
-            threading.Thread(target=_fetch_avatar, args=(avatar_url, avatar), daemon=True).start()
-        h.addWidget(avatar)
-
-        text_col = QVBoxLayout()
-        text_col.setContentsMargins(0, 0, 0, 0)
-        text_col.setSpacing(2)
-        text_col.setAlignment(Qt.AlignVCenter)
-
-        name_lbl = QLabel(name)
-        name_lbl.setStyleSheet(
-            f"background: transparent; font-size: 13px; font-weight: 400; font-family: 'Tilt Warp'; color: {COLORS['text_primary']};"
-        )
-        text_col.addWidget(name_lbl)
-
-        login_lbl = QLabel(f"@{login}")
-        login_lbl.setStyleSheet(
-            f"background: transparent; font-size: 11px; color: {COLORS['text_muted']};"
-        )
-        text_col.addWidget(login_lbl)
-
-        h.addLayout(text_col)
-        h.addStretch()
-
-        arrow = QLabel("→")
-        arrow.setStyleSheet(f"background: transparent; font-size: 14px; color: {COLORS['text_muted']};")
-        h.addWidget(arrow)
-
-        row.clicked.connect(lambda _=False, l=login: self.account_selected.emit(l))
-        return row
-
     def _on_github_click(self):
         self._github_btn.setEnabled(False)
         self._github_btn.setText("  Opening browser...")
         self._status.setText("Waiting for GitHub authorisation in your browser…")
         self._error.hide()
         self._auth.start_oauth_flow()
-
-    def _on_add_account_click(self):
-        self.add_account_clicked.emit()

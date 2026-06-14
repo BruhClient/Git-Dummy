@@ -1,0 +1,139 @@
+EVO GIT - SUBAGENT TEAM
+=========================
+
+Four specialized Claude Code subagents were created under .claude/agents/ to
+help with ongoing work on this PyQt5 git visualizer. Claude Code will
+auto-delegate to the right one based on your request, or you can ask for one
+by name (e.g. "use git-actions-debugger to look at ...").
+
+
+1) git-actions-debugger
+------------------------
+File:  .claude/agents/git-actions-debugger.md
+Model: sonnet
+Tools: Read, Edit, Write, Grep, Glob, Bash, PowerShell, TodoWrite
+
+Scope:
+  Bugs in git operations and the in-app action workflow - anything where a
+  git action (commit, push, pull, merge, stash, branch, revert, PR) behaves
+  incorrectly, OR where the UI's handling of that action is broken (hangs,
+  stuck-locked buttons, stale state, missing/misfiring dialogs).
+  Covers: core/ops/*, core/git_tracker.py, ui/workers/commit_workers.py,
+  and the QThread/action-orchestration layer in ui/commit_view.py.
+
+Example triggers:
+  - "The push button spins forever and never re-enables"
+  - "After a merge conflict, the repo is left half-merged and no dialog appears"
+  - "Switching branches sometimes shows the old branch's files"
+
+
+2) canvas-visualizer-debugger
+------------------------------
+File:  .claude/agents/canvas-visualizer-debugger.md
+Model: sonnet
+Tools: Read, Edit, Write, Grep, Glob, Bash, PowerShell, TodoWrite
+
+Scope:
+  Bugs in the commit graph visualizer - lane assignment, branch attribution,
+  edges, node/label rendering, orientation, and the minimap.
+  Covers: ui/canvas/* (lane_algorithm.py, graphics_items.py, spatial_canvas.py,
+  minimap.py, constants.py), GitTracker.graph_commits(), and commit_view.py's
+  load_graph() pipeline.
+
+  WARNING: top-level ui/spatial_canvas.py (~1,321 lines) is a stale, unused
+  duplicate. The live canvas is ui/canvas/spatial_canvas.py.
+
+Example triggers:
+  - "Two branches are being drawn in the same lane and overlapping"
+  - "Merged PR commits show up in the main lane instead of the feature lane"
+  - "The minimap doesn't update when switching to left-right orientation"
+
+
+3) ui-ux-polish
+----------------
+File:  .claude/agents/ui-ux-polish.md
+Model: sonnet
+Tools: Read, Edit, Write, Grep, Glob, Bash, PowerShell, TodoWrite
+
+Scope:
+  Visual and UX improvements - spacing, alignment, color/theme consistency,
+  dialog layout and copy, loading/empty states, animations, overall polish.
+  Covers: ui/panels/*, ui/dialogs/*, ui/components/*, styles/theme.py, and
+  layout in main_window.py / repo_page.py / auth_page.py.
+
+  Note: desktop PyQt5 app - verify changes by running
+  "venv\Scripts\activate && python main.py" and looking at the screen,
+  not a browser.
+
+Example triggers:
+  - "The settings panel buttons look misaligned and use a different blue"
+  - "The clone dialog feels cramped and error states aren't styled"
+  - "Can we add a nicer loading animation while the graph builds?"
+
+
+4) code-quality-refactor
+--------------------------
+File:  .claude/agents/code-quality-refactor.md
+Model: opus
+Tools: Read, Edit, Write, Grep, Glob, Bash, PowerShell, TodoWrite
+
+Scope:
+  Structural cleanup - decomposing the ~2,900-line ui/commit_view.py,
+  removing confirmed dead code, de-duplicating constants, enforcing
+  core/ops/ and threading conventions, reducing duplication across core/
+  and ui/. Must not change behavior - no test suite exists, so verify by
+  running the app after each step.
+
+Example triggers:
+  - "commit_view.py is unmanageable, can we split it up?"
+  - "Is ui/spatial_canvas.py at the top level actually used anywhere?"
+  - "NODE_R and LANE_W are defined in multiple places with different values"
+
+
+REFERENCE DOCS
+==============
+- .claude/agents/action-catalog.md
+  Full catalog of all 22 user-triggerable git actions (UI button -> handler ->
+  worker -> core/ops function -> exact git command sequence -> error handling),
+  plus a ranked backlog of 6 known risk/inefficiency findings and a UI design
+  recommendation for surfacing action details on toasts without compromising
+  conflict-dialog info. git-actions-debugger treats this as its primary
+  reference and known-issues checklist.
+
+
+OVERLAPPING AREAS
+=================
+- git-actions-debugger vs canvas-visualizer-debugger: both touch
+  commit_view.py's load_graph()/action code. The former owns ops/threading/
+  state-flag correctness; the latter owns lane assignment/rendering
+  correctness. A bug spanning both ("after pushing, the graph shows the
+  wrong branch in the wrong lane") may need both.
+
+- ui-ux-polish vs code-quality-refactor: both may edit the same UI files.
+  ui-ux-polish changes are visual/UX only and must not change behavior.
+  code-quality-refactor changes are structural and must preserve existing
+  behavior/visuals exactly.
+
+
+DECISIONS MADE
+==============
+- No separate "Devil's Advocate" or "Lead Synthesis" agent was added - this
+  conversation thread already synthesizes across the 4 specialists, and the
+  /code-review skill covers the critic role.
+- No Agent/Task tool was given to any agent (no cross-agent delegation).
+- No unrelated MCP tools (Canva, Gmail, Supabase, Scale Insights, Google
+  Drive/Calendar) were inherited - each agent's tool list is explicit.
+
+NEW TEAM TO SET UP: evo-git-polish
+====================================
+Aim:
+  - Polish the app overall - visual/UX consistency, spacing, copy, flows.
+  - Find and fix bugs/errors, including ones not yet discovered (proactive
+    bug-hunting, not just reactive fixes to reported issues).
+  - Think of ideas that make the app appeal to beginners and non-coders -
+    onboarding, plain-language explanations of git concepts, simplified
+    default views, friendlier error messages, etc.
+
+
+A markdown version of this overview (with links) lives at:
+  .claude/agents/team-overview.md

@@ -81,18 +81,16 @@ class _AvatarCircle(QWidget):
         p.end()
 
 
-class _AccountDropdown(QFrame):
-    """Floating popup listing all saved accounts plus Add / Sign out actions."""
+class _AccountPopup(QFrame):
+    """Floating popup showing the signed-in user with a Sign out action."""
 
-    account_clicked = pyqtSignal(str)   # login
-    add_clicked = pyqtSignal()
     signout_clicked = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent, Qt.Popup | Qt.FramelessWindowHint)
-        self.setObjectName("accountDropdown")
+        self.setObjectName("accountPopup")
         self.setStyleSheet(f"""
-            #accountDropdown {{
+            #accountPopup {{
                 background: {COLORS['bg_secondary']};
                 border: 1px solid {COLORS['border']};
                 border-radius: 8px;
@@ -101,99 +99,52 @@ class _AccountDropdown(QFrame):
         self._layout = QVBoxLayout(self)
         self._layout.setContentsMargins(6, 6, 6, 6)
         self._layout.setSpacing(2)
-        self._accounts: list[dict] = []
-        self._active_login = ""
 
-    def populate(self, accounts: list[dict], active_login: str):
-        self._accounts = accounts
-        self._active_login = active_login
+        user_row = QWidget()
+        h = QHBoxLayout(user_row)
+        h.setContentsMargins(8, 8, 8, 8)
+        h.setSpacing(10)
 
-        # Clear existing rows
-        while self._layout.count():
-            item = self._layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
+        self._avatar = _AvatarCircle(32)
+        h.addWidget(self._avatar)
 
-        for acc in accounts:
-            login = acc.get("login", "")
-            name = acc.get("name") or login
-            avatar_url = acc.get("avatar_url", "")
-            is_active = (login == active_login)
-            row = self._make_account_row(login, name, avatar_url, is_active)
-            self._layout.addWidget(row)
+        text_col = QVBoxLayout()
+        text_col.setSpacing(0)
 
-        sep1 = self._make_separator()
-        self._layout.addWidget(sep1)
+        self._name_lbl = QLabel("")
+        self._name_lbl.setStyleSheet(
+            f"font-size: 13px; font-weight: 600; font-family: 'Tilt Warp'; color: {COLORS['text_primary']}; background: transparent;"
+        )
+        text_col.addWidget(self._name_lbl)
 
-        add_btn = self._make_action_row("+ Add account", COLORS["accent"])
-        add_btn.clicked.connect(self.add_clicked.emit)
-        self._layout.addWidget(add_btn)
+        self._login_lbl = QLabel("")
+        self._login_lbl.setStyleSheet(
+            f"font-size: 11px; color: {COLORS['text_muted']}; background: transparent;"
+        )
+        text_col.addWidget(self._login_lbl)
+        h.addLayout(text_col)
+        h.addStretch()
+        self._layout.addWidget(user_row)
 
-        sep2 = self._make_separator()
-        self._layout.addWidget(sep2)
+        sep = self._make_separator()
+        self._layout.addWidget(sep)
 
         signout_btn = self._make_action_row("Sign out", COLORS["text_muted"])
         signout_btn.clicked.connect(self.signout_clicked.emit)
         self._layout.addWidget(signout_btn)
 
-        self.adjustSize()
-
-    def _make_account_row(self, login: str, name: str, avatar_url: str, active: bool) -> QWidget:
-        row = QPushButton()
-        row.setFlat(True)
-        row.setCursor(Qt.PointingHandCursor)
-        row.setFixedHeight(44)
-        row.setMinimumWidth(220)
-        row.setStyleSheet(f"""
-            QPushButton {{
-                background: {'rgba(255,255,255,0.05)' if active else 'transparent'};
-                border: none;
-                border-radius: 6px;
-                text-align: left;
-                padding: 0 8px;
-            }}
-            QPushButton:hover {{
-                background: {COLORS['bg_hover']};
-            }}
-        """)
-
-        h = QHBoxLayout(row)
-        h.setContentsMargins(8, 0, 8, 0)
-        h.setSpacing(10)
-
-        avatar = _AvatarCircle(28)
-        display = name[:2].upper() if name else "EG"
-        avatar.set_initials(display)
+    def set_user(self, user: dict):
+        name = user.get("name") or user.get("login", "")
+        login = user.get("login", "")
+        avatar_url = user.get("avatar_url", "")
+        self._name_lbl.setText(name)
+        self._login_lbl.setText(f"@{login}")
+        self._avatar.set_initials(name[:2].upper() if name else "EG")
         if avatar_url:
             threading.Thread(
-                target=_download_avatar_async, args=(avatar_url, avatar), daemon=True
+                target=_download_avatar_async, args=(avatar_url, self._avatar), daemon=True
             ).start()
-        h.addWidget(avatar)
-
-        text_col = QVBoxLayout()
-        text_col.setSpacing(0)
-
-        name_lbl = QLabel(name)
-        name_lbl.setStyleSheet(
-            f"font-size: 13px; font-weight: 600; font-family: 'Tilt Warp'; color: {COLORS['text_primary']}; background: transparent;"
-        )
-        text_col.addWidget(name_lbl)
-
-        login_lbl = QLabel(f"@{login}")
-        login_lbl.setStyleSheet(
-            f"font-size: 11px; color: {COLORS['text_muted']}; background: transparent;"
-        )
-        text_col.addWidget(login_lbl)
-        h.addLayout(text_col)
-        h.addStretch()
-
-        if active:
-            check = QLabel("✓")
-            check.setStyleSheet(f"font-size: 13px; color: {COLORS['accent']}; background: transparent;")
-            h.addWidget(check)
-
-        row.clicked.connect(lambda _=False, l=login: self.account_clicked.emit(l))
-        return row
+        self.adjustSize()
 
     def _make_separator(self) -> QFrame:
         sep = QFrame()
@@ -242,8 +193,6 @@ class TopNav(QWidget):
 
     back_clicked = pyqtSignal()
     logout_clicked = pyqtSignal()
-    switch_account_requested = pyqtSignal(str)   # login
-    add_account_requested = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -306,7 +255,7 @@ class TopNav(QWidget):
 
         layout.addStretch()
 
-        # Right: clickable account area (avatar + username + chevron) opens dropdown
+        # Right: clickable account area (avatar) opens the account popup
         self._account_btn = QPushButton()
         self._account_btn.setFlat(True)
         self._account_btn.setCursor(Qt.PointingHandCursor)
@@ -323,7 +272,7 @@ class TopNav(QWidget):
                 background: {COLORS['bg_hover']};
             }}
         """)
-        self._account_btn.clicked.connect(self._toggle_dropdown)
+        self._account_btn.clicked.connect(self._toggle_popup)
 
         acc_h = QHBoxLayout(self._account_btn)
         acc_h.setContentsMargins(4, 0, 8, 0)
@@ -336,11 +285,11 @@ class TopNav(QWidget):
 
         layout.addWidget(self._account_btn)
 
-        self._dropdown: _AccountDropdown | None = None
-        self._accounts: list[dict] = []
-        self._active_login = ""
+        self._popup: _AccountPopup | None = None
+        self._user: dict = {}
 
     def set_user(self, user: dict):
+        self._user = user
         name = user.get("name") or user.get("login", "")
         self._avatar.set_initials(name[:2].upper() if name else "EG")
 
@@ -352,44 +301,33 @@ class TopNav(QWidget):
                 daemon=True,
             ).start()
 
-    def set_accounts(self, accounts: list[dict], active_login: str):
-        self._accounts = accounts
-        self._active_login = active_login
-        if self._dropdown and self._dropdown.isVisible():
-            self._dropdown.populate(accounts, active_login)
+        if self._popup:
+            self._popup.set_user(user)
 
-    def _toggle_dropdown(self):
-        if self._dropdown and self._dropdown.isVisible():
-            self._dropdown.hide()
+    def _toggle_popup(self):
+        if self._popup and self._popup.isVisible():
+            self._popup.hide()
             return
 
         # Find the top-level window to parent the popup
         top = self.window()
-        if not self._dropdown:
-            self._dropdown = _AccountDropdown(top)
-            self._dropdown.account_clicked.connect(self._on_account_clicked)
-            self._dropdown.add_clicked.connect(self.add_account_requested.emit)
-            self._dropdown.signout_clicked.connect(self._on_signout)
+        if not self._popup:
+            self._popup = _AccountPopup(top)
+            self._popup.signout_clicked.connect(self._on_signout)
 
-        self._dropdown.populate(self._accounts, self._active_login)
+        self._popup.set_user(self._user)
 
         # Position below the account button (global coords — it's a Qt.Popup window)
         btn_br = self._account_btn.mapToGlobal(
             QPoint(self._account_btn.width(), self._account_btn.height() + 4)
         )
-        self._dropdown.move(btn_br.x() - self._dropdown.width(), btn_br.y())
-        self._dropdown.show()
-        self._dropdown.raise_()
-
-    def _on_account_clicked(self, login: str):
-        if self._dropdown:
-            self._dropdown.hide()
-        if login != self._active_login:
-            self.switch_account_requested.emit(login)
+        self._popup.move(btn_br.x() - self._popup.width(), btn_br.y())
+        self._popup.show()
+        self._popup.raise_()
 
     def _on_signout(self):
-        if self._dropdown:
-            self._dropdown.hide()
+        if self._popup:
+            self._popup.hide()
         self.logout_clicked.emit()
 
     def show_repos_state(self):
@@ -410,8 +348,6 @@ class MainWindow(QMainWindow):
     PAGE_REPOS = "repos"
     PAGE_COMMITS = "commits"
     logout_requested = pyqtSignal()
-    switch_account_requested = pyqtSignal(str)
-    add_account_requested = pyqtSignal()
 
     def __init__(self, github_auth, parent=None):
         super().__init__(parent)
@@ -432,8 +368,6 @@ class MainWindow(QMainWindow):
         self.topnav = TopNav()
         self.topnav.back_clicked.connect(self._on_back)
         self.topnav.logout_clicked.connect(self._on_logout)
-        self.topnav.switch_account_requested.connect(self.switch_account_requested.emit)
-        self.topnav.add_account_requested.connect(self.add_account_requested.emit)
         layout.addWidget(self.topnav)
 
         self._stack = QStackedWidget()
@@ -460,9 +394,6 @@ class MainWindow(QMainWindow):
 
     def set_user(self, user: dict):
         self.topnav.set_user(user)
-
-    def set_accounts(self, accounts: list[dict], active_login: str):
-        self.topnav.set_accounts(accounts, active_login)
 
     def show_toast(self, msg: str, kind: str = "info", duration_ms: int = 6000):
         self._toast.show_message(msg, kind=kind, duration_ms=duration_ms)
