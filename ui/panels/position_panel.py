@@ -209,7 +209,7 @@ class PositionPanel(QWidget):
         self._jump_btn.setStyleSheet(f"""
             QPushButton {{
                 background: {COLORS['accent']}; border: none; border-radius: 8px;
-                color: white; font-size: 12px; font-weight: 600; font-family: 'Tilt Warp';
+                color: {COLORS['text_on_accent']}; font-size: 12px; font-weight: 600; font-family: 'Tilt Warp';
                 padding: 8px 16px;
             }}
             QPushButton:hover {{ background: {COLORS['accent_dim']}; }}
