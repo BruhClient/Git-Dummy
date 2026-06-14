@@ -126,7 +126,15 @@ class GitHubAuth(QObject):
             )
             return
         state = secrets.token_urlsafe(16)
-        server = self._make_server(state)   # bind port BEFORE opening browser
+        try:
+            server = self._make_server(state)   # bind port BEFORE opening browser
+        except OSError:
+            self.auth_failed.emit(
+                "Couldn't start the sign-in process — it looks like one is "
+                "already running. Finish or close that browser tab, wait a "
+                "few seconds, and try again."
+            )
+            return
         webbrowser.open(self._build_auth_url(state))
         threading.Thread(
             target=self._wait_for_callback, args=(server,), daemon=True
