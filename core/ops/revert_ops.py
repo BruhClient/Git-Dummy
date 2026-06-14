@@ -26,6 +26,16 @@ def hard_revert_to(path: str, branch: str, target_sha: str) -> tuple[bool, str]:
         ok, err = _run(path, ["git", "checkout", branch])
         if not ok:
             return False, err
+
+    # Remember the branch tip *before* the reset — this is the last state of
+    # the branch this repo actually knew about. Used below to make sure a
+    # force-push doesn't discard remote commits this repo never fetched.
+    pre_r = subprocess.run(
+        ["git", "rev-parse", branch],
+        cwd=path, capture_output=True, text=True, timeout=5,
+    )
+    pre_reset_sha = pre_r.stdout.strip() if pre_r.returncode == 0 else ""
+
     ok, err = _run(path, ["git", "reset", "--hard", target_sha])
     if not ok:
         return False, err
@@ -35,6 +45,31 @@ def hard_revert_to(path: str, branch: str, target_sha: str) -> tuple[bool, str]:
         cwd=path, capture_output=True, text=True, timeout=10,
     )
     if ls.returncode == 0 and ls.stdout.strip():
+        # Fetch first so origin/{branch} reflects the *current* remote state,
+        # not a possibly-stale cached ref.
+        _run(path, ["git", "fetch", "origin", branch], timeout=30)
+
+        origin_r = subprocess.run(
+            ["git", "rev-parse", f"origin/{branch}"],
+            cwd=path, capture_output=True, text=True, timeout=5,
+        )
+        origin_sha = origin_r.stdout.strip() if origin_r.returncode == 0 else ""
+
+        # If origin/{branch} has moved to a commit this repo didn't know about
+        # before the revert (i.e. it isn't an ancestor of our pre-revert tip),
+        # force-pushing now would silently discard those remote-only commits.
+        if origin_sha and pre_reset_sha and origin_sha != pre_reset_sha:
+            anc = subprocess.run(
+                ["git", "merge-base", "--is-ancestor", origin_sha, pre_reset_sha],
+                cwd=path, capture_output=True, text=True, timeout=10,
+            )
+            if anc.returncode != 0:
+                return False, (
+                    f"Local branch reverted, but '{branch}' was NOT force-pushed: "
+                    f"origin/{branch} has commits this repo hadn't fetched yet. "
+                    f"Fetch and review those changes before pushing manually."
+                )
+
         r = subprocess.run(
             ["git", "push", "--force", "origin", branch],
             cwd=path, capture_output=True, text=True, timeout=30,

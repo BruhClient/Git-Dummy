@@ -231,11 +231,26 @@ def merge_pr_locally(path: str, feature_branch: str, target_branch: str,
             if not ok:
                 return False, f"Could not checkout {target_branch}: {err}"
 
-        # Pull latest target
-        _run(path, ["git", "pull", "--ff-only", "origin", target_branch], timeout=30)
+        # Pull latest target — must succeed (fast-forward only) before we merge
+        # against it. If this fails (e.g. local target_branch has diverged from
+        # origin), bail out now rather than merging onto a stale local tip and
+        # then pushing over whatever is actually on origin/{target_branch}.
+        ok_pull, err_pull = _run(path, ["git", "pull", "--ff-only", "origin", target_branch], timeout=30)
+        if not ok_pull:
+            return False, (
+                f"Could not update local '{target_branch}' from origin "
+                f"(it may have diverged) — aborted before merging: {err_pull}"
+            )
 
-        # Attempt merge with no-commit to apply decisions
-        _run(path, ["git", "merge", "--no-ff", "--no-commit", feature_branch], timeout=60)
+        # Attempt merge with no-commit to apply decisions. A failure here is
+        # only expected when it's a real conflict (which `decisions` resolves
+        # below) — any other failure (e.g. feature branch missing) must abort
+        # the merge and surface the real error instead of proceeding.
+        ok_merge, err_merge = _run(path, ["git", "merge", "--no-ff", "--no-commit", feature_branch], timeout=60)
+        if not ok_merge and "conflict" not in err_merge.lower():
+            subprocess.run(["git", "merge", "--abort"],
+                           cwd=path, capture_output=True, text=True, timeout=10)
+            return False, err_merge
 
         # Apply per-file decisions
         for filepath, choice in decisions.items():
