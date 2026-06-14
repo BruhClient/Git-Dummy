@@ -121,7 +121,7 @@ Key state:
 - `_last_head_sha` — tracks git HEAD; cleared to `""` to force `load_graph` to re-read it fresh.
 
 Background polling:
-- `_poll_timer` (30 s) → `_poll_remote()` → `_FetchWorker` → `_on_fetch_done` → `_start_load()` if the remote changed. `_FetchWorker` also attempts a silent `git merge --ff-only origin/<branch>` after fetching (only if the working tree is clean), so a local branch that's behind its remote counterpart fast-forwards automatically.
+- `_poll_timer` (30 s) → `_poll_remote()` → `_FetchWorker` → `_on_fetch_done` → `_start_load()` if the remote changed. `_FetchWorker` only runs `git fetch` (via `GitTracker.fetch_with_author()`) and reports whether any remote ref moved plus a best-guess "who pushed" author — it does **not** merge or fast-forward the local branch. A reload shows the updated `origin/<branch>` tip on the graph, but the local branch stays where it was until the user explicitly pulls/merges.
 - `_uncommitted_timer` (2 s) → `_poll_uncommitted()` → `_UncommittedRefreshWorker` → `_on_uncommitted_done`.
 - `load_repo()` also calls `_poll_remote()` immediately on entry so a behind-remote branch syncs without waiting for the first 30 s tick.
 

@@ -15,12 +15,12 @@ known issues. When picking up one of the items below, treat its entry in `action
 the spec — it already has file:line references and a suggested direction.
 
 ### Known issues checklist (ranked, see action-catalog.md Part 2 for full detail)
-- [ ] [HIGH] `hard_revert_to()` force-pushes without checking the remote relationship (`core/ops/revert_ops.py:16`)
-- [ ] [HIGH] `merge_pr_locally()` doesn't check `pull`/`merge` results before proceeding (`core/ops/merge_ops.py:213`)
-- [ ] [MEDIUM] Stash entry leaks on apply-conflict during navigate (`ui/workers/commit_workers.py:232`, `core/ops/stash_ops.py:68`)
-- [ ] [MEDIUM] `check_pr_conflicts()` conflict detection relies on fragile `git merge-tree` string-matching (`core/ops/merge_ops.py:141`)
-- [ ] [LOW] `push_branch()` merges from origin without explicit user consent on rejection (`core/ops/github_ops.py:32`)
-- [ ] [LOW] CLAUDE.md documents an auto-fast-forward-on-fetch that doesn't exist in code (`.claude/CLAUDE.md` vs `ui/workers/commit_workers.py:132`)
+- [x] [HIGH] `hard_revert_to()` force-pushes without checking the remote relationship (`core/ops/revert_ops.py:16`)
+- [x] [HIGH] `merge_pr_locally()` doesn't check `pull`/`merge` results before proceeding (`core/ops/merge_ops.py:213`)
+- [x] [MEDIUM] Stash entry leaks on apply-conflict during navigate (`ui/workers/commit_workers.py:232`, `core/ops/stash_ops.py:68`)
+- [x] [MEDIUM] `check_pr_conflicts()` conflict detection relies on fragile `git merge-tree` string-matching (`core/ops/merge_ops.py:141`)
+- [x] [LOW] `push_branch()` merges from origin without explicit user consent on rejection (`core/ops/github_ops.py:32`)
+- [x] [LOW] CLAUDE.md documents an auto-fast-forward-on-fetch that doesn't exist in code (`.claude/CLAUDE.md` vs `ui/workers/commit_workers.py:132`)
 
 ## Your domain
 
@@ -68,7 +68,7 @@ Rules — violations of these are bugs, not style issues:
 
 ## Polling and its interaction with actions
 
-- `_poll_timer` (30s) → `_poll_remote()` → `_FetchWorker` → `_on_fetch_done` → `_start_load()` if the remote changed. `_FetchWorker` also attempts a silent `git merge --ff-only origin/<branch>` after fetching, **only if the working tree is clean** — so a dirty-tree check bug here can cause unexpected merges or, conversely, a branch that never auto-fast-forwards.
+- `_poll_timer` (30s) → `_poll_remote()` → `_FetchWorker` → `_on_fetch_done` → `_start_load()` if the remote changed. `_FetchWorker` only runs `git fetch` (`GitTracker.fetch_with_author()`) and reports whether refs moved — it does **not** merge or fast-forward the local branch. Pulling/merging remains a user-triggered action; see Finding 6 in `action-catalog.md` for the doc-vs-code history here.
 - `_uncommitted_timer` (2s) → `_poll_uncommitted()` → `_UncommittedRefreshWorker` → `_on_uncommitted_done`.
 - `load_repo()` also calls `_poll_remote()` immediately on entry. Race condition bugs often involve one of these timers firing mid-action — check `_panel_op_active`/`_navigating` guards in the poll handlers.
 
