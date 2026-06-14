@@ -71,7 +71,7 @@ class ConfirmDialog(QDialog):
         confirm_btn.setStyleSheet(f"""
             QPushButton {{
                 background: {confirm_bg}; border: none;
-                border-radius: 8px; color: white;
+                border-radius: 8px; color: {COLORS['text_on_accent']};
                 font-size: 13px; font-weight: 700; font-family: 'Tilt Warp'; padding: 0 16px;
             }}
             QPushButton:hover {{ background: {confirm_hover}; }}

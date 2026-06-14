@@ -336,7 +336,7 @@ class CloneDialog(QDialog):
         self._clone_btn.setStyleSheet(f"""
             QPushButton {{
                 background: {COLORS['accent']}; border: none;
-                border-radius: 8px; color: white;
+                border-radius: 8px; color: {COLORS['text_on_accent']};
                 font-size: 13px; font-weight: 700; font-family: 'Tilt Warp';
             }}
             QPushButton:hover {{ background: {COLORS.get('accent_hover', COLORS['accent'])}; }}
