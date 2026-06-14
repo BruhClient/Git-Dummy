@@ -125,6 +125,12 @@ class _Header(QWidget):
     def set_operation(self, op: str):
         if op:
             self._op_badge.setText(f"{op}…")
+            self._op_badge.setToolTip(
+                f"This repo has a {op.lower()} in progress that hasn't been "
+                "finished — usually because it was started outside Evo Git, "
+                "or a conflict was left unresolved. Resolve any conflicts and "
+                f"finish (or cancel) the {op.lower()} to clear this."
+            )
             self._op_icon.show()
             self._op_badge.show()
         else:
