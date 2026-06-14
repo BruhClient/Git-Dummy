@@ -43,21 +43,47 @@ def _compute_lanes(
     if not commits:
         return {}, {}
 
+    # ── Lookup tables used throughout ───────────────────────────────────────
+    commit_index   = {c.sha: i for i, c in enumerate(commits)}
+    commit_sha_set = {c.sha for c in commits}
+    commit_by_sha  = {c.sha: c for c in commits}
+
     # ── Identify primary branch ───────────────────────────────────────────
     primary = next(
         (n for names in branch_tip_map.values() for n in names if n in ("main", "master")),
         None,
     )
 
-    # When multiple tips share the same branch name (local ahead of remote),
-    # pick the topologically newest one (lowest index = child before parent).
-    commit_index = {c.sha: i for i, c in enumerate(commits)}
+    # When multiple tips share the same branch name (e.g. local "main" and
+    # "origin/main" point to different commits), decide which one anchors
+    # lane 0 by walking the topologically-newest candidate's first-parent
+    # chain:
+    #   • If the oldest candidate is reachable from the newest via that
+    #     chain, the relationship is linear (local ahead/behind) → the
+    #     newest tip wins as primary.
+    #   • Otherwise the branches have diverged (rebase / force-push / reset)
+    #     → the oldest (established history) stays on lane 0.
     if primary:
         primary_candidates = [sha for sha, names in branch_tip_map.items()
                               if primary in names]
-        primary_tip = min(primary_candidates,
-                          key=lambda s: commit_index.get(s, 10**9),
-                          default=None)
+        if len(primary_candidates) <= 1:
+            primary_tip = primary_candidates[0] if primary_candidates else None
+        else:
+            ordered = sorted(primary_candidates, key=lambda s: commit_index.get(s, 10**9))
+            newest, oldest = ordered[0], ordered[-1]
+            reachable = False
+            sha = newest
+            visited: set[str] = set()
+            while sha in commit_sha_set and sha not in visited:
+                visited.add(sha)
+                if sha == oldest:
+                    reachable = True
+                    break
+                c = commit_by_sha.get(sha)
+                if not c or not c.parents:
+                    break
+                sha = c.parents[0]
+            primary_tip = newest if reachable else oldest
     else:
         primary_tip = None
 
@@ -66,14 +92,10 @@ def _compute_lanes(
     if primary_tip:
         lanes.append(primary_tip)
 
-    # ── Pre-seed all other visible branch tips into dedicated lanes ────────
-    commit_sha_set = {c.sha for c in commits}
-
     # ── Pre-compute first-parent chain ownership ───────────────────────────
     # Non-main branches claim commits on their first-parent chain before main
     # does, so historical branch commits stay in their branch's lane even
     # after the branch has been merged into main.
-    commit_by_sha = {c.sha: c for c in commits}
 
     # Build main's first-parent set so non-main walks stop at the shared root.
     main_fp_set: set[str] = set()
