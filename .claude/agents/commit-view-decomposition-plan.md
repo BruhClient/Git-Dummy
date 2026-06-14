@@ -1,13 +1,23 @@
 # `ui/commit_view.py` decomposition plan (Task #9)
 
 **Owner:** code-quality-refactor
-**Status:** in progress — 2 of N steps landed.
+**Status:** in progress — 3 extraction steps landed (dead-file, widgets, PR mixin).
 
 ## Goal
 Shrink `CommitViewPage` (`ui/commit_view.py`) into navigable modules **without
 changing behavior**. No test suite exists, so each step must be landed as one
 focused commit and verified by running `python main.py` and exercising the
 moved functionality before starting the next step.
+
+> **Sandbox caveat:** the refactor sessions so far ran in an environment with
+> **no PyQt5 and no linter**, so the GUI could not be launched. Each step was
+> instead verified statically: `py_compile` + package `compileall`, a grep that
+> the moved `def`s are gone from `commit_view.py` and all call sites still
+> reference them via `self.`, and an **AST free-variable analysis** of the new
+> module confirming no undefined names (the only `NameError` failure mode a
+> behavior-preserving mixin move can introduce). **A runtime smoke-test of each
+> moved flow is still owed** and should be done by a teammate with a working
+> PyQt5 environment.
 
 ## What already landed
 1. **Deleted dead `ui/spatial_canvas.py`** (~1300 lines, zero imports; stale
@@ -18,6 +28,17 @@ moved functionality before starting the next step.
    (`_FilterPanel`, `_OrientBar`, `_TabBar`, `_CreateRemoteDialog`). Pure
    cut/paste; they depend only on Qt + `COLORS` + `ORIENT_*` + `_VScrollArea`.
    `commit_view.py`: 2872 → 2345 lines. Commit `49bd73c`.
+3. **Extracted PR handlers** → `ui/commit_view_pr.py` `_PRMixin` (Step 4 below,
+   done before Step 3). 11 methods, mixed in as `class CommitViewPage(_PRMixin,
+   QWidget)`. Self-contained: needs **no module-level imports** (every dep is
+   imported locally inside its method). `commit_view.py`: 2345 → 2149 lines.
+   Commit `e472151`.
+
+> **Ordering note:** the PR block (Step 4) was done first because it is a single
+> **contiguous** range and fully self-contained, making it the lowest-risk first
+> mixin. The action-handler block (Step 3) is **interspersed** with non-action
+> methods (`_on_github_connect`, `_reload_after_init`), so it needs careful
+> multi-range extraction — do it after the contiguous blocks.
 
 ## The remaining hard part
 The bulk of `CommitViewPage` is **action handlers + threading orchestration +
@@ -77,7 +98,7 @@ result `pyqtSignal` slot, guarded by `_panel_op_active`. Group:
 > (incl. a conflict), a pull (clean + dirty), a push (incl. rejected/non-ff),
 > a hard & soft revert, a branch create & delete.
 
-### Step 4 — `ui/commit_view_pr.py` → `_PRMixin`
+### Step 4 — `ui/commit_view_pr.py` → `_PRMixin`  ✅ DONE (commit `e472151`)
 PR inbox + open-wizard flow:
 `_load_pr_inbox`, `_on_pr_open_requested`, `_on_wizard_commit`,
 `_on_wizard_discard`, `_on_wizard_push`, `_on_wizard_pr_submit`,
