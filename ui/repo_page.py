@@ -575,7 +575,8 @@ class RepoPage(QWidget):
         # Replace old path with new one and navigate immediately
         if old_path in self._missing:
             self._missing.remove(old_path)
-        self._repos.append(folder)
+        if folder not in self._repos:
+            self._repos.append(folder)
         self._persist()
         self._refresh_cards()
         self.repo_selected.emit(folder)
