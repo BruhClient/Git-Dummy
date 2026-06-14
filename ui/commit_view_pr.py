@@ -189,6 +189,15 @@ class _PRMixin:
             self._pr_wizard.notify_push_done(False, f"Commit failed: {err}")
 
     def _on_wizard_push_done(self, ok: bool, err: str):
+        if ok and err == "merged_before_push":
+            # push_branch() pulled in new commits from origin and merged them
+            # locally before the push succeeded — surface that so the user
+            # isn't surprised by an extra merge commit. notify_push_done()
+            # below ignores `err` on success, so this toast is the only
+            # place this is communicated.
+            self._toast.show_message(
+                "Origin had new commits — merged automatically, then pushed.",
+                kind="info", duration_ms=6000)
         self._pr_wizard.notify_push_done(ok, err)
         if ok:
             self._start_load()

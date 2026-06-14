@@ -73,6 +73,11 @@ def push_branch(
             return False, r3.stderr.strip() or r3.stdout.strip(), [], {}
 
         ok4, err4 = _run(path, ["git", "push", "-u", "origin", branch], timeout=60)
+        if ok4:
+            # Let the caller know a real merge commit was created from
+            # origin/{branch} before this push succeeded, so the user isn't
+            # surprised by an unexpected merge commit in their history.
+            return True, "merged_before_push", [], {}
         return ok4, err4, [], {}
 
     return False, r.stderr.strip() or r.stdout.strip(), [], {}
