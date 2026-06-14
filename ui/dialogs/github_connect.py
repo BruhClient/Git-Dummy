@@ -76,7 +76,7 @@ class _GitHubConnectDialog(QWidget):
         vl.addWidget(self._name_input)
 
         _ON  = (f"QPushButton {{ background: {COLORS['accent']}; border: 1px solid {COLORS['accent']};"
-                f" border-radius: 6px; color: white; font-size: 12px;"
+                f" border-radius: 6px; color: {COLORS['text_on_accent']}; font-size: 12px;"
                 f" font-weight: 600; font-family: 'Tilt Warp'; padding: 4px 16px; }}")
         _OFF = (f"QPushButton {{ background: transparent; border: 1px solid {COLORS['border']};"
                 f" border-radius: 6px; color: {COLORS['text_muted']}; font-size: 12px;"
