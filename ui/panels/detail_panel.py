@@ -364,7 +364,7 @@ class DetailPanel(QWidget):
         self._goto_btn.setStyleSheet(f"""
             QPushButton {{
                 background: {COLORS['accent']}; border: none; border-radius: 8px;
-                color: white; font-size: 12px; font-weight: 600; font-family: 'Tilt Warp'; padding: 9px 16px;
+                color: {COLORS['text_on_accent']}; font-size: 12px; font-weight: 600; font-family: 'Tilt Warp'; padding: 9px 16px;
             }}
             QPushButton:hover {{ background: {COLORS['accent_dim']}; }}
         """)
@@ -431,7 +431,7 @@ class DetailPanel(QWidget):
             return (f"QPushButton {{ background: transparent;"
                     f" border: 1px solid {color}; border-radius: 8px;"
                     f" color: {color}; font-size: 12px; font-weight: 600; font-family: 'Tilt Warp'; padding: 9px 16px; }}"
-                    f"QPushButton:hover {{ background: {color}; color: white; }}"
+                    f"QPushButton:hover {{ background: {color}; color: {COLORS['text_on_accent']}; }}"
                     f"QPushButton:disabled {{ border-color: {COLORS['border']};"
                     f" color: {COLORS['text_muted']}; }}")
 
