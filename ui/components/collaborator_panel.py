@@ -173,7 +173,7 @@ class _CollabRow(QWidget):
         super().mousePressEvent(event)
 
     def enterEvent(self, _):
-        self.setStyleSheet("background: rgba(255,255,255,15); border-radius: 6px;")
+        self.setStyleSheet(f"background: {COLORS['bg_hover']}; border-radius: 6px;")
 
     def leaveEvent(self, _):
         self.setStyleSheet("background: transparent; border-radius: 6px;")

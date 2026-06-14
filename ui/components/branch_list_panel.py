@@ -164,3 +164,9 @@ class _BranchRow(QWidget):
     def mousePressEvent(self, event):
         self._clicked_cb(self._branch)
         super().mousePressEvent(event)
+
+    def enterEvent(self, _):
+        self.setStyleSheet(f"background: {COLORS['bg_hover']}; border-radius: 6px;")
+
+    def leaveEvent(self, _):
+        self.setStyleSheet("background: transparent; border-radius: 6px;")
