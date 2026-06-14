@@ -32,7 +32,7 @@ moved functionality before starting the next step.
    done before Step 3). 11 methods, mixed in as `class CommitViewPage(_PRMixin,
    QWidget)`. Self-contained: needs **no module-level imports** (every dep is
    imported locally inside its method). `commit_view.py`: 2345 → 2149 lines.
-   Commit `e472151`.
+   Commit `dda7bce`.
 
 > **Ordering note:** the PR block (Step 4) was done first because it is a single
 > **contiguous** range and fully self-contained, making it the lowest-risk first
@@ -98,7 +98,7 @@ result `pyqtSignal` slot, guarded by `_panel_op_active`. Group:
 > (incl. a conflict), a pull (clean + dirty), a push (incl. rejected/non-ff),
 > a hard & soft revert, a branch create & delete.
 
-### Step 4 — `ui/commit_view_pr.py` → `_PRMixin`  ✅ DONE (commit `e472151`)
+### Step 4 — `ui/commit_view_pr.py` → `_PRMixin`  ✅ DONE (commit `dda7bce`)
 PR inbox + open-wizard flow:
 `_load_pr_inbox`, `_on_pr_open_requested`, `_on_wizard_commit`,
 `_on_wizard_discard`, `_on_wizard_push`, `_on_wizard_pr_submit`,
