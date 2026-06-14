@@ -268,7 +268,10 @@ class ContributorBadge(QGraphicsObject):
         self.update()
 
     def boundingRect(self) -> QRectF:
-        r = BADGE_R + 6
+        # The hover-glow gradient in paint() is drawn with radius BADGE_R + 8;
+        # the bounding rect must be at least that large or the glow's outer
+        # ring falls outside it, leaving a ghosting artifact on hover-out.
+        r = BADGE_R + 8
         return QRectF(-r, -r, r * 2, r * 2)
 
     def paint(self, painter: QPainter, _option, _widget):
