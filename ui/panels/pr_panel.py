@@ -77,7 +77,7 @@ def _action_btn(text: str, accent: bool = True) -> QPushButton:
                 color: {COLORS['accent']}; padding: 0 12px;
             }}
             QPushButton:hover {{
-                background: {COLORS['accent']}; color: white;
+                background: {COLORS['accent']}; color: {COLORS['text_on_accent']};
             }}
         """)
     else:
@@ -190,13 +190,13 @@ class _PRRow(QWidget):
             btn_row.setContentsMargins(20, 2, 0, 0)
 
             approve_btn = _action_btn("Approve", accent=True)
-            approve_btn.setIcon(qta.icon("fa5s.check", color="#ffffff"))
+            approve_btn.setIcon(qta.icon("fa5s.check", color=COLORS['text_on_accent']))
             approve_btn.setIconSize(QSize(12, 12))
             approve_btn.clicked.connect(lambda: self.approve_clicked.emit(self._number))
             btn_row.addWidget(approve_btn)
 
             merge_btn = _action_btn("Merge", accent=True)
-            merge_btn.setIcon(qta.icon("fa5s.code-branch", color="#ffffff"))
+            merge_btn.setIcon(qta.icon("fa5s.code-branch", color=COLORS['text_on_accent']))
             merge_btn.setIconSize(QSize(12, 12))
             merge_btn.clicked.connect(lambda: self.merge_clicked.emit(self._pr))
             btn_row.addWidget(merge_btn)

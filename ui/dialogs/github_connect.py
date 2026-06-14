@@ -118,14 +118,14 @@ class _GitHubConnectDialog(QWidget):
         cancel_btn.clicked.connect(self.hide)
 
         upload_btn = QPushButton("Upload to GitHub")
-        upload_btn.setIcon(qta.icon("fa5s.cloud-upload-alt", color="#ffffff"))
+        upload_btn.setIcon(qta.icon("fa5s.cloud-upload-alt", color=COLORS['text_on_accent']))
         upload_btn.setIconSize(QSize(14, 14))
         upload_btn.setFixedHeight(40)
         upload_btn.setCursor(Qt.PointingHandCursor)
         upload_btn.setStyleSheet(f"""
             QPushButton {{
                 background: {COLORS['accent']}; border: none;
-                border-radius: 8px; color: white;
+                border-radius: 8px; color: {COLORS['text_on_accent']};
                 font-size: 12px; font-weight: 700; font-family: 'Tilt Warp';
             }}
             QPushButton:hover {{ background: {COLORS.get('accent_hover', COLORS['accent'])}; }}
