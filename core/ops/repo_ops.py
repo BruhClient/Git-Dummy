@@ -36,7 +36,7 @@ def init_repo(path: str, user_name: str = "", user_email: str = "") -> tuple[boo
 def clone_repo(url: str, dest_parent: str) -> tuple[bool, str, str]:
     """Clone url into dest_parent/<repo-name>. Returns (ok, error, cloned_path)."""
     try:
-        name = url.rstrip("/").rstrip(".git").split("/")[-1]
+        name = url.rstrip("/").removesuffix(".git").split("/")[-1]
         dest = os.path.join(dest_parent, name)
         r = subprocess.run(
             ["git", "clone", url, dest],
