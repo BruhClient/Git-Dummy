@@ -26,7 +26,7 @@ _p = _qt_plugins_path()
 if _p:
     os.environ["QT_QPA_PLATFORM_PLUGIN_PATH"] = _p
 
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtWidgets import QApplication, QStackedWidget
 
 from auth.github_auth import GitHubAuth
@@ -79,7 +79,12 @@ class App(QStackedWidget):
         self._auth_page.show_sign_in()
         self.setCurrentWidget(self._auth_page)
         if self._auth.has_saved_token():
-            self._auth.load_saved_token()
+            # Restoring a saved session makes a network call (up to ~10s on a
+            # slow connection). Show the sign-in screen first and defer the
+            # check to the next event-loop tick, so the window appears right
+            # away instead of staying blank while we verify the session.
+            self._auth_page.show_checking_session()
+            QTimer.singleShot(0, self._auth.load_saved_token)
 
     def _on_auth_success(self, user: dict):
         self._main_window.set_user(user)

@@ -223,6 +223,12 @@ class AuthPage(QWidget):
     def show_sign_in(self):
         self._signin_block.show()
 
+    def show_checking_session(self):
+        """Shown briefly on launch while we try to restore a saved sign-in."""
+        self._status.setText("Checking your saved session…")
+        self._error.hide()
+        self.show_sign_in()
+
     def show_error(self, message: str):
         self._github_btn.setEnabled(True)
         self._github_btn.setText("  Continue with GitHub")
