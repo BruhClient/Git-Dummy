@@ -215,11 +215,19 @@ class _FileCard(QWidget):
         super().mousePressEvent(event)
 
     def enterEvent(self, _):
+        # _hdr fills the card and is opaque, so the hover highlight must be
+        # applied to it (not `self`) to be visible.
         if not self._selected:
-            self.setStyleSheet("background: rgba(255,255,255,6); border-radius: 6px;")
+            self._hdr.setStyleSheet(f"""
+                #fcHdr {{
+                    background: {COLORS['bg_hover']};
+                    border: 1px solid {COLORS['border']};
+                    border-radius: 6px;
+                }}
+            """)
 
     def leaveEvent(self, _):
-        self.setStyleSheet("background: transparent; border-radius: 6px;")
+        self._update_hdr_style()
 
 
 class DetailPanel(QWidget):
