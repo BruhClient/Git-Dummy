@@ -405,21 +405,11 @@ class SpatialCanvas(QGraphicsView):
 
 
     def _draw_text_labels(self, commits, positions, orientation):
-        date_font   = QFont("Urbanist", 8)
         author_font = QFont("Urbanist", 8)
-        date_color   = QBrush(QColor(COLORS["text_secondary"]))
         author_color = QBrush(QColor(COLORS["text_muted"]))
 
         for commit in commits:
             cx, cy = positions[commit.sha]
-            d = commit.date
-            date_str = f"{d.day} {d.strftime('%b')} {d.year}  {d.strftime('%H:%M')}"
-
-            date_item = QGraphicsSimpleTextItem(date_str)
-            date_item.setFont(date_font)
-            date_item.setBrush(date_color)
-            date_item.setAcceptedMouseButtons(Qt.NoButton)
-            date_item.setZValue(2)
 
             auth_item = QGraphicsSimpleTextItem("")
             auth_item.setFont(author_font)
