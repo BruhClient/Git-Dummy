@@ -143,7 +143,7 @@ class GitTracker:
 
         Uses git's --topo-order across ALL refs at once so commits arrive in
         true topological order (children before parents), which the streaming
-        lane algorithm in spatial_canvas.py requires.
+        lane algorithm in ui/canvas/lane_algorithm.py requires.
         """
         if not self._repo:
             return [], {}
