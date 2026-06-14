@@ -1,6 +1,6 @@
 # Evo Git — Subagent Team
 
-Four specialized subagents for working on this PyQt5 git visualizer. Claude Code auto-delegates to one of these based on the task description, or you can invoke explicitly: "use `<agent-name>` to ...".
+Five specialized subagents for working on this PyQt5 git visualizer. Claude Code auto-delegates to one of these based on the task description, or you can invoke explicitly: "use `<agent-name>` to ...".
 
 | Agent | Model | Key tools | Scope |
 |---|---|---|---|
@@ -8,6 +8,7 @@ Four specialized subagents for working on this PyQt5 git visualizer. Claude Code
 | [`canvas-visualizer-debugger`](canvas-visualizer-debugger.md) | sonnet | Read, Edit, Write, Grep, Glob, Bash, PowerShell, TodoWrite | Bugs in the commit graph visualizer — `ui/canvas/*` (lane algorithm, graphics items, minimap, orientation), `GitTracker.graph_commits()`, `load_graph()`. |
 | [`ui-ux-polish`](ui-ux-polish.md) | sonnet | Read, Edit, Write, Grep, Glob, Bash, PowerShell, TodoWrite | Visual/UX improvements — `ui/panels/*`, `ui/dialogs/*`, `ui/components/*`, `styles/theme.py`, top-level page layout. |
 | [`code-quality-refactor`](code-quality-refactor.md) | opus | Read, Edit, Write, Grep, Glob, Bash, PowerShell, TodoWrite | Structural cleanup — decomposing `commit_view.py`, removing dead code, de-duplicating constants, enforcing `core/ops`/threading conventions. |
+| [`evo-git-polish`](evo-git-polish.md) | sonnet | Read, Edit, Write, Grep, Glob, Bash, PowerShell, TodoWrite | Whole-app generalist sweeps — app-wide visual/UX consistency, proactive bug-hunting in not-yet-reported areas across any layer, and beginner-friendliness ideas (onboarding, plain-language git copy, friendlier errors). |
 
 None of these have the `Agent`/`Task` tool (no cross-agent delegation) and none inherit the project's unrelated MCP tools (Canva, Gmail, Supabase, Scale Insights, Google Drive/Calendar) — each is scoped to local file I/O, code search, and running the app for verification.
 
@@ -19,6 +20,7 @@ None of these have the `Agent`/`Task` tool (no cross-agent delegation) and none 
 
 - **`git-actions-debugger` vs `canvas-visualizer-debugger`** — both can touch `commit_view.py`'s `load_graph()`/action-handling code. The former owns correctness of ops, threading, and state flags (e.g., an action that hangs or leaves stale state); the latter owns correctness of lane assignment and rendering (e.g., a graph that draws branches in the wrong place after that same action). A bug that spans both ("after pushing, the visualizer shows the wrong branch in the wrong lane") may need both.
 - **`ui-ux-polish` vs `code-quality-refactor`** — both may edit the same UI files. `ui-ux-polish` changes are visual/UX only (spacing, color, copy, layout) and should not change behavior or structure. `code-quality-refactor` changes are structural (splitting files, removing dead code, de-duplication) and must preserve existing behavior/visuals exactly.
+- **`evo-git-polish` vs the other four** — `evo-git-polish` is the generalist: it does app-wide sweeps (polish, proactive bug-hunting, beginner-UX ideation) rather than deep dives into a reported issue. It fixes small, self-contained findings directly; for anything requiring a deep dive in `core/ops`/threading, the lane algorithm, or a large `commit_view.py` restructuring, it documents the finding in `action-catalog.md`'s known-issues format and names the matching specialist rather than attempting the deep fix itself.
 
 ## Why opus for `code-quality-refactor`
 

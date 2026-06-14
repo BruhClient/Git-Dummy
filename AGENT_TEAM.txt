@@ -1,7 +1,7 @@
 EVO GIT - SUBAGENT TEAM
 =========================
 
-Four specialized Claude Code subagents were created under .claude/agents/ to
+Five specialized Claude Code subagents were created under .claude/agents/ to
 help with ongoing work on this PyQt5 git visualizer. Claude Code will
 auto-delegate to the right one based on your request, or you can ask for one
 by name (e.g. "use git-actions-debugger to look at ...").
@@ -90,6 +90,33 @@ Example triggers:
   - "NODE_R and LANE_W are defined in multiple places with different values"
 
 
+5) evo-git-polish
+-------------------
+File:  .claude/agents/evo-git-polish.md
+Model: sonnet
+Tools: Read, Edit, Write, Grep, Glob, Bash, PowerShell, TodoWrite
+
+Scope:
+  Generalist, whole-app sweeps - the opposite of the other four, which are
+  each scoped to one layer and respond to a specific reported problem.
+  Covers ui/, core/, styles/, auth/ - everything:
+    - App-wide visual/UX consistency passes (same concerns as ui-ux-polish,
+      but across multiple screens at once).
+    - Proactive bug-hunting in areas nobody has reported issues in yet,
+      across any layer (core/ops, threading/state flags, lane algorithm).
+      Small self-contained bugs get fixed directly; deep findings get
+      written up in action-catalog.md and routed to the right specialist.
+    - Beginner-friendliness ideas: unexplained git jargon, raw git errors
+      shown to users, defaults that assume git fluency. Small fixes
+      (copy/tooltips) done directly; bigger ideas (onboarding flow, simple
+      mode) get scoped and proposed rather than built unprompted.
+
+Example triggers:
+  - "Do a general pass over the app and tell me what feels rough or buggy"
+  - "If someone who's never used git opened this app, what would confuse them?"
+  - "Hunt for bugs across the whole app, not just the area I mentioned"
+
+
 REFERENCE DOCS
 ==============
 - .claude/agents/action-catalog.md
@@ -114,25 +141,21 @@ OVERLAPPING AREAS
   code-quality-refactor changes are structural and must preserve existing
   behavior/visuals exactly.
 
+- evo-git-polish vs the other four: evo-git-polish is the generalist - app-
+  wide sweeps rather than deep dives. It fixes small, self-contained findings
+  directly; anything needing a deep dive in core/ops, threading, the lane
+  algorithm, or a large commit_view.py restructuring gets written up in
+  action-catalog.md and routed to the matching specialist.
+
 
 DECISIONS MADE
 ==============
 - No separate "Devil's Advocate" or "Lead Synthesis" agent was added - this
-  conversation thread already synthesizes across the 4 specialists, and the
+  conversation thread already synthesizes across the specialists, and the
   /code-review skill covers the critic role.
 - No Agent/Task tool was given to any agent (no cross-agent delegation).
 - No unrelated MCP tools (Canva, Gmail, Supabase, Scale Insights, Google
   Drive/Calendar) were inherited - each agent's tool list is explicit.
-
-NEW TEAM TO SET UP: evo-git-polish
-====================================
-Aim:
-  - Polish the app overall - visual/UX consistency, spacing, copy, flows.
-  - Find and fix bugs/errors, including ones not yet discovered (proactive
-    bug-hunting, not just reactive fixes to reported issues).
-  - Think of ideas that make the app appeal to beginners and non-coders -
-    onboarding, plain-language explanations of git concepts, simplified
-    default views, friendlier error messages, etc.
 
 
 A markdown version of this overview (with links) lives at:
