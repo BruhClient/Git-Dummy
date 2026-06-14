@@ -55,8 +55,8 @@ def pull_ff(path: str, branch: str) -> tuple[bool, str]:
 
 
 def pull_stash_apply(path: str, branch: str) -> tuple[bool, str]:
-    """Stash changes, fast-forward to remote, re-apply stash."""
-    ok, err = _run(path, ["git", "stash"])
+    """Stash changes (including untracked files), fast-forward to remote, re-apply stash."""
+    ok, err = _run(path, ["git", "stash", "--include-untracked"])
     if not ok:
         return False, err
     ok, err = _run(path, ["git", "fetch", "origin"])
