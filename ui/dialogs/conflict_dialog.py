@@ -171,7 +171,7 @@ class _ConflictDialog(QWidget):
                     border-radius: 8px; color: {color};
                     font-size: 11px; font-weight: 600; font-family: 'Tilt Warp';
                 }}
-                QPushButton:hover {{ background: {color}; color: white; }}
+                QPushButton:hover {{ background: {color}; color: {COLORS['text_on_accent']}; }}
             """)
             b.clicked.connect(slot)
             return b
@@ -352,7 +352,7 @@ class _PullDirtyDialog(QWidget):
                     border-radius: 8px; color: {color};
                     font-size: 12px; font-weight: 600; font-family: 'Tilt Warp';
                 }}
-                QPushButton:hover {{ background: {color}; color: white; }}
+                QPushButton:hover {{ background: {color}; color: {COLORS['text_on_accent']}; }}
             """)
             b.clicked.connect(slot)
             body_vl.addWidget(b)
@@ -486,7 +486,7 @@ class _NavigateDirtyDialog(QWidget):
                     border-radius: 8px; color: {color};
                     font-size: 12px; font-weight: 600; font-family: 'Tilt Warp';
                 }}
-                QPushButton:hover {{ background: {color}; color: white; }}
+                QPushButton:hover {{ background: {color}; color: {COLORS['text_on_accent']}; }}
             """)
             b.clicked.connect(slot)
             body_vl.addWidget(b)
@@ -665,7 +665,7 @@ class _MergeConflictDialog(QWidget):
                     border-radius: 8px; color: {color};
                     font-size: 11px; font-weight: 600; font-family: 'Tilt Warp';
                 }}
-                QPushButton:hover {{ background: {color}; color: white; }}
+                QPushButton:hover {{ background: {color}; color: {COLORS['text_on_accent']}; }}
                 QPushButton:disabled {{ border-color: {COLORS['border']}; color: {COLORS['text_muted']}; }}
             """)
             b.clicked.connect(slot)
@@ -707,7 +707,7 @@ class _MergeConflictDialog(QWidget):
         self._confirm_btn.setStyleSheet(f"""
             QPushButton {{
                 background: {COLORS['accent']}; border: none;
-                border-radius: 8px; color: white;
+                border-radius: 8px; color: {COLORS['text_on_accent']};
                 font-size: 12px; font-weight: 700; font-family: 'Tilt Warp';
             }}
             QPushButton:hover {{ background: {COLORS['accent_hover']}; }}
@@ -777,27 +777,27 @@ class _MergeConflictDialog(QWidget):
         if decision == "ours":
             self._acc_orig_btn.setStyleSheet(f"""
                 QPushButton {{ background: {COLORS['text_secondary']}; border: 1px solid {COLORS['text_secondary']};
-                    border-radius: 8px; color: white; font-size: 11px; font-weight: 600; font-family: 'Tilt Warp'; }}
+                    border-radius: 8px; color: {COLORS['text_on_accent']}; font-size: 11px; font-weight: 600; font-family: 'Tilt Warp'; }}
                 QPushButton:hover {{ background: {COLORS['text_primary']}; border-color: {COLORS['text_primary']}; }}
             """)
         else:
             self._acc_orig_btn.setStyleSheet(f"""
                 QPushButton {{ background: transparent; border: 1px solid {COLORS['text_secondary']};
                     border-radius: 8px; color: {COLORS['text_secondary']}; font-size: 11px; font-weight: 600; font-family: 'Tilt Warp'; }}
-                QPushButton:hover {{ background: {COLORS['text_secondary']}; color: white; }}
+                QPushButton:hover {{ background: {COLORS['text_secondary']}; color: {COLORS['text_on_accent']}; }}
             """)
         # Incoming button
         if decision == "theirs":
             self._acc_inc_btn.setStyleSheet(f"""
                 QPushButton {{ background: {COLORS['accent']}; border: 1px solid {COLORS['accent']};
-                    border-radius: 8px; color: white; font-size: 11px; font-weight: 600; font-family: 'Tilt Warp'; }}
+                    border-radius: 8px; color: {COLORS['text_on_accent']}; font-size: 11px; font-weight: 600; font-family: 'Tilt Warp'; }}
                 QPushButton:hover {{ background: {COLORS['accent_hover']}; }}
             """)
         else:
             self._acc_inc_btn.setStyleSheet(f"""
                 QPushButton {{ background: transparent; border: 1px solid {COLORS['accent']};
                     border-radius: 8px; color: {COLORS['accent']}; font-size: 11px; font-weight: 600; font-family: 'Tilt Warp'; }}
-                QPushButton:hover {{ background: {COLORS['accent']}; color: white; }}
+                QPushButton:hover {{ background: {COLORS['accent']}; color: {COLORS['text_on_accent']}; }}
             """)
 
     def _toggle(self, choice: str):
