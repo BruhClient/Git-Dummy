@@ -233,6 +233,12 @@ class _NavigateWorker(QObject):
         if target_ref:
             if not apply_stash(path, target_ref):
                 reset_hard(path)
+                # apply_stash left the working tree mid-conflict; reset_hard
+                # discarded that attempt, so the stash itself is no longer
+                # recoverable in any useful state — drop it so it doesn't sit
+                # in `git stash list` forever (matches the "couldn't be
+                # restored" message shown to the user).
+                drop_stash(path, target_ref)
                 self.finished.emit(True, "stash-conflict")
                 return
 
