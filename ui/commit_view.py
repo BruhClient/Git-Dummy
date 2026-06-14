@@ -2239,6 +2239,12 @@ class CommitViewPage(QWidget):
             orientations[self._tracker._path] = orient
             settings_store.save({"repo_orientations": orientations})
         if self._commits:
+            # is_initial=True: prev_centre is captured in the OLD orientation's
+            # coordinate space, but lane/row axes swap between orientations, so
+            # those scene coordinates point at an unrelated spot in the new
+            # layout. Skip restoring prev_centre and re-centre on HEAD instead
+            # (load_graph falls back to an orientation-appropriate default if
+            # head_sha isn't found).
             self._canvas.load_graph(
                 self._commits,
                 self._last_branch_tips,
@@ -2247,6 +2253,7 @@ class CommitViewPage(QWidget):
                 unpushed_shas=self._last_unpushed,
                 orientation=orient,
                 head_sha=self._last_head_sha,
+                is_initial=True,
             )
 
     def _apply_canvas_filter(self):
