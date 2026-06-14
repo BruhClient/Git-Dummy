@@ -270,7 +270,7 @@ class MissingRepoCard(QWidget):
         self.setStyleSheet(f"""
             #missingCard {{
                 background-color: {COLORS['bg_card']};
-                border: 1px solid #4a2020;
+                border: 1px solid {COLORS['danger_border']};
                 border-radius: 8px;
             }}
         """)
@@ -301,7 +301,7 @@ class MissingRepoCard(QWidget):
         missing_badge = QLabel(" not found ")
         missing_badge.setStyleSheet(f"""
             font-size: 11px; font-weight: 600; font-family: 'Tilt Warp';
-            color: {COLORS['warning']}; background: #2d2010;
+            color: {COLORS['warning']}; background: {COLORS['warning_dim']};
             border-radius: 4px; padding: 2px 8px;
         """)
         layout.addWidget(missing_badge)
@@ -334,7 +334,7 @@ class MissingRepoCard(QWidget):
                 border-radius: 6px; color: {COLORS['text_muted']}; font-size: 13px;
             }}
             QPushButton:hover {{
-                background: #2d1515; border-color: {COLORS['danger']};
+                background: {COLORS['danger_dim']}; border-color: {COLORS['danger']};
                 color: {COLORS['danger']};
             }}
         """)

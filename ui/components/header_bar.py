@@ -74,7 +74,7 @@ class _Header(QWidget):
 
         self._op_badge = QLabel("")
         self._op_badge.setStyleSheet(f"""
-            background: #2d2010; border: 1px solid {COLORS['warning']};
+            background: {COLORS['warning_dim']}; border: 1px solid {COLORS['warning']};
             border-radius: 5px; color: {COLORS['warning']};
             font-size: 11px; font-weight: 600; font-family: 'Tilt Warp'; padding: 2px 10px;
         """)
@@ -143,16 +143,16 @@ class _Header(QWidget):
     def set_url(self, url: str, visibility: str = ""):
         if visibility == "not_found":
             self._url.setText(
-                '<span style="color:#ef4444; font-size:11px;">Repository deleted on GitHub</span>'
+                f'<span style="color:{COLORS["danger"]}; font-size:11px;">Repository deleted on GitHub</span>'
             )
             self._url.setFixedHeight(16)
             self._url.show()
         elif url:
             badge = ""
             if visibility == "private":
-                badge = ' <span style="font-size:10px; color:#6b7280;">· Private</span>'
+                badge = f' <span style="font-size:10px; color:{COLORS["text_muted"]};">· Private</span>'
             elif visibility == "public":
-                badge = ' <span style="font-size:10px; color:#6b7280;">· Public</span>'
+                badge = f' <span style="font-size:10px; color:{COLORS["text_muted"]};">· Public</span>'
             self._url.setText(
                 f'<a href="{url}" style="color:{COLORS["accent"]}; text-decoration:none;">{url}</a>{badge}'
             )

@@ -70,7 +70,7 @@ class _NoRemoteView(QWidget):
     def set_error(self, msg: str):
         self._btn.setEnabled(True)
         self._btn.setText("Try again →")
-        self._status.setStyleSheet(f"background: transparent; font-size: 12px; color: #ef4444;")
+        self._status.setStyleSheet(f"background: transparent; font-size: 12px; color: {COLORS['danger']};")
         self._status.setText(msg)
 
     def resizeEvent(self, event):
@@ -178,11 +178,13 @@ class _NoRemoteBanner(QWidget):
 
     def show_deleted(self):
         """Switch banner to 'repo was deleted' warning state."""
-        self.setStyleSheet("background: #2d1515; border-bottom: 1px solid #4a2020;")
+        self.setStyleSheet(
+            f"background: {COLORS['danger_dim']}; border-bottom: 1px solid {COLORS['danger_border']};"
+        )
         self._name_input.show()
         self._priv_btn.show()
         self._pub_btn.show()
         self._btn.show()
         self._btn.setText("Recreate →")
         self._msg_lbl.setText("Remote repository was deleted —")
-        self._msg_lbl.setStyleSheet(f"background: transparent; font-size: 12px; color: #ef4444;")
+        self._msg_lbl.setStyleSheet(f"background: transparent; font-size: 12px; color: {COLORS['danger']};")

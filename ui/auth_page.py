@@ -194,7 +194,7 @@ class AuthPage(QWidget):
         self._error = QLabel("")
         self._error.setStyleSheet(
             f"font-size: 12px; color: {COLORS['danger']}; "
-            f"background: #2d1515; border-radius: 6px; padding: 8px 12px;"
+            f"background: {COLORS['danger_dim']}; border-radius: 6px; padding: 8px 12px;"
         )
         self._error.setWordWrap(True)
         self._error.hide()
