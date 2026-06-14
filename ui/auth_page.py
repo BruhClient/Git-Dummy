@@ -204,7 +204,9 @@ class AuthPage(QWidget):
 
         note = QLabel(
             "By continuing, you agree to our Terms of Service.\n"
-            "Evo Git only reads your projects — it never makes changes."
+            "Evo Git uses your GitHub access to show your project history\n"
+            "and to carry out the actions you choose — like committing,\n"
+            "merging, or pushing."
         )
         note.setStyleSheet(f"background: transparent; font-size: 11px; color: {COLORS['text_muted']}; line-height: 1.5;")
         note.setWordWrap(True)
