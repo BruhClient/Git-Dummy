@@ -955,21 +955,6 @@ class CommitViewPage(QWidget):
             {c.branch for c in commits if c.branch}
         )
 
-        # DEBUG: print commits grouped by branch
-        from collections import defaultdict as _dd
-        _by_branch = _dd(list)
-        _rendered = [_c for _c in commits if _c.branch]
-        _filtered_count = len(commits) - len(_rendered)
-        for _c in _rendered:
-            _by_branch[_c.branch].append(_c)
-        print(f"\n=== Graph commits by branch ({len(_rendered)} rendered, {_filtered_count} filtered from deleted branches) ===")
-        for _br in sorted(_by_branch):
-            _cs = _by_branch[_br]
-            print(f"  [{_br}] {len(_cs)} commits")
-            for _c in _cs:
-                print(f"    {_c.sha[:8]}  {_c.message[:60]}")
-        print("=== end ===\n")
-
         self._filter_rebuilding = True
         self._filter_panel.set_branches(all_branches)
 
