@@ -134,9 +134,9 @@ class GitTracker:
 
         return results
 
-    def graph_commits(self, max_count: int = 600) -> tuple[list["CommitInfo"], dict[str, list[str]]]:
+    def graph_commits(self, max_count: int = 600) -> tuple[list["CommitInfo"], dict[str, list[str]], set[str]]:
         """
-        Returns (commits, branch_tip_map) for the spatial canvas.
+        Returns (commits, branch_tip_map, local_only) for the spatial canvas.
 
         Remote (origin) is always the source of truth.  Falls back to local
         branches only if the repo has no remotes configured.
@@ -146,7 +146,7 @@ class GitTracker:
         lane algorithm in ui/canvas/lane_algorithm.py requires.
         """
         if not self._repo:
-            return [], {}
+            return [], {}, set()
 
         tag_map: dict[str, list[str]] = {}
         for tag in self._repo.tags:
