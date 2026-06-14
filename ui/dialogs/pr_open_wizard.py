@@ -30,7 +30,7 @@ def _btn(text: str, accent: bool = True) -> QPushButton:
             QPushButton {{
                 background: {COLORS['accent']}; border: none;
                 border-radius: 8px; font-size: 13px; font-weight: 600; font-family: 'Tilt Warp';
-                color: white; padding: 0 20px;
+                color: {COLORS['text_on_accent']}; padding: 0 20px;
             }}
             QPushButton:hover {{ background: {COLORS['accent_hover'] if 'accent_hover' in COLORS else COLORS['accent']}; }}
             QPushButton:disabled {{ background: {COLORS['bg_hover']}; color: {COLORS['text_muted']}; }}
