@@ -122,7 +122,10 @@ def get_working_dir_diff_files(path: str) -> list[dict]:
             dels = int(dels_s) if not is_binary else 0
         except ValueError:
             ins = dels = 0
-        status = "deleted" if dels > 0 and ins == 0 else "modified"
+        # numstat alone can't distinguish "file deleted" from "only lines
+        # removed" (both show dels > 0, ins == 0) — check the working tree.
+        abs_path = os.path.join(path, fpath.replace("/", os.sep))
+        status = "deleted" if (dels > 0 and ins == 0 and not os.path.exists(abs_path)) else "modified"
         result.append({
             "path":       fpath,
             "name":       fpath.split("/")[-1],
