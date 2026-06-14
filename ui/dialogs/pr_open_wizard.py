@@ -174,10 +174,10 @@ class PROpenWizard(QWidget):
         self._commit_btn.clicked.connect(self._on_commit)
         self._discard_btn.clicked.connect(self._on_discard)
         self._cancel_s1.clicked.connect(self._cancel)
-        btns1.addWidget(self._commit_btn)
         btns1.addWidget(self._discard_btn)
         btns1.addStretch()
         btns1.addWidget(self._cancel_s1)
+        btns1.addWidget(self._commit_btn)
         s1.addLayout(btns1)
         card_vl.addWidget(self._step1_body)
 
@@ -276,9 +276,9 @@ class PROpenWizard(QWidget):
         self._cancel_s3   = _btn("Cancel", accent=False)
         self._open_pr_btn.clicked.connect(self._on_submit)
         self._cancel_s3.clicked.connect(self._cancel)
-        btns3.addWidget(self._open_pr_btn)
         btns3.addStretch()
         btns3.addWidget(self._cancel_s3)
+        btns3.addWidget(self._open_pr_btn)
         s3.addLayout(btns3)
         card_vl.addWidget(self._step3_body)
 
