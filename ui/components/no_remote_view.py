@@ -49,7 +49,7 @@ class _NoRemoteView(QWidget):
         self._btn.setStyleSheet(f"""
             QPushButton {{
                 background: {COLORS['accent']}; border: none; border-radius: 8px;
-                color: white; font-size: 13px; font-weight: 600; font-family: 'Tilt Warp'; padding: 0 28px;
+                color: {COLORS['text_on_accent']}; font-size: 13px; font-weight: 600; font-family: 'Tilt Warp'; padding: 0 28px;
             }}
             QPushButton:hover {{ background: {COLORS['accent_dim']}; }}
             QPushButton:disabled {{ background: {COLORS['border']}; color: {COLORS['text_muted']}; }}
@@ -93,7 +93,7 @@ class _NoRemoteBanner(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setAttribute(Qt.WA_StyledBackground, True)
-        self.setStyleSheet(f"background: #13131f; border-bottom: 1px solid {COLORS['border']};")
+        self.setStyleSheet(f"background: {COLORS['bg_secondary']}; border-bottom: 1px solid {COLORS['border']};")
         self.setFixedHeight(52)
         self._is_private = True
 
@@ -142,7 +142,7 @@ class _NoRemoteBanner(QWidget):
         self._btn.setStyleSheet(f"""
             QPushButton {{
                 background: {COLORS['accent']}; border: none; border-radius: 6px;
-                color: white; font-size: 12px; font-weight: 600; font-family: 'Tilt Warp'; padding: 0 16px;
+                color: {COLORS['text_on_accent']}; font-size: 12px; font-weight: 600; font-family: 'Tilt Warp'; padding: 0 16px;
             }}
             QPushButton:hover {{ background: {COLORS['accent_dim']}; }}
             QPushButton:disabled {{ background: {COLORS['border']}; color: {COLORS['text_muted']}; }}
@@ -155,7 +155,7 @@ class _NoRemoteBanner(QWidget):
 
     def _set_privacy(self, private: bool, emit: bool = True):
         self._is_private = private
-        active_style   = self._PILL.format(bg=COLORS['accent'], border=COLORS['accent'], fg="white")
+        active_style   = self._PILL.format(bg=COLORS['accent'], border=COLORS['accent'], fg=COLORS['text_on_accent'])
         inactive_style = self._PILL.format(bg="transparent", border=COLORS['border'], fg=COLORS['text_muted'])
         self._priv_btn.setStyleSheet(active_style   if private else inactive_style)
         self._pub_btn.setStyleSheet( inactive_style if private else active_style)
