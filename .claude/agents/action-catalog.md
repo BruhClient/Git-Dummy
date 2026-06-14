@@ -208,3 +208,26 @@ up any one of these without needing the others.
 - When a toast is constructed with optional `details: str` text, render a small "Details ▾" affordance. Clicking it (removing `WA_TransparentForMouseEvents` only for toasts carrying details) expands the toast downward into a `QPlainTextEdit`, styled like `conflict_dialog.py`'s code-area styling (monospace, `COLORS['bg_secondary']`, rounded corners, thin custom scrollbar) — showing the full command + output.
 - This is purely additive: no change to `_ConflictDialog`/`_MergeConflictDialog`/etc., no change to the default toast UX for the ~90% of actions that succeed with nothing more to say.
 - Natural first candidates for `details=`: any toast fired from a `core/ops` failure tuple (`(False, err)`/`(False, err, files, content)`), where `err` is currently truncated — pass the full `err` as `details` instead of dropping it.
+
+---
+
+## Part 4: Additional findings from the app-wide sweep (`evo-git-polish`)
+
+These were found doing a broad pass over `ui/`, `core/`, `styles/`, `auth/` rather than chasing a
+specific report. Each names the specialist whose territory it falls in.
+
+### A. [LOW] Dead `_NoRemoteBanner` / unused `_NoRemoteView` in `ui/components/no_remote_view.py`
+- **Files**: `ui/components/no_remote_view.py` (191 lines), `ui/commit_view.py:42,131-133,485`
+- **Issue**: `_NoRemoteBanner` is constructed in `CommitViewPage.__init__` (`commit_view.py:131`), immediately
+  `.hide()`-ed with the comment "replaced by header status badge" (`:132`), added to the layout (`:133`),
+  and hidden again later (`:485`) — it's never shown again anywhere in the file. `_NoRemoteView` is
+  imported (`:42`) but never instantiated at all. Separately, `_NoRemoteBanner.set_error(msg)`
+  (`no_remote_view.py:175-177`) silently discards its `msg` argument — harmless today since the widget
+  is never shown, but would be a silent-failure bug if the banner were ever revived (e.g. for its
+  `show_deleted()` "repo was deleted" state, which also looks unreferenced).
+- **Suggested direction**: if the header status badge fully replaced this banner/view, remove
+  `_NoRemoteBanner`/`_NoRemoteView` and the now-pointless `self._no_remote_banner` plumbing in
+  `commit_view.py` (construction, the two `.hide()` calls, layout insertion, and the unused
+  `_NoRemoteView` import). If there's a plan to revive it, fix `set_error()` to display `msg` first.
+- **Owner**: `code-quality-refactor` (dead-code removal, likely natural fit alongside the
+  `commit_view.py` decomposition already in progress).
