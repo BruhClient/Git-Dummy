@@ -967,7 +967,7 @@ class DetailPanel(QWidget):
                 background: {'transparent' if is_current else COLORS['accent']};
                 border: {'1px solid ' + COLORS['border'] if is_current else 'none'};
                 border-radius: 8px;
-                color: {COLORS['text_muted'] if is_current else 'white'};
+                color: {COLORS['text_muted'] if is_current else COLORS['text_on_accent']};
                 font-size: 12px; font-weight: 600; font-family: 'Tilt Warp'; padding: 9px 16px;
             }}
             QPushButton:hover {{
