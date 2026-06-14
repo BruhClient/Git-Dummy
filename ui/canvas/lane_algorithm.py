@@ -385,6 +385,13 @@ def _compute_lanes(
 
     if any(k != v for k, v in lane_remap.items()):
         assignment  = {sha: lane_remap.get(l, l) for sha, l in assignment.items()}
-        lane_branch = {lane_remap.get(l, l): name  for l, name in lane_branch.items()}
+        # Only keep lane_branch entries for lanes that were actually used by some
+        # commit (i.e. present in lane_remap). A lane opened for a merge commit's
+        # 2nd parent that itself falls outside the truncated commit window (rare,
+        # large-history case) never appears in `assignment`, so its raw index
+        # isn't remapped and could otherwise collide with another lane's new
+        # (remapped) index, overwriting that lane's correct branch name.
+        lane_branch = {lane_remap[l]: name for l, name in lane_branch.items()
+                       if l in lane_remap}
 
     return assignment, lane_branch
