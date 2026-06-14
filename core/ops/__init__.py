@@ -9,6 +9,7 @@ from .base_ops import (   # noqa: F401
     reset_hard,
     get_conflict_files,
     get_conflict_content,
+    parse_conflict_markers,
 )
 from .stash_ops import (   # noqa: F401
     get_stash_files,

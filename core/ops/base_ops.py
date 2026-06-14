@@ -70,15 +70,13 @@ def get_conflict_files(path: str) -> list:
         return []
 
 
-def get_conflict_content(repo_path: str, file_path: str) -> tuple:
-    """Parse conflict markers, return (original_lines, orig_start, incoming_lines, inc_start).
-    Line numbers correspond to their actual position in the file."""
-    abs_path = os.path.join(repo_path, file_path.replace("/", os.sep))
-    try:
-        with open(abs_path, "r", encoding="utf-8", errors="replace") as f:
-            lines = f.readlines()
-    except Exception:
-        return [], 1, [], 1
+def parse_conflict_markers(lines: list) -> tuple:
+    """Parse `<<<<<<<` / `=======` / `>>>>>>>` conflict markers out of `lines`.
+    Returns (original_lines, orig_start, incoming_lines, inc_start), where
+    *_start is the 1-based line number of the first line after the marker.
+
+    Shared by `get_conflict_content` (reads a working-tree file) and
+    `check_pr_conflicts` (reads the stdout of `git merge-file -p`)."""
     original, incoming = [], []
     orig_start = inc_start = 1
     state = "normal"
@@ -98,3 +96,15 @@ def get_conflict_content(repo_path: str, file_path: str) -> tuple:
             incoming.append(s)
     # Both sections represent the same file region — use orig_start for both
     return original, orig_start, incoming, orig_start
+
+
+def get_conflict_content(repo_path: str, file_path: str) -> tuple:
+    """Parse conflict markers, return (original_lines, orig_start, incoming_lines, inc_start).
+    Line numbers correspond to their actual position in the file."""
+    abs_path = os.path.join(repo_path, file_path.replace("/", os.sep))
+    try:
+        with open(abs_path, "r", encoding="utf-8", errors="replace") as f:
+            lines = f.readlines()
+    except Exception:
+        return [], 1, [], 1
+    return parse_conflict_markers(lines)

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import os
 import subprocess
+import tempfile
 
-from .base_ops import _run, get_conflict_files, get_conflict_content
+from .base_ops import _run, get_conflict_files, get_conflict_content, parse_conflict_markers
 
 
 def merge_branch(path: str, source_branch: str) -> tuple[bool, str, list, dict]:
@@ -141,9 +143,9 @@ def conflict_keep_local(path: str, branch: str) -> tuple[bool, str]:
 def check_pr_conflicts(path: str, feature_branch: str,
                        target_branch: str = "main") -> tuple[bool, list, dict]:
     """
-    Dry-run merge check using git merge-tree.
+    Dry-run merge check using a disposable index (`git read-tree -m`).
     Returns (has_conflicts, conflict_files, conflict_content).
-    Never modifies the working tree.
+    Never modifies the working tree or the repo's real index.
     """
     try:
         # Fetch latest from remote so we're comparing current state
@@ -166,48 +168,104 @@ def check_pr_conflicts(path: str, feature_branch: str,
         if not base_sha:
             return False, [], {}
 
-        # Dry-run merge
-        tree_r = subprocess.run(
-            ["git", "merge-tree", base_sha, target_ref, feat_ref],
-            cwd=path, capture_output=True, text=True, timeout=15,
-        )
-        output = tree_r.stdout
-        if "<<<<<<<" not in output:
+        # ── Reliable conflict + filename detection ──────────────────────────
+        # Perform the 3-way merge into a disposable index (via GIT_INDEX_FILE)
+        # so conflicted paths can be read back with `git ls-files --unmerged`
+        # — a stable, well-documented format — instead of string-matching
+        # `git merge-tree`'s plain-text diff output, whose section headers
+        # vary across git versions.
+        conflict_files: list[str] = []
+        stages: dict[str, dict[str, str]] = {}
+
+        fd, tmp_index = tempfile.mkstemp(prefix="evogit-merge-check-")
+        os.close(fd)
+        os.remove(tmp_index)  # let `git read-tree` create a fresh index here
+        try:
+            env = os.environ.copy()
+            env["GIT_INDEX_FILE"] = tmp_index
+
+            subprocess.run(
+                ["git", "read-tree", "-m", base_sha, target_ref, feat_ref],
+                cwd=path, env=env, capture_output=True, text=True, timeout=15,
+            )
+            ls = subprocess.run(
+                ["git", "ls-files", "--unmerged"],
+                cwd=path, env=env, capture_output=True, text=True, timeout=10,
+            )
+            for line in ls.stdout.strip().splitlines():
+                # format: "<mode> <object> <stage>\t<path>"
+                meta, _, fname = line.partition("\t")
+                parts = meta.split()
+                if len(parts) != 3 or not fname:
+                    continue
+                _mode, oid, stage = parts
+                if fname not in stages:
+                    stages[fname] = {}
+                    conflict_files.append(fname)
+                stages[fname][stage] = oid
+        finally:
+            if os.path.exists(tmp_index):
+                try:
+                    os.remove(tmp_index)
+                except OSError:
+                    pass
+
+        if not conflict_files:
             return False, [], {}
 
-        # Parse conflicting files and capture content
-        conflict_files: list[str] = []
-        conflict_content: dict    = {}
-        current_file: str | None  = None
-        current_lines: list[str]  = []
+        # ── Best-effort inline diff content for the conflict dialog ─────────
+        # For each conflicting file, reconstruct the diff3 conflict-marker
+        # text via `git merge-file -p` from the base/ours/theirs blobs in the
+        # disposable index. If a file is missing one of the blobs (e.g. an
+        # add/add or modify/delete conflict), it's left out of
+        # conflict_content — the dialog falls back to an empty preview for
+        # that file, but the (reliable) filename is still surfaced above.
+        conflict_content: dict = {}
+        for fname, blobs in stages.items():
+            ours_oid, theirs_oid, base_oid = blobs.get("2"), blobs.get("3"), blobs.get("1")
+            if not (ours_oid and theirs_oid):
+                continue
+            tmpdir = tempfile.mkdtemp(prefix="evogit-merge-check-")
+            try:
+                def _write_blob(oid: str | None, name: str) -> str:
+                    dest = os.path.join(tmpdir, name)
+                    if oid:
+                        cat = subprocess.run(["git", "cat-file", "blob", oid],
+                                              cwd=path, capture_output=True, timeout=10)
+                        data = cat.stdout
+                    else:
+                        data = b""
+                    with open(dest, "wb") as f:
+                        f.write(data)
+                    return dest
 
-        for line in output.splitlines():
-            if line.startswith("changed in both") or \
-               line.startswith("+++ ") or line.startswith("--- "):
-                # merge-tree section header — extract filename
-                if line.startswith("+++ ") or line.startswith("--- "):
-                    fname = line[4:].strip().lstrip("b/")
-                    if fname and fname not in conflict_files:
-                        if current_file and current_lines:
-                            conflict_content[current_file] = "\n".join(current_lines)
-                        current_file = fname
-                        current_lines = []
-                        conflict_files.append(fname)
-            else:
-                if current_file is not None:
-                    current_lines.append(line)
+                ours_f   = _write_blob(ours_oid, "ours")
+                theirs_f = _write_blob(theirs_oid, "theirs")
+                base_f   = _write_blob(base_oid, "base")
 
-        if current_file and current_lines:
-            conflict_content[current_file] = "\n".join(current_lines)
+                mf = subprocess.run(
+                    ["git", "merge-file", "-p", ours_f, base_f, theirs_f],
+                    capture_output=True, text=True, timeout=10,
+                )
+                orig, orig_start, inc, inc_start = parse_conflict_markers(
+                    mf.stdout.splitlines(keepends=True)
+                )
+                if orig or inc:
+                    conflict_content[fname] = (orig, orig_start, inc, inc_start)
+            except Exception:
+                pass  # conflict_files stays authoritative; content is best-effort
+            finally:
+                import shutil
+                shutil.rmtree(tmpdir, ignore_errors=True)
 
-        # Fallback: if we detected conflict markers but no filenames parsed
-        if not conflict_files and "<<<<<<<" in output:
-            return True, ["(unknown files — check manually)"], {}
-
-        return bool(conflict_files), conflict_files, conflict_content
+        return True, conflict_files, conflict_content
 
     except Exception:
-        return False, [], {}
+        # Could not determine conflict status reliably — fail safe (assume a
+        # conflict so the user is shown the conflict dialog) rather than
+        # silently letting a possibly-conflicting merge go straight to the
+        # GitHub API merge call.
+        return True, ["(unknown — could not verify, check manually)"], {}
 
 
 def merge_pr_locally(path: str, feature_branch: str, target_branch: str,
