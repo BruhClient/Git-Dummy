@@ -76,6 +76,7 @@ class SpatialCanvas(QGraphicsView):
         self._head_sha: str = ""
         self._orientation: str = ORIENT_LR
         self._dimmed_shas: set[str] = set()
+        self._future_shas: set[str] = set()
 
     # ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -128,6 +129,7 @@ class SpatialCanvas(QGraphicsView):
         self._content_rect = QRectF()
         self._selected_sha = None
         self._dimmed_shas.clear()
+        self._future_shas.clear()
         self._commits = commits
         self._you_shas            = you_shas            or set()
         self._local_only_branches = local_only_branches or set()
@@ -144,6 +146,30 @@ class SpatialCanvas(QGraphicsView):
 
         for commit in commits:
             commit.branch = lane_branch.get(lane_map.get(commit.sha, 0), "")
+
+        # ── Identify future (remote-only) commits ────────────────────────────
+        _local_tip_set = local_tip_shas or set()
+        _commit_order  = {c.sha: i for i, c in enumerate(commits)}
+        _local_tip_for_branch: dict[str, tuple[str, int]] = {}
+        for c in commits:
+            if c.sha in _local_tip_set:
+                _local_tip_for_branch[c.branch] = (c.sha, _commit_order.get(c.sha, 10**9))
+        _behind_branches: set[str] = set()
+        for sha, names in branch_tip_map.items():
+            if sha in _local_tip_set:
+                continue
+            for name in names:
+                if name in _local_tip_for_branch:
+                    _, _local_order = _local_tip_for_branch[name]
+                    if _commit_order.get(sha, 10**9) < _local_order:
+                        _behind_branches.add(name)
+                        break
+        self._future_shas = {
+            c.sha for c in commits
+            if c.branch in _behind_branches
+            and c.sha not in _local_tip_set
+            and _commit_order.get(c.sha, 10**9) < _local_tip_for_branch[c.branch][1]
+        }
 
         # ── Filter commits on anonymous lanes (deleted-branch ghosts) ──────
         unnamed_lanes = {lane for lane, name in lane_branch.items() if not name}
@@ -190,6 +216,11 @@ class SpatialCanvas(QGraphicsView):
             commits, positions, lane_map, lane_branch, branch_tip_map, orientation)
         self._draw_nodes(commits, positions, lane_map, lane_branch, branch_tip_map,
                          start_shas, head_sha)
+        for _sha in self._future_shas:
+            if _sha in self._nodes:
+                self._nodes[_sha].setOpacity(0.4)
+            if _sha in self._author_items:
+                self._author_items[_sha].setOpacity(0.4)
         self._draw_text_labels(commits, positions, orientation)
 
         # ── Scene rect ─────────────────────────────────────────────────────
@@ -437,11 +468,12 @@ class SpatialCanvas(QGraphicsView):
         self._dimmed_shas = set(dimmed_shas)
         for commit in self._commits:
             dim     = commit.sha in dimmed_shas
-            opacity = 0.15 if dim else 1.0
+            is_future = commit.sha in self._future_shas
+            opacity = 0.15 if dim else (0.4 if is_future else 1.0)
             if commit.sha in self._nodes:
                 self._nodes[commit.sha].setOpacity(opacity)
             if commit.sha in self._author_items:
-                self._author_items[commit.sha].setOpacity(0.0 if dim else 1.0)
+                self._author_items[commit.sha].setOpacity(0.0 if dim else (0.4 if is_future else 1.0))
         self.viewport_changed.emit()
 
     def scroll_to_sha(self, sha: str):

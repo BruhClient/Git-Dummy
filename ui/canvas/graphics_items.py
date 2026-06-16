@@ -166,17 +166,21 @@ class CommitNode(QGraphicsObject):
             painter.setBrush(QBrush(amber))
             painter.drawEllipse(QPointF(0, r + 5), 3.5, 3.5)
 
-        if self._is_action_head:
+        _show_local  = self._is_action_head or self._is_local_tip
+        _show_remote = self._is_remote_tip
+        if _show_local and _show_remote:
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(QBrush(QColor("#3b82f6")))
+            painter.drawEllipse(QPointF(r + 4, 0), 4, 4)
+            painter.setBrush(QBrush(QColor("#ef4444")))
+            painter.drawEllipse(QPointF(r + 11, 0), 4, 4)
+        elif _show_local:
+            painter.setPen(Qt.NoPen)
+            painter.setBrush(QBrush(QColor("#3b82f6")))
+            painter.drawEllipse(QPointF(r + 6, 0), 4, 4)
+        elif _show_remote:
             painter.setPen(Qt.NoPen)
             painter.setBrush(QBrush(QColor("#ef4444")))
-            painter.drawEllipse(QPointF(r + 6, 0), 4, 4)
-        elif self._is_remote_tip:
-            painter.setPen(Qt.NoPen)
-            painter.setBrush(QBrush(QColor("#ef4444")))
-            painter.drawEllipse(QPointF(r + 6, 0), 4, 4)
-        if self._is_local_tip:
-            painter.setBrush(Qt.NoBrush)
-            painter.setPen(QPen(QColor("#ef4444"), 1.5))
             painter.drawEllipse(QPointF(r + 6, 0), 4, 4)
 
     def hoverEnterEvent(self, _e):

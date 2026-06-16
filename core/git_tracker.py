@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import subprocess
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional
@@ -75,10 +76,15 @@ class GitTracker:
             return "No branch"
 
     def head_sha(self) -> str:
-        if not self._repo:
-            return ""
+        # Use subprocess instead of GitPython to avoid stale in-memory cache
+        # after subprocess-based git checkouts (same reason _local_tip_shas uses
+        # git for-each-ref rather than GitPython branch objects).
         try:
-            return self._repo.head.commit.hexsha
+            r = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                cwd=self._path, capture_output=True, text=True,
+            )
+            return r.stdout.strip() if r.returncode == 0 else ""
         except Exception:
             return ""
 
@@ -158,11 +164,19 @@ class GitTracker:
         remotes_map = {r.name: r for r in self._repo.remotes}
         chosen = remotes_map.get("origin") or next(iter(remotes_map.values()), None)
         if chosen:
-            for ref in chosen.refs:
-                if ref.remote_head == "HEAD":
-                    continue
+            _ref_r = subprocess.run(
+                ["git", "for-each-ref",
+                 f"refs/remotes/{chosen.name}/",
+                 "--format=%(refname:short) %(objectname)"],
+                cwd=self._path, capture_output=True, text=True, timeout=5,
+            )
+            _prefix = chosen.name + "/"
+            for _line in (_ref_r.stdout or "").strip().splitlines():
                 try:
-                    ref_list.append((ref.name, ref.remote_head, ref.commit.hexsha))
+                    _full, _sha = _line.strip().split()
+                    _remote_head = _full[len(_prefix):]
+                    if _remote_head and _remote_head != "HEAD":
+                        ref_list.append((_full, _remote_head, _sha))
                 except Exception:
                     pass
 

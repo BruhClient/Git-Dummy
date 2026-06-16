@@ -27,9 +27,6 @@ def hard_revert_to(path: str, branch: str, target_sha: str) -> tuple[bool, str]:
         if not ok:
             return False, err
 
-    # Remember the branch tip *before* the reset — this is the last state of
-    # the branch this repo actually knew about. Used below to make sure a
-    # force-push doesn't discard remote commits this repo never fetched.
     pre_r = subprocess.run(
         ["git", "rev-parse", branch],
         cwd=path, capture_output=True, text=True, timeout=5,
@@ -39,44 +36,26 @@ def hard_revert_to(path: str, branch: str, target_sha: str) -> tuple[bool, str]:
     ok, err = _run(path, ["git", "reset", "--hard", target_sha])
     if not ok:
         return False, err
-    # Only push if the branch actually exists on origin — skip for local-only repos.
-    ls = subprocess.run(
-        ["git", "ls-remote", "--heads", "origin", branch],
-        cwd=path, capture_output=True, text=True, timeout=10,
-    )
-    if ls.returncode == 0 and ls.stdout.strip():
-        # Fetch first so origin/{branch} reflects the *current* remote state,
-        # not a possibly-stale cached ref.
-        _run(path, ["git", "fetch", "origin", branch], timeout=30)
 
-        origin_r = subprocess.run(
-            ["git", "rev-parse", f"origin/{branch}"],
-            cwd=path, capture_output=True, text=True, timeout=5,
-        )
-        origin_sha = origin_r.stdout.strip() if origin_r.returncode == 0 else ""
-
-        # If origin/{branch} has moved to a commit this repo didn't know about
-        # before the revert (i.e. it isn't an ancestor of our pre-revert tip),
-        # force-pushing now would silently discard those remote-only commits.
-        if origin_sha and pre_reset_sha and origin_sha != pre_reset_sha:
-            anc = subprocess.run(
-                ["git", "merge-base", "--is-ancestor", origin_sha, pre_reset_sha],
-                cwd=path, capture_output=True, text=True, timeout=10,
-            )
-            if anc.returncode != 0:
-                return False, (
-                    f"Local branch reverted, but '{branch}' was NOT force-pushed: "
-                    f"origin/{branch} has commits this repo hadn't fetched yet. "
-                    f"Fetch and review those changes before pushing manually."
-                )
-
+    has_remote = subprocess.run(
+        ["git", "remote", "get-url", "origin"],
+        cwd=path, capture_output=True, timeout=5,
+    ).returncode == 0
+    if has_remote:
         r = subprocess.run(
             ["git", "push", "--force", "origin", branch],
             cwd=path, capture_output=True, text=True, timeout=30,
         )
         if r.returncode != 0:
-            remote_err = r.stderr.strip() or r.stdout.strip()
-            return False, f"Local branch reverted, but remote push failed: {remote_err}"
+            if pre_reset_sha:
+                _run(path, ["git", "reset", "--hard", pre_reset_sha])
+            combined = r.stderr.strip() or r.stdout.strip()
+            if "GH006" in combined or "protected branch" in combined.lower():
+                return False, (
+                    f"'{branch}' is protected on GitHub — force-push rejected. "
+                    f"Remove branch protection in GitHub → Settings → Branches to hard revert."
+                )
+            return False, f"Remote push failed — nothing was changed: {combined}"
     return True, ""
 
 

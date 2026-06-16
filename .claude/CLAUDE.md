@@ -12,6 +12,18 @@ venv\Scripts\activate        # Windows
 python main.py
 ```
 
+## Debugging — use print statements liberally
+
+**Print statements are the primary diagnostic tool in this project.** There is no debugger attached, no test suite, and no logging framework — `print()` to stdout is the fastest way to understand what's happening, especially across threads.
+
+Where to put them:
+- **Worker `run()` methods** (`ui/workers/commit_workers.py`) — print the inputs and the result tuple `(ok, err)` from every `core/ops` call so you can see exactly what git returned.
+- **Done-handlers in `commit_view.py`** — print the signal payload on arrival and the current value of `_panel_op_active` / `_navigating` to catch flag-reset bugs.
+- **`core/ops/` functions** — print the exact subprocess command list and the raw `stdout` / `stderr` before the function returns, so you know what git actually said vs. what the caller received.
+- **Canvas / lane algorithm** — print lane assignments and `branch_tip_map` inside `_compute_lanes` to diagnose mis-attributed commits.
+
+When you add a print, be specific: include the function name and a short label so the output is scannable (`print(f"[push_branch] cmd={cmd} ok={ok} err={err[:120]}")`). Remove diagnostic prints before committing — they're a temporary tool, not permanent logging.
+
 ## Installing dependencies
 
 ```bash
@@ -68,19 +80,18 @@ ui/
   workers/          # commit_workers (QObject workers), repo_workers
   components/       # avatar cache, LoadingOverlay, HeaderBar, ZoomBar, Legend,
   │                 #   CollaboratorPanel, Toast, ExploreBanner, NoRemoteView
-  commit_view.py    # CommitViewPage (~3300 lines) — main repo/graph page
-  repo_page.py      # RepoPage — repo list / picker
-  main_window.py    # MainWindow
-  auth_page.py      # AuthPage
+  commit_view.py         # CommitViewPage (~2150 lines) — main repo/graph page
+  commit_view_pr.py      # _PRMixin — PR inbox, wizard, merge handlers (extracted from commit_view.py)
+  commit_view_widgets.py # Presentation-only QWidget subclasses (extracted from commit_view.py)
+  repo_page.py           # RepoPage — repo list / picker
+  main_window.py         # MainWindow
+  auth_page.py           # AuthPage
 
 auth/
   github_auth.py    # single-account OAuth flow
 styles/
   theme.py          # COLORS, make_global_style(), named style constants
 ```
-
-> **Note:** `ui/spatial_canvas.py` (top-level, ~1300 lines) is a stale, unused duplicate.
-> The live canvas is `ui/canvas/spatial_canvas.py`, exported via `ui/canvas/__init__.py`.
 
 ### Persisted files (under `~`)
 - `.evogit_accounts.json` — saved OAuth session (legacy single-token file: `.evogit_token.json`)
@@ -154,3 +165,13 @@ Exposes `_default_branch: str` (default `"main"`, seeded from `get_default_branc
 - On any failure path, abort in-progress merges (`git merge --abort`) and unstage (`git reset HEAD`) before returning so the repo is left clean.
 - `push_branch` (`core/ops/github_ops.py`) checks `stdout + stderr` combined for `"rejected"` / `"non-fast-forward"` — git writes the rejection table to stdout, not stderr.
 - Domain split: `base_ops` (checkout, reset, conflict helpers), `stash_ops`, `diff_ops`, `merge_ops`, `revert_ops`, `branch_ops`, `github_ops`, `repo_ops`. `core/ops/__init__.py` re-exports everything.
+
+## Current development focus: evo-git-polish
+
+The active improvement initiative for this codebase has three aims:
+
+- **Polish** — visual/UX consistency, spacing, copy, interaction flows across `ui/panels/*`, `ui/dialogs/*`, `ui/components/*`.
+- **Proactive bug-hunting** — find and fix bugs that haven't been reported yet, not just reactive fixes. The ranked backlog in `.claude/agents/action-catalog.md` (Part 2) is the starting checklist; there will be more.
+- **Beginner/non-coder UX** — make the app approachable for people who don't know git: plain-language labels, tooltips explaining git concepts (commit, branch, merge, stash), simplified default views, friendlier error messages.
+
+Agent team members most relevant to this initiative: `ui-ux-polish` (visual/UX), `git-actions-debugger` (bug-hunting from the action catalog backlog), and `code-quality-refactor` (structural cleanup that unblocks polish work).

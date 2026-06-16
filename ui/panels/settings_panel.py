@@ -1,4 +1,4 @@
-"""Settings panel — repo info, collaborators, branch protection."""
+"""Settings panel — repo info and collaborators."""
 from __future__ import annotations
 
 import hashlib
@@ -9,7 +9,7 @@ import threading
 import qtawesome as qta
 import requests
 
-from PyQt5.QtCore import (Qt, QPropertyAnimation, QEasingCurve, QTimer,
+from PyQt5.QtCore import (Qt, QPropertyAnimation, QEasingCurve,
                            pyqtSignal, pyqtProperty, QRectF)
 from PyQt5.QtGui import QPainter, QColor, QBrush, QPen, QPixmap, QFont
 from PyQt5.QtWidgets import (
@@ -268,6 +268,24 @@ def _divider() -> QFrame:
     return f
 
 
+_RULE_LABELS: dict[str, str] = {
+    "pull_request":            "Require pull request",
+    "non_fast_forward":        "Block force-push",
+    "deletion":                "Block branch deletion",
+    "required_signatures":     "Require signed commits",
+    "required_linear_history": "Require linear history",
+    "required_status_checks":  "Require status checks",
+    "creation":                "Restrict branch creation",
+    "update":                  "Restrict branch updates",
+}
+
+
+def _humanize_ref(pattern: str) -> str:
+    if pattern == "~DEFAULT_BRANCH": return "default branch"
+    if pattern == "~ALL":            return "all branches"
+    return pattern.replace("refs/heads/", "")
+
+
 # ── Icon stat widget ──────────────────────────────────────────────────────────
 
 class _IconStat(QWidget):
@@ -294,10 +312,9 @@ class _IconStat(QWidget):
 # ── Settings panel ────────────────────────────────────────────────────────────
 
 class SettingsPanel(QWidget):
-    protection_changed  = pyqtSignal(bool)
-    _protection_ready   = pyqtSignal(bool)   # thread → main: fetched state
-    _push_done          = pyqtSignal(str, bool, bool)  # message, ok, intended_state
     _repo_info_ready    = pyqtSignal(dict)   # thread → main: repo API data
+    _rulesets_ready_sig    = pyqtSignal(list, str)  # thread → main: (rulesets, status)
+    _branch_protection_sig = pyqtSignal(str, bool)  # thread → main: (branch_name, is_protected)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -306,14 +323,13 @@ class SettingsPanel(QWidget):
 
         self._tracker        = None
         self._user:          dict = {}
-        self._is_owner:      bool = False
         self._token:         str  = ""
-        self._protection_enabled: bool = False
         self._default_branch: str = "main"
+        self._branch_protected_state: tuple | None = None  # (branch, protected)
 
-        self._protection_ready.connect(self._apply_protection)
-        self._push_done.connect(self._set_status)
         self._repo_info_ready.connect(self._apply_repo_info)
+        self._rulesets_ready_sig.connect(lambda rs, st: self._on_rulesets_ready(rs, st))
+        self._branch_protection_sig.connect(self._on_branch_protection)
 
         # Root scroll
         scroll = QScrollArea(self)
@@ -469,67 +485,74 @@ class SettingsPanel(QWidget):
 
         self._content_layout.addWidget(collab_card)
         self._collab_card = collab_card
+
         self._content_layout.addSpacing(20)
 
-        # ── Branch protection (owner only) ────────────────────────────────────
-        self._owner_section = QWidget()
-        self._owner_section.setStyleSheet("background: transparent; border: none;")
-        owner_vl = QVBoxLayout(self._owner_section)
-        owner_vl.setContentsMargins(0, 0, 0, 0)
-        owner_vl.setSpacing(10)
+        # ── Branch Rules (collapsible) ────────────────────────────────────────
+        self._content_layout.addWidget(_section_lbl("BRANCH RULES"))
+        self._content_layout.addSpacing(10)
 
-        owner_vl.addWidget(_divider())
-        owner_vl.addSpacing(10)
-        owner_vl.addWidget(_section_lbl("BRANCH PROTECTION"))
-        owner_vl.addSpacing(10)
-
-        protection_card = QWidget()
-        protection_card.setObjectName("protCard")
-        protection_card.setAttribute(Qt.WA_StyledBackground, True)
-        protection_card.setStyleSheet(f"""
-            #protCard {{
+        self._rules_expanded = True
+        rules_card = QWidget()
+        rules_card.setObjectName("rulesCard")
+        rules_card.setAttribute(Qt.WA_StyledBackground, True)
+        rules_card.setStyleSheet(f"""
+            #rulesCard {{
                 background: {COLORS['bg_card']};
                 border: 1px solid {COLORS['border']};
                 border-radius: 8px;
             }}
         """)
-        pc_layout = QVBoxLayout(protection_card)
-        pc_layout.setContentsMargins(14, 12, 14, 12)
-        pc_layout.setSpacing(10)
+        rules_card_vl = QVBoxLayout(rules_card)
+        rules_card_vl.setContentsMargins(0, 0, 0, 0)
+        rules_card_vl.setSpacing(0)
 
-        toggle_row = QHBoxLayout()
-        toggle_row.setSpacing(12)
-        toggle_lbl_col = QVBoxLayout()
-        toggle_lbl_col.setSpacing(2)
-        prot_lbl = QLabel("Require pull requests")
-        prot_lbl.setStyleSheet(
-            f"background: transparent; font-size: 13px; font-weight: 600; font-family: 'Tilt Warp';"
-            f" color: {COLORS['text_primary']};"
+        rules_hdr = QWidget()
+        rules_hdr.setFixedHeight(38)
+        rules_hdr.setStyleSheet("background: transparent;")
+        rh_layout = QHBoxLayout(rules_hdr)
+        rh_layout.setContentsMargins(14, 0, 10, 0)
+        rh_layout.setSpacing(8)
+        rh_lbl = QLabel("Branch Rules")
+        rh_lbl.setStyleSheet(
+            f"background: transparent; font-size: 12px; font-weight: 600; font-family: 'Tilt Warp';"
+            f" color: {COLORS['text_muted']};"
         )
-        toggle_lbl_col.addWidget(prot_lbl)
-        prot_sub = QLabel("Block direct pushes to the default branch.")
-        prot_sub.setStyleSheet(
-            f"background: transparent; font-size: 11px; color: {COLORS['text_muted']};"
+        rh_layout.addWidget(rh_lbl)
+        rh_layout.addStretch()
+        self._rules_toggle = QPushButton("▾")
+        self._rules_toggle.setFixedSize(24, 24)
+        self._rules_toggle.setCursor(Qt.PointingHandCursor)
+        self._rules_toggle.setStyleSheet(f"""
+            QPushButton {{ background: transparent; border: none;
+                color: {COLORS['text_muted']}; font-size: 11px; }}
+            QPushButton:hover {{ color: {COLORS['text_primary']}; }}
+        """)
+        self._rules_toggle.clicked.connect(self._toggle_rules)
+        rh_layout.addWidget(self._rules_toggle)
+        rules_card_vl.addWidget(rules_hdr)
+
+        rdiv = QFrame()
+        rdiv.setFrameShape(QFrame.HLine)
+        rdiv.setStyleSheet(f"background: {COLORS['border']}; max-height: 1px; border: none;")
+        rules_card_vl.addWidget(rdiv)
+
+        self._rules_body = QWidget()
+        self._rules_body.setStyleSheet("background: transparent;")
+        self._rules_list = QVBoxLayout(self._rules_body)
+        self._rules_list.setContentsMargins(10, 8, 10, 10)
+        self._rules_list.setSpacing(8)
+
+        _loading = QLabel("Loading…")
+        _loading.setAlignment(Qt.AlignCenter)
+        _loading.setStyleSheet(
+            f"background: transparent; font-size: 12px; color: {COLORS['text_muted']}; padding: 8px 0;"
         )
-        toggle_lbl_col.addWidget(prot_sub)
-        toggle_row.addLayout(toggle_lbl_col)
-        toggle_row.addStretch()
-        self._prot_toggle = _Toggle()
-        self._prot_toggle.toggled.connect(self._on_protection_toggled)
-        toggle_row.addWidget(self._prot_toggle)
-        pc_layout.addLayout(toggle_row)
+        self._rules_list.addWidget(_loading)
+        rules_card_vl.addWidget(self._rules_body)
 
-        self._prot_status = QLabel("")
-        self._prot_status.setStyleSheet(
-            f"background: transparent; font-size: 11px; color: {COLORS['text_muted']};"
-        )
-        self._prot_status.hide()
-        pc_layout.addWidget(self._prot_status)
-
-        owner_vl.addWidget(protection_card)
-
-        self._content_layout.addWidget(self._owner_section)
-        self._owner_section.hide()
+        self._content_layout.addWidget(rules_card)
+        self._rules_card = rules_card
 
         self._content_layout.addStretch()
 
@@ -542,30 +565,24 @@ class SettingsPanel(QWidget):
 
     # ── Public ────────────────────────────────────────────────────────────────
 
-    def setup(self, tracker, user: dict, is_owner: bool, token: str):
+    def setup(self, tracker, user: dict, token: str):
         self._tracker   = tracker
         self._user      = user
-        self._is_owner  = is_owner
         self._token     = token
+        self._branch_protected_state = None
 
         # Seed _default_branch from local git immediately (before async GitHub API fetch).
-        # The GitHub API path (_apply_repo_info) will override this with the authoritative
-        # value when it arrives.
         if tracker:
             from core.ops import get_default_branch
             self._default_branch = get_default_branch(tracker._path)
         else:
             self._default_branch = "main"
 
-        # Repo name placeholder
         if tracker:
             self._repo_name_lbl.setText(tracker.repo_name)
 
-        self._owner_section.setVisible(is_owner)
-
         if tracker and token:
-            threading.Thread(target=self._fetch_repo_info,  daemon=True).start()
-            threading.Thread(target=self._fetch_protection, daemon=True).start()
+            threading.Thread(target=self._fetch_repo_info, daemon=True).start()
 
     def load_collaborators(self, collabs: list[dict], current_login: str = ""):
         while self._collab_list.count():
@@ -630,8 +647,41 @@ class SettingsPanel(QWidget):
             if r.status_code == 200:
                 data = r.json()
                 self._repo_info_ready.emit(data)
+                default_branch = data.get("default_branch", "main")
+                try:
+                    br = requests.get(
+                        f"https://api.github.com/repos/{owner}/{repo}/branches/{default_branch}",
+                        headers={"Authorization": f"Bearer {self._token}",
+                                 "Accept": "application/vnd.github+json"},
+                        timeout=10,
+                    )
+                    if br.status_code == 200:
+                        self._branch_protection_sig.emit(
+                            default_branch, br.json().get("protected", False)
+                        )
+                except Exception:
+                    pass
+            self._fetch_rulesets(owner, repo, self._token)
         except Exception:
             pass
+
+    def _fetch_rulesets(self, owner: str, repo: str, token: str):
+        try:
+            r = requests.get(
+                f"https://api.github.com/repos/{owner}/{repo}/rulesets",
+                params={"includes_parents": "true"},
+                headers={"Authorization": f"Bearer {token}",
+                         "Accept": "application/vnd.github+json"},
+                timeout=10,
+            )
+            if r.status_code == 200:
+                self._rulesets_ready_sig.emit(r.json(), "")
+            elif r.status_code == 403:
+                self._rulesets_ready_sig.emit([], "pro_required")
+            else:
+                self._rulesets_ready_sig.emit([], "error")
+        except Exception:
+            self._rulesets_ready_sig.emit([], "error")
 
     def _apply_repo_info(self, data: dict):
         self._default_branch = data.get("default_branch") or self._default_branch
@@ -646,90 +696,131 @@ class SettingsPanel(QWidget):
         self._forks_stat.set_count(data.get("forks_count", 0))
         self._watch_stat.set_count(data.get("subscribers_count", 0))
 
-    def _fetch_protection(self):
-        try:
-            url = self._tracker.remote_url()
-            m = re.search(r'github\.com[:/]([^/]+)/([^/]+?)(?:\.git)?$', url)
-            if not m:
-                return
-            owner, repo = m.group(1), m.group(2)
-            branch = self._default_branch
-            r = requests.get(
-                f"https://api.github.com/repos/{owner}/{repo}/branches/{branch}/protection",
-                headers={"Authorization": f"Bearer {self._token}",
-                         "Accept": "application/vnd.github+json"},
-                timeout=10,
-            )
-            self._protection_ready.emit(r.status_code == 200)
-        except Exception:
-            pass
+    def _on_branch_protection(self, branch: str, protected: bool):
+        self._branch_protected_state = (branch, protected)
+        # Row insertion deferred to _on_rulesets_ready to avoid double-insert
+        # and to allow the rulesets pass to upgrade protection state first.
 
-    def _apply_protection(self, enabled: bool):
-        self._protection_enabled = enabled
-        self._prot_toggle.set_state(enabled)
-        self.protection_changed.emit(enabled)
+    def _insert_protection_row(self, branch: str, protected: bool):
+        row = QWidget()
+        row.setStyleSheet("background: transparent;")
+        hl = QHBoxLayout(row)
+        hl.setContentsMargins(2, 2, 2, 6)
+        hl.setSpacing(6)
 
-    def _on_protection_toggled(self, on: bool):
-        self._prot_toggle.setEnabled(False)
-        self._protection_enabled = on
-        self.protection_changed.emit(on)
-        self._prot_status.setStyleSheet(
-            f"background: transparent; font-size: 11px; color: {COLORS['text_muted']};"
+        icon_name  = "fa5s.lock" if protected else "fa5s.lock-open"
+        icon_color = COLORS.get("warning", "#f59e0b") if protected else COLORS["text_muted"]
+        icon_lbl = QLabel()
+        icon_lbl.setPixmap(qta.icon(icon_name, color=icon_color).pixmap(12, 12))
+        icon_lbl.setStyleSheet("background: transparent;")
+        hl.addWidget(icon_lbl)
+
+        if protected:
+            text  = f"{branch} is protected — force-push and direct commits are blocked."
+            color = COLORS.get("warning", "#f59e0b")
+        else:
+            text  = f"{branch} is not protected"
+            color = COLORS["text_muted"]
+
+        text_lbl = QLabel(text)
+        text_lbl.setWordWrap(True)
+        text_lbl.setStyleSheet(
+            f"background: transparent; font-size: 12px; color: {color};"
         )
-        self._prot_status.setText("Updating…")
-        self._prot_status.show()
-        threading.Thread(target=self._push_protection, args=(on,), daemon=True).start()
+        hl.addWidget(text_lbl, 1)
 
-    def _push_protection(self, enable: bool):
-        try:
-            url = self._tracker.remote_url()
-            m = re.search(r'github\.com[:/]([^/]+)/([^/]+?)(?:\.git)?$', url)
-            if not m:
-                return
-            owner, repo = m.group(1), m.group(2)
-            branch = self._default_branch
-            api_url = f"https://api.github.com/repos/{owner}/{repo}/branches/{branch}/protection"
-            hdrs = {"Authorization": f"Bearer {self._token}",
-                    "Accept": "application/vnd.github+json"}
-            if enable:
-                body = {
-                    "required_status_checks": None,
-                    "enforce_admins": True,
-                    "required_pull_request_reviews": {
-                        "required_approving_review_count": 0,
-                        "require_code_owner_reviews": False,
-                    },
-                    "restrictions": None,
-                }
-                r = requests.put(api_url, json=body, headers=hdrs, timeout=15)
-                ok = r.status_code in (200, 201)
+        self._rules_list.insertWidget(0, row)
+
+    def _toggle_rules(self):
+        self._rules_expanded = not self._rules_expanded
+        self._rules_body.setVisible(self._rules_expanded)
+        self._rules_toggle.setText("▾" if self._rules_expanded else "▸")
+        self._rules_card.adjustSize()
+
+    def _on_rulesets_ready(self, rulesets: list, status: str):
+        while self._rules_list.count():
+            item = self._rules_list.takeAt(0)
+            w = item.widget()
+            if w:
+                w.setParent(None)
+
+        if status == "pro_required":
+            msg = QLabel("Requires GitHub Pro for private repos")
+            msg.setAlignment(Qt.AlignCenter)
+            msg.setWordWrap(True)
+            msg.setStyleSheet(
+                f"background: transparent; font-size: 12px; font-style: italic;"
+                f" color: {COLORS['text_muted']}; padding: 8px 0;"
+            )
+            self._rules_list.addWidget(msg)
+        else:
+            active = [rs for rs in rulesets
+                      if rs.get("enforcement") == "active" and rs.get("target") == "branch"]
+
+            # Rulesets can enforce protection even when the branch API says protected=False.
+            if active and self._default_branch:
+                already = self._branch_protected_state and self._branch_protected_state[1]
+                if not already:
+                    self._branch_protected_state = (self._default_branch, True)
+                    self._branch_protection_sig.emit(self._default_branch, True)
+
+            if not active:
+                empty = QLabel("No rules configured")
+                empty.setAlignment(Qt.AlignCenter)
+                empty.setStyleSheet(
+                    f"background: transparent; font-size: 12px; font-style: italic;"
+                    f" color: {COLORS['text_muted']}; padding: 8px 0;"
+                )
+                self._rules_list.addWidget(empty)
             else:
-                r = requests.delete(api_url, headers=hdrs, timeout=15)
-                ok = r.status_code == 204
+                for rs in active:
+                    self._rules_list.addWidget(self._build_ruleset_card(rs))
 
-            if ok:
-                msg = "Protection enabled." if enable else "Protection disabled."
-            elif r.status_code == 403:
-                msg = "Failed — branch protection requires GitHub Pro (or Team/Enterprise) for private repos."
-            else:
-                try:
-                    detail = r.json().get("message", "")
-                except Exception:
-                    detail = ""
-                msg = f"Failed ({r.status_code}){' — ' + detail if detail else ' — check repo permissions'}."
-            self._push_done.emit(msg, ok, enable)
-        except Exception:
-            self._push_done.emit("Error contacting GitHub.", False, enable)
+        # Always re-insert the protection status row at the top if we have it.
+        if self._branch_protected_state:
+            self._insert_protection_row(*self._branch_protected_state)
 
-    def _set_status(self, msg: str, ok: bool, intended: bool):
-        if not ok:
-            reverted = not intended
-            self._protection_enabled = reverted
-            self._prot_toggle.set_state(reverted)
-            self.protection_changed.emit(reverted)
-        self._prot_toggle.setEnabled(True)
-        color = COLORS["text_muted"] if ok else COLORS["danger"]
-        self._prot_status.setStyleSheet(f"background: transparent; font-size: 11px; color: {color};")
-        self._prot_status.setText(msg)
-        self._prot_status.show()
-        QTimer.singleShot(3000, self._prot_status.hide)
+    def _build_ruleset_card(self, rs: dict) -> QWidget:
+        card = QWidget()
+        card.setAttribute(Qt.WA_StyledBackground, True)
+        card.setStyleSheet(f"""
+            QWidget {{
+                background: {COLORS['bg_secondary']};
+                border-radius: 6px;
+            }}
+        """)
+        vl = QVBoxLayout(card)
+        vl.setContentsMargins(10, 8, 10, 10)
+        vl.setSpacing(4)
+
+        name_lbl = QLabel(rs.get("name", "Unnamed ruleset"))
+        name_lbl.setStyleSheet(
+            f"background: transparent; font-size: 13px; font-weight: 700; font-family: 'Tilt Warp';"
+            f" color: {COLORS['text_primary']};"
+        )
+        vl.addWidget(name_lbl)
+
+        conditions = rs.get("conditions") or {}
+        ref_name   = conditions.get("ref_name") or {}
+        includes   = ref_name.get("include") or []
+        if includes:
+            targets = ", ".join(_humanize_ref(p) for p in includes)
+            target_lbl = QLabel(targets)
+            target_lbl.setStyleSheet(
+                f"background: transparent; font-size: 11px; font-family: monospace;"
+                f" color: {COLORS['text_muted']};"
+            )
+            vl.addWidget(target_lbl)
+
+        for rule in (rs.get("rules") or []):
+            label = _RULE_LABELS.get(rule.get("type", ""))
+            if not label:
+                continue
+            rule_lbl = QLabel(f"• {label}")
+            rule_lbl.setStyleSheet(
+                f"background: transparent; font-size: 12px; color: {COLORS['text_secondary']};"
+            )
+            vl.addWidget(rule_lbl)
+
+        return card
+

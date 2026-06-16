@@ -23,7 +23,6 @@ from core.ops import (current_branch, branch_for_commit,
                       get_stash_files, get_stash_ref_for_commit,
                       get_branch_unique_commits)
 from core import settings_store
-from core import collab_cache
 from ui.canvas import SpatialCanvas, MiniMap, ORIENT_LR
 from ui.panels import DetailPanel, ChangesPanel, PANEL_W as DETAIL_PANEL_W, CHANGES_W
 from ui.panels.position_panel import PositionPanel
@@ -35,7 +34,7 @@ from ui.components.avatar import _AVATAR_CACHE, _AVATAR_DIR, _avatar_disk_path, 
 from ui.workers.commit_workers import (
     _CollabLoader, _Loader, _CommitDetailWorker, _VisibilityWorker,
     _FetchWorker, _UncommittedRefreshWorker, _NavigateWorker,
-    _FirstCommitWorker, _CreateRepoWorker, _PermCheckWorker,
+    _FirstCommitWorker, _CreateRepoWorker,
 )
 from ui.dialogs.github_connect import _GitHubConnectDialog
 from ui.components.loading_overlay import _LoadingOverlay
@@ -94,7 +93,6 @@ def _compute_branch_depths(commits: list, local_tip_branch: dict,
 
 class CommitViewPage(_PRMixin, QWidget):
     _op_done        = pyqtSignal(bool, str, str, str, bool)  # ok, err, success_msg, fail_prefix, close_panel
-    _auto_pulled    = pyqtSignal(list)                       # list of branch names pulled
     _push_done_sig      = pyqtSignal(bool, str, str, list, object)  # ok, err, branch, conflict_files, content
     _conflict_done_sig      = pyqtSignal(bool, str, str)         # ok, err, branch
     _merge_done_sig         = pyqtSignal(bool, str, list, str, str, object)  # ok, err, files, source, target, content
@@ -103,13 +101,10 @@ class CommitViewPage(_PRMixin, QWidget):
     _create_done_sig= pyqtSignal(bool, str, str)             # ok, err, branch_name
     _stash_done_sig = pyqtSignal(bool, str, list, object)   # ok, msg, conflict_files, conflict_content
     # PR wizard signals (thread → main)
-    _wizard_commit_done_sig = pyqtSignal(bool, str)          # ok, err
     _wizard_push_done_sig   = pyqtSignal(bool, str)          # ok, err
     _wizard_pr_done_sig     = pyqtSignal(bool, str)          # ok, err
     # PR merge conflict check (thread → main)
     _pr_conflict_check_sig  = pyqtSignal(bool, list, object, object)  # has_conflicts, files, content, pr
-    # Collaborator permission check (thread → main)
-    _perm_check_done_sig    = pyqtSignal(bool)
     # Emitted when repo access is denied (private / inaccessible) — carries repo path
     access_denied           = pyqtSignal(str)
 
@@ -143,11 +138,11 @@ class CommitViewPage(_PRMixin, QWidget):
         self._content_stack.addWidget(self._canvas)   # index 0 — Schema
 
         self._settings_panel = SettingsPanel()
-        self._settings_panel.protection_changed.connect(self._on_protection_changed)
         self._content_stack.addWidget(self._settings_panel)  # index 1 — Settings
 
         self._panel    = DetailPanel(self)
         self._panel.raise_()
+        self._settings_panel._branch_protection_sig.connect(self._on_branch_protection_state)
 
         self._changes_panel = ChangesPanel(self)
         self._changes_panel.raise_()
@@ -198,8 +193,6 @@ class CommitViewPage(_PRMixin, QWidget):
         # PR Open Wizard — full-screen modal overlay
         from ui.dialogs.pr_open_wizard import PROpenWizard
         self._pr_wizard = PROpenWizard(self)
-        self._pr_wizard.commit_requested.connect(self._on_wizard_commit)
-        self._pr_wizard.discard_requested.connect(self._on_wizard_discard)
         self._pr_wizard.push_requested.connect(self._on_wizard_push)
         self._pr_wizard.pr_submitted.connect(self._on_wizard_pr_submit)
         self._pr_wizard.cancelled.connect(lambda: None)
@@ -232,7 +225,6 @@ class CommitViewPage(_PRMixin, QWidget):
 
         self._settings_loaded = False
         self._op_done.connect(self._on_branch_op_done)
-        self._auto_pulled.connect(self._on_auto_pulled)
         self._push_done_sig.connect(self._on_push_done)
         self._conflict_done_sig.connect(self._on_conflict_done)
         self._merge_done_sig.connect(self._on_merge_done)
@@ -241,11 +233,9 @@ class CommitViewPage(_PRMixin, QWidget):
         self._create_done_sig.connect(self._on_branch_create_done)
         self._stash_done_sig.connect(self._on_clear_stash_done)
         # PR wizard / inbox signals
-        self._wizard_commit_done_sig.connect(self._on_wizard_commit_done)
         self._wizard_push_done_sig.connect(self._on_wizard_push_done)
         self._wizard_pr_done_sig.connect(self._on_wizard_pr_done)
         self._pr_conflict_check_sig.connect(self._on_pr_conflict_check)
-        self._perm_check_done_sig.connect(self._on_perm_check_done)
         self._pending_merge_pr: dict = {}
 
         self._orientation: str = ORIENT_LR
@@ -253,16 +243,10 @@ class CommitViewPage(_PRMixin, QWidget):
         self._filter_rebuilding: bool = False
 
         self._user: dict = {}
-        self._protection_enabled: bool = False
-        self._pr_panel_loaded:   bool = False
-        self._collab_roles:     dict  = {}   # login → "owner"|"admin"|"maintain"|"write"
-        self._collab_thread:    Optional[QThread] = None
-        self._collab_worker     = None
-        self._perm_thread:           Optional[QThread] = None
-        self._perm_worker            = None
-        self._is_viewer:             bool              = False
-        self._pending_viewer_check:  bool              = False
-        self._pending_create_remote: bool              = False
+        self._pr_panel_loaded:      bool = False
+        self._collab_thread:        Optional[QThread] = None
+        self._collab_worker         = None
+        self._pending_create_remote: bool = False
         self._create_remote_dlg                        = None
         self._fetch_thread:     Optional[QThread] = None
         self._detail_thread:    Optional[QThread] = None
@@ -277,9 +261,9 @@ class CommitViewPage(_PRMixin, QWidget):
         self._uncommitted_worker  = None
         self._commits: list = []
         self._collaborators: list = []
+        self._collab_cache: dict[str, list[dict]] = {}
         self._you_shas: set = set()
         self._last_head_sha: str = ""
-        self._collab_cache: dict[str, list[dict]] = {}
         self._last_commit_shas: tuple = ()
         self._last_branch_tips: dict = {}
         self._last_local_only: set = set()
@@ -377,7 +361,7 @@ class CommitViewPage(_PRMixin, QWidget):
     def _stop_all_threads(self):
         # 1. Disconnect all worker signals FIRST so no callbacks fire after this point
         for attr in ("_worker", "_collab_worker", "_fetch_worker",
-                     "_detail_worker", "_vis_worker", "_perm_worker"):
+                     "_detail_worker", "_vis_worker"):
             w = getattr(self, attr, None)
             if w is not None:
                 try:
@@ -395,7 +379,6 @@ class CommitViewPage(_PRMixin, QWidget):
             ("_vis_thread",      "_vis_worker"),
             ("_navigate_thread",    "_navigate_worker"),
             ("_uncommitted_thread", "_uncommitted_worker"),
-            ("_perm_thread",        "_perm_worker"),
         ):
             t = getattr(self, t_attr, None)
             w = getattr(self, w_attr, None)
@@ -418,14 +401,10 @@ class CommitViewPage(_PRMixin, QWidget):
         # Clear the canvas and show the overlay immediately so the old project's
         # graph is never visible when this page becomes visible after the switch.
         self._canvas.load_graph([], {})
-        self._is_viewer            = False
-        self._pending_viewer_check = False
         self._pending_create_remote = False
         if self._create_remote_dlg:
             self._create_remote_dlg.hide()
             self._create_remote_dlg = None
-        self._tab_bar.set_viewer_mode(False)
-        self._header.set_viewer_mode(False)
         self._loading.show()
         self._loading.raise_()
 
@@ -476,11 +455,7 @@ class CommitViewPage(_PRMixin, QWidget):
         self._orient_bar.set_orientation(self._orientation)
 
         self._settings_loaded    = False
-        self._protection_enabled = False
         self._pr_panel_loaded    = False
-        self._collab_roles       = {}
-        self._panel.set_user_role("write")   # reset until roles are fetched
-        self._on_protection_changed(False)
         has_remote = self._tracker.has_remote()
         self._no_remote_banner.hide()
         self._header.set_connection_state(has_remote)
@@ -514,15 +489,6 @@ class CommitViewPage(_PRMixin, QWidget):
             )
             return
 
-        owner    = self._tracker.repo_owner() if has_remote else ""
-        my_login = self._user.get("login", "")
-        token    = self._user.get("access_token", "")
-        if has_remote and token and owner and owner != my_login:
-            # Defer: _on_visibility_ready will check if public/private before spawning
-            # _PermCheckWorker. _VisibilityWorker is already running from above.
-            self._pending_viewer_check = True
-            return
-
         self._start_load(initial=True)
         self._load_collaborators()
 
@@ -530,8 +496,6 @@ class CommitViewPage(_PRMixin, QWidget):
 
     def _start_load(self, initial: bool = False):
         if not self._tracker:
-            return
-        if self._pending_viewer_check:
             return
         if self._pending_create_remote:
             return
@@ -570,33 +534,6 @@ class CommitViewPage(_PRMixin, QWidget):
             )
             return
 
-        if self._pending_viewer_check:
-            self._pending_viewer_check = False
-            if visibility != "public":
-                dlg = QMessageBox(self)
-                dlg.setWindowTitle("Repository Not Accessible")
-                if visibility in ("private", "not_found"):
-                    dlg.setText("This repository is private or does not exist.")
-                else:
-                    dlg.setText("This repository is not accessible.")
-                dlg.setInformativeText(
-                    "You can only view public repositories you're not a collaborator on."
-                )
-                dlg.setIcon(QMessageBox.Warning)
-                dlg.exec_()
-                self.access_denied.emit(self._tracker._path if self._tracker else "")
-                return
-            # Confirmed public — proceed with collaborator permission check
-            my_login = self._user.get("login", "")
-            token    = self._user.get("access_token", "")
-            self._perm_thread = QThread()
-            self._perm_worker = _PermCheckWorker(owner, self._tracker.repo_name, my_login, token)
-            self._perm_worker.moveToThread(self._perm_thread)
-            self._perm_thread.started.connect(self._perm_worker.run)
-            self._perm_worker.finished.connect(self._perm_check_done_sig)
-            self._perm_worker.finished.connect(self._perm_thread.quit)
-            self._perm_thread.finished.connect(lambda: setattr(self, "_perm_thread", None))
-            self._perm_thread.start()
 
     def _poll_remote(self):
         if not self._tracker or not self._tracker.has_remote():
@@ -625,7 +562,6 @@ class CommitViewPage(_PRMixin, QWidget):
         if changed:
             self._reload_from_remote = True
             self._start_load()
-        self._load_collaborators()
 
     def _find_nearest_surviving_ancestor(self, deleted_sha: str, new_sha_set: set) -> str:
         """BFS up the old commit graph from deleted_sha, returning the first
@@ -922,8 +858,6 @@ class CommitViewPage(_PRMixin, QWidget):
 
         self._you_shas = self._compute_you_shas(commits)
 
-        # Auto fast-forward pull any local branch that is strictly behind remote
-        self._trigger_auto_pull(commits)
 
         self._canvas.load_graph(commits, branch_tip_map,
                                 you_shas=self._you_shas,
@@ -1018,25 +952,12 @@ class CommitViewPage(_PRMixin, QWidget):
             return
 
         cache_key = self._tracker.remote_url()
-
-        # 1. Session memory cache — instant, no spinner
         if cache_key and cache_key in self._collab_cache:
             self._on_collabs_loaded(self._collab_cache[cache_key])
             return
 
-        # 2. Disk cache — instant if fresh, silent background refresh if stale
-        if cache_key:
-            disk_data, is_stale = collab_cache.get(cache_key)
-            if disk_data is not None:
-                self._on_collabs_loaded(disk_data)
-                if not is_stale:
-                    return
-                # Stale: refresh silently without showing a spinner
-
-        # 3. Nothing cached — show spinner and fetch
         if self._collab_thread and self._collab_thread.isRunning():
-            self._collab_thread.quit()
-            self._collab_thread.wait()
+            return
 
         self._collab_thread  = QThread()
         self._collab_worker  = _CollabLoader(self._tracker._path, token)
@@ -1046,16 +967,8 @@ class CommitViewPage(_PRMixin, QWidget):
         self._collab_worker.finished.connect(self._collab_thread.quit)
         self._collab_thread.start()
 
-    @pyqtSlot(bool)
-    def _on_perm_check_done(self, has_access: bool):
-        if not has_access:
-            self._is_viewer = True
-        self._start_load(initial=True)
-        self._load_collaborators()
-
     def _on_collabs_loaded(self, collabs: list[dict]):
         login = self._user.get("login", "")
-        # Capture real collab status before the synthetic self-entry is added
         is_real_collab = bool(login) and any(c.get("login") == login for c in collabs)
         if login and not is_real_collab:
             collabs = [{
@@ -1068,50 +981,26 @@ class CommitViewPage(_PRMixin, QWidget):
         owner = self._tracker.repo_owner() if self._tracker else ""
         for c in collabs:
             c["is_owner"] = (c.get("login") == owner)
-            # Owner role overrides whatever GitHub's collaborators API reported
             if c.get("login") == owner:
                 c["role"] = "owner"
         self._collaborators = collabs
-
-        # Cache role lookup for inbox and wizard gating
-        self._collab_roles = {c["login"]: c.get("role", "write") for c in collabs}
-
-        # Push the current user's role to the detail panel for branch-protection gating
-        my_login = self._user.get("login", "")
-        my_role  = self._collab_roles.get(my_login, "write")
-        is_owner = bool(owner) and my_login == owner
-
-        # Detect viewer ↔ collaborator transitions (skip for repo owner)
-        if not is_owner:
-            if self._is_viewer and is_real_collab:
-                # Promoted: viewer → collaborator
-                self._is_viewer = False
-                self._tab_bar.set_viewer_mode(False)
-                self._header.set_viewer_mode(False)
-            elif not self._is_viewer and not is_real_collab:
-                # Demoted: collaborator → viewer (removed from repo)
-                self._is_viewer = True
-            if self._is_viewer:
-                my_role = "viewer"
-                self._tab_bar.set_viewer_mode(True)
-                self._header.set_viewer_mode(True)
-
-        self._panel.set_user_role(my_role)
 
         if self._tracker:
             cache_key = self._tracker.remote_url()
             if cache_key:
                 self._collab_cache[cache_key] = collabs
-                collab_cache.save(cache_key, collabs)
 
         token = self._user.get("access_token", "")
         if not self._settings_loaded and self._tracker:
-            self._settings_panel.setup(self._tracker, self._user, is_owner, token)
+            self._settings_panel.setup(self._tracker, self._user, token)
             self._settings_loaded = True
         self._settings_panel.load_collaborators(collabs, current_login=login)
 
         if self._commits:
             self._place_contributor_badges()
+
+    def _on_branch_protection_state(self, branch: str, protected: bool):
+        self._panel.set_branch_protection(branch if protected else None)
 
     @staticmethod
     def _pr_btn_style(protected: bool) -> str:
@@ -1128,11 +1017,6 @@ class CommitViewPage(_PRMixin, QWidget):
                 f" padding: 0 12px; }}"
                 f"QPushButton:hover {{ color: {COLORS['text_primary']};"
                 f" background: {COLORS['bg_hover']}; }}")
-
-    def _on_protection_changed(self, enabled: bool):
-        self._protection_enabled = enabled
-        # Protection state stored; inbox uses it for informational display
-        self._pr_panel.set_protection(enabled)
 
     def _switch_tab(self, tab: str):
         if tab == "schema":
@@ -1165,10 +1049,8 @@ class CommitViewPage(_PRMixin, QWidget):
             self._changes_panel.hide_panel()
             # Initialise settings if collabs haven't loaded yet (e.g. no remote)
             if not self._settings_loaded and self._tracker:
-                owner    = self._tracker.repo_owner()
-                is_owner = bool(owner) and self._user.get("login", "") == owner
                 self._settings_panel.setup(
-                    self._tracker, self._user, is_owner,
+                    self._tracker, self._user,
                     self._user.get("access_token", ""),
                 )
                 self._settings_loaded = True
@@ -1223,43 +1105,6 @@ class CommitViewPage(_PRMixin, QWidget):
             self._panel.unlock_actions()
             self._toast.show_message(f"Failed: {msg[:140]}", kind="error", duration_ms=8000)
             self._start_load()
-
-    def _trigger_auto_pull(self, commits: list):
-        """Pull any local branch that is strictly behind its remote (fast-forward only)."""
-        if not self._tracker or self._panel_op_active or not self._tracker.has_remote():
-            return
-        commit_order = {c.sha: i for i, c in enumerate(commits)}
-        local_branch_sha  = {name: sha for sha, name in self._local_tip_branch.items()}
-        remote_branch_sha: dict[str, str] = {}
-        try:
-            for rem in self._tracker._repo.remotes:
-                for ref in rem.refs:
-                    if not ref.remote_head.upper().startswith("HEAD"):
-                        remote_branch_sha[ref.remote_head] = ref.commit.hexsha
-        except Exception:
-            return
-        pull_needed = [
-            name for name, lsha in local_branch_sha.items()
-            if (rsha := remote_branch_sha.get(name))
-            and rsha != lsha
-            and (rsha not in commit_order                               # remote ahead, not yet fetched
-                 or commit_order[rsha] < commit_order.get(lsha, 10**9))# remote ahead in graph
-        ]
-        if not pull_needed:
-            return
-        from core.ops import pull_ff
-        path = self._tracker._path
-        def _run():
-            pulled = [b for b in pull_needed if pull_ff(path, b)[0]]
-            if pulled:
-                self._auto_pulled.emit(pulled)
-        import threading as _t
-        _t.Thread(target=_run, daemon=True).start()
-
-    def _on_auto_pulled(self, branches: list):
-        names = ", ".join(branches)
-        self._toast.show_message(f"Auto-pulled: {names}", kind="success", duration_ms=4000)
-        self._start_load()
 
     def _on_connect_requested(self):
         if self._tracker:
@@ -1502,17 +1347,19 @@ class CommitViewPage(_PRMixin, QWidget):
         self._panel_op_active = False
         if ok:
             if branch:
-                if err == "merged_before_push":
-                    self._toast.show_message(
-                        f"Origin had new commits — merged automatically, then pushed '{branch}'.",
-                        kind="info", duration_ms=6000)
-                else:
-                    self._toast.show_message(f"'{branch}' pushed to remote.", kind="success")
+                self._toast.show_message(f"'{branch}' pushed to remote.", kind="success")
                 self._panel.set_push_state(False)
             else:
                 self._toast.show_message("Connected to GitHub.", kind="success", duration_ms=5000)
                 self._header.set_connection_state(True)
             self._start_load()
+        elif err == "behind_remote":
+            self._toast.show_message(
+                f"Remote has new commits — pull '{branch}' first, then push.",
+                kind="error", duration_ms=6000)
+            self._start_load()
+            self._panel.unlock_actions()
+            return
         elif err == "merge_conflict":
             self._panel_op_active = True
             self._conflict_dialog.show_for_branch(
@@ -1617,6 +1464,12 @@ class CommitViewPage(_PRMixin, QWidget):
         else:
             msg = "Timed out." if err == "timed_out" else f"{fail_prefix}: {err[:120]}"
             self._toast.show_message(msg, kind="error", duration_ms=6000)
+            if close_panel:
+                self._panel.hide_panel()
+                self._last_branch_tips = {}
+                self._last_head_sha    = ""
+                self._last_stash_shas  = set()
+                self._start_load()
         self._panel.unlock_actions()
 
     def _on_branch_create(self, sha: str, branch_name: str):
@@ -1829,18 +1682,17 @@ class CommitViewPage(_PRMixin, QWidget):
                                    commit.branch in self._last_local_only)
         # True when the branch exists on remote (not local-only) and a remote is configured.
         is_remote_branch = has_remote and commit.branch not in self._last_local_only
-        # Determine if this branch is protected (default branch AND protection is enabled)
-        default_branch = getattr(self._settings_panel, "_default_branch", "main")
-        is_protected   = (commit.branch == default_branch
-                          and bool(getattr(self, "_protection_enabled", False)))
-        self._panel.set_push_state(can_push, commit.branch, is_protected=is_protected)
+        self._panel.set_push_state(can_push, commit.branch)
 
         # Pull button — shown when this branch's local tip is behind its remote tip
         commit_order = {c.sha: i for i, c in enumerate(self._commits)}
         local_sha  = next((s for s, n in self._local_tip_branch.items()
                            if n == commit.branch), None)
-        remote_sha = next((s for s in self._remote_tip_shas
-                           if commit.branch in self._last_branch_tips.get(s, [])), None)
+        remote_sha = next(
+            (s for s, names in self._last_branch_tips.items()
+             if commit.branch in names and s not in self._local_tip_branch),
+            None
+        )
         is_behind  = bool(local_sha and remote_sha and local_sha != remote_sha
                           and commit_order.get(remote_sha, 10**9)
                           < commit_order.get(local_sha, 10**9))
@@ -1893,8 +1745,10 @@ class CommitViewPage(_PRMixin, QWidget):
         if not self._tracker:
             return
         if self._panel_op_active:
+            self._toast.show_message("Another operation is in progress — please wait.", kind="info")
             return
         if self._navigate_thread and self._navigate_thread.isRunning():
+            self._toast.show_message("Navigation already in progress — please wait.", kind="info")
             return
 
         # If there are unsaved changes, prompt the user before proceeding.
@@ -1923,6 +1777,7 @@ class CommitViewPage(_PRMixin, QWidget):
         self._navigate_thread.started.connect(self._navigate_worker.run)
         self._navigate_worker.finished.connect(self._on_navigate_done)
         self._navigate_worker.finished.connect(self._navigate_thread.quit)
+        self._navigate_thread.finished.connect(lambda: setattr(self, '_navigate_thread', None))
         self._navigate_thread.start()
 
     def _on_navigate_dirty_choice(self, choice: str, sha: str):

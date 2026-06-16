@@ -26,9 +26,6 @@ _STATE_COLORS = {
     "merged": "#8b5cf6",
 }
 
-_CAN_MERGE = {"owner", "admin", "maintain"}
-
-
 def _relative_date(iso: str) -> str:
     try:
         dt = datetime.fromisoformat(iso.replace("Z", "+00:00"))
@@ -104,13 +101,12 @@ class _PRRow(QWidget):
     merge_clicked    = pyqtSignal(dict)  # full PR dict
     close_clicked    = pyqtSignal(int)   # pr number
 
-    def __init__(self, pr: dict, commits: list, user_role: str, parent=None):
+    def __init__(self, pr: dict, commits: list, parent=None):
         super().__init__(parent)
-        self._pr        = pr
-        self._commits   = commits
-        self._number    = pr.get("number", 0)
-        self._user_role = user_role
-        state           = _pr_state(pr)
+        self._pr      = pr
+        self._commits = commits
+        self._number  = pr.get("number", 0)
+        state         = _pr_state(pr)
 
         self.setAttribute(Qt.WA_StyledBackground, True)
         self._set_bg(False)
@@ -182,9 +178,8 @@ class _PRRow(QWidget):
         bottom.addWidget(date_lbl)
         root.addLayout(bottom)
 
-        # ── Action buttons (role-gated) ───────────────────────────────────────
-        can_act = user_role in _CAN_MERGE
-        if state == "open" and can_act:
+        # ── Action buttons ────────────────────────────────────────────────────
+        if state == "open":
             btn_row = QHBoxLayout()
             btn_row.setSpacing(6)
             btn_row.setContentsMargins(20, 2, 0, 0)
@@ -264,10 +259,8 @@ class PullRequestsPanel(QWidget):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self._commits:            list  = []
-        self._user_role:          str   = "write"
-        self._protection_enabled: bool  = False
-        self._token:     str   = ""
+        self._commits:  list = []
+        self._token:    str  = ""
         self._owner:     str   = ""
         self._repo:      str   = ""
         self._filter:    str   = "open"
@@ -388,11 +381,10 @@ class PullRequestsPanel(QWidget):
 
     # ── Public ────────────────────────────────────────────────────────────────
 
-    def load(self, tracker, user: dict, user_role: str, token: str, commits: list):
-        """Load the PR inbox for a repo. user_role: 'owner'|'admin'|'maintain'|'write'|'read'."""
-        self._commits   = commits
-        self._user_role = user_role
-        self._token     = token
+    def load(self, tracker, user: dict, token: str, commits: list):
+        """Load the PR inbox for a repo."""
+        self._commits = commits
+        self._token   = token
         self._all_prs   = []
 
         url = tracker.remote_url() if tracker else ""
@@ -413,12 +405,6 @@ class PullRequestsPanel(QWidget):
     def update_commits(self, commits: list):
         """Refresh commits for hover highlighting without re-fetching PRs."""
         self._commits = commits
-
-    def set_user_role(self, role: str):
-        """Update the current user's role (re-renders rows)."""
-        self._user_role = role
-        if self._all_prs:
-            self._render_prs()
 
     # ── Internal ──────────────────────────────────────────────────────────────
 
@@ -491,11 +477,7 @@ class PullRequestsPanel(QWidget):
         self._status_lbl.hide()
         self._scroll.show()
         for pr in filtered:
-            # When protection is off, all collaborators are treated as admins.
-            effective_role = ("admin" if not self._protection_enabled
-                              and self._user_role not in _CAN_MERGE
-                              else self._user_role)
-            row = _PRRow(pr, self._commits, effective_role)
+            row = _PRRow(pr, self._commits)
             row.hovered.connect(self.pr_hovered)
             row.unhovered.connect(self.pr_cleared)
             row.approve_clicked.connect(self._on_approve)
@@ -513,8 +495,6 @@ class PullRequestsPanel(QWidget):
     # ── GitHub actions ────────────────────────────────────────────────────────
 
     def _on_approve(self, pr_number: int):
-        if self._user_role not in _CAN_MERGE and self._protection_enabled:
-            return
         threading.Thread(target=self._submit_approve, args=(pr_number,), daemon=True).start()
 
     def _submit_approve(self, pr_number: int):
@@ -534,8 +514,6 @@ class PullRequestsPanel(QWidget):
             self._action_done.emit(False, "Network error.")
 
     def _on_close(self, pr_number: int):
-        if self._user_role not in _CAN_MERGE and self._protection_enabled:
-            return
         threading.Thread(target=self._submit_close, args=(pr_number,), daemon=True).start()
 
     def _submit_close(self, pr_number: int):
@@ -585,9 +563,3 @@ class PullRequestsPanel(QWidget):
         QTimer.singleShot(3000, lambda: self._status_lbl.hide()
                           if self._status_lbl.text() == msg else None)
 
-    # ── Kept for backward compat with commit_view signal connections ──────────
-    def set_protection(self, enabled: bool):
-        """Store protection state; re-render rows so action buttons reflect admin elevation."""
-        self._protection_enabled = enabled
-        if self._all_prs:
-            self._render_prs()

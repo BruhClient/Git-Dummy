@@ -24,7 +24,6 @@ from .diff_renderer import (
 from .all_changes_popup import AllChangesPopup
 
 # Roles that can act directly on main; write-level users get the branch redirect.
-_ELEVATED_ROLES = {"owner", "admin", "maintain"}
 
 _PALETTE = [
     "#6366f1", "#f59e0b", "#ef4444", "#8b5cf6",
@@ -267,6 +266,8 @@ class DetailPanel(QWidget):
         self._anim.setEasingCurve(QEasingCurve.OutCubic)
 
         self._visible = False
+        self._protected_branch_name: str | None = None
+        self._current_action_branch: str = ""
         self._setup_ui()
         self._place(visible=False, animate=False)
 
@@ -435,62 +436,6 @@ class DetailPanel(QWidget):
                     f"QPushButton:disabled {{ border-color: {COLORS['border']};"
                     f" color: {COLORS['text_muted']}; }}")
 
-        self._user_role:       str  = "write"
-        self._is_elevated:     bool = False
-        self._is_on_protected: bool = False
-        self._viewer_mode:     bool = False
-
-        self._protected_banner = QWidget()
-        self._protected_banner.setAttribute(Qt.WA_StyledBackground, True)
-        self._protected_banner.setStyleSheet(
-            f"QWidget {{ background: {COLORS['bg_card']};"
-            f" border: 1px solid {COLORS['warning']}; border-radius: 8px; }}"
-            f"QLabel  {{ background: transparent; border: none; }}"
-        )
-        _pb_layout = QVBoxLayout(self._protected_banner)
-        _pb_layout.setContentsMargins(12, 12, 12, 12)
-        _pb_layout.setSpacing(8)
-
-        _pb_title_row = QHBoxLayout()
-        _pb_title_row.setSpacing(6)
-        _pb_title_row.setContentsMargins(0, 0, 0, 0)
-        self._pb_icon = QLabel()
-        self._pb_icon.setPixmap(qta.icon("fa5s.exclamation-triangle", color=COLORS["warning"]).pixmap(12, 12))
-        self._pb_icon.setStyleSheet("background: transparent;")
-        _pb_title_row.addWidget(self._pb_icon)
-        self._pb_title = QLabel("You're on main")
-        self._pb_title.setStyleSheet(
-            f"font-size: 12px; font-weight: 700; font-family: 'Tilt Warp'; color: {COLORS['warning']};"
-        )
-        _pb_title_row.addWidget(self._pb_title)
-        _pb_title_row.addStretch()
-        _pb_layout.addLayout(_pb_title_row)
-
-        self._pb_desc = QLabel("Changes to main go through a PR.\nCreate a branch to continue.")
-        self._pb_desc.setWordWrap(True)
-        self._pb_desc.setStyleSheet(f"font-size: 11px; color: {COLORS['text_secondary']};")
-        _pb_layout.addWidget(self._pb_desc)
-
-        self._pb_input = QLineEdit("feature/")
-        self._pb_input.setPlaceholderText("feature/branch-name")
-        self._pb_input.setStyleSheet(
-            f"QLineEdit {{ background: {COLORS['bg_secondary']};"
-            f" border: 1px solid {COLORS['border']}; border-radius: 6px;"
-            f" color: {COLORS['text_primary']}; font-size: 12px; padding: 6px 10px; }}"
-            f"QLineEdit:focus {{ border-color: {COLORS['accent']}; }}"
-        )
-        self._pb_input.textChanged.connect(self._on_pb_input_changed)
-        _pb_layout.addWidget(self._pb_input)
-
-        self._pb_create_btn = QPushButton("Create branch & continue")
-        self._pb_create_btn.setCursor(Qt.PointingHandCursor)
-        self._pb_create_btn.setEnabled(False)
-        self._pb_create_btn.setStyleSheet(_action_style(COLORS["accent"]))
-        self._pb_create_btn.clicked.connect(self._on_branch_from_banner)
-        _pb_layout.addWidget(self._pb_create_btn)
-
-        self._protected_banner.hide()
-        content_layout.addWidget(self._protected_banner)
 
         self._save_stash_btn = QPushButton("Save Changes")
         self._save_stash_btn.setCursor(Qt.PointingHandCursor)
@@ -713,8 +658,6 @@ class DetailPanel(QWidget):
         self._merge_combo.setEnabled(False)
 
     def unlock_actions(self):
-        if self._viewer_mode:
-            return
         self._refresh_goto_btn()
         self._branch_btn.setEnabled(True)
         self._merge_combo.setEnabled(True)
@@ -724,6 +667,7 @@ class DetailPanel(QWidget):
                     self._delete_branch_btn):
             if btn.isVisible():
                 btn.setEnabled(True)
+        self._apply_hard_revert_protection()
 
     def set_merge_state(self, show: bool, source_branch: str, all_branches: list,
                         default_branch: str = "main"):
@@ -777,14 +721,6 @@ class DetailPanel(QWidget):
                             is_merge_commit: bool = False,
                             branch_depth: int = 0,
                             is_remote_branch: bool = False):
-        if self._viewer_mode:
-            for btn in (self._goto_btn, self._branch_btn, self._push_btn,
-                        self._pull_btn, self._hard_revert_btn, self._soft_revert_btn,
-                        self._delete_branch_btn, self._save_stash_btn, self._clear_stash_btn):
-                btn.hide()
-            self._merge_row.hide()
-            return
-
         self._last_action_kwargs = dict(
             branch=branch, parent_sha=parent_sha, has_parent=has_parent,
             is_first_of_branch=is_first_of_branch, is_main=is_main,
@@ -823,11 +759,8 @@ class DetailPanel(QWidget):
             self._soft_revert_btn.setVisible(show_soft)
             self._soft_revert_btn.setEnabled(show_soft)
 
-        if self._user_role not in _ELEVATED_ROLES:
-            if is_remote_branch or is_main:
-                self._hard_revert_btn.hide()
-            if is_main:
-                self._soft_revert_btn.hide()
+        self._current_action_branch = branch or ""
+        self._apply_hard_revert_protection()
 
     def _on_goto(self):
         if getattr(self, "_current_sha", None):
@@ -847,63 +780,31 @@ class DetailPanel(QWidget):
             self.lock_actions()
             self.branch_create_requested.emit(sha, name)
 
+    def set_branch_protection(self, protected_branch: str | None):
+        self._protected_branch_name = protected_branch
+        self._apply_hard_revert_protection()
+
+    def _apply_hard_revert_protection(self):
+        protected = (
+            bool(self._protected_branch_name)
+            and self._current_action_branch == self._protected_branch_name
+            and self._hard_revert_btn.isVisible()
+        )
+        self._hard_revert_btn.setEnabled(not protected)
+        self._hard_revert_btn.setToolTip(
+            "This branch is protected on GitHub — hard revert is blocked" if protected else ""
+        )
+
     def set_push_state(self, can_push: bool, branch: str = "", is_protected: bool = False):
-        self._push_branch     = branch
-        self._is_on_protected = is_protected
-        if is_protected and branch:
-            self._pb_title.setText(f"You're on {branch}")
-            self._pb_desc.setText(
-                f"Changes to {branch} go through a PR.\nCreate a branch to continue."
-            )
-        effective_elevated = self._is_elevated or not is_protected
-        show = can_push and (not is_protected or self._is_elevated)
-        if show:
-            lbl = "↑  Upload to remote" if effective_elevated else "↑  Open Pull Request"
-            self._push_btn.setText(lbl)
-        self._push_btn.setVisible(show)
-        self._push_btn.setEnabled(show)
-        self._refresh_protected_banner()
-
-    def set_user_role(self, role: str):
-        self._viewer_mode = (role == "viewer")
-        self._user_role   = role
-        self._is_elevated = role in _ELEVATED_ROLES
-        self._refresh_protected_banner()
-        if hasattr(self, "_last_action_kwargs"):
-            self.set_commit_actions(**self._last_action_kwargs)
-
-    def _refresh_protected_banner(self):
-        has_files = bool(getattr(self, "_stash_data", []))
-        show = (self._is_on_protected
-                and self._user_role not in _ELEVATED_ROLES
-                and has_files)
-        self._protected_banner.setVisible(show)
-        if show:
-            self._save_stash_btn.hide()
-            self._clear_stash_btn.hide()
-
-    def _on_pb_input_changed(self, text: str):
-        stripped = text.strip().strip("/")
-        valid = bool(stripped) and stripped.lower() != "feature"
-        self._pb_create_btn.setEnabled(valid)
-
-    def _on_branch_from_banner(self):
-        name = self._pb_input.text().strip()
-        sha  = getattr(self, "_current_sha", None)
-        if not name or not sha:
-            return
-        self.lock_actions()
-        self.branch_create_requested.emit(sha, name)
+        self._push_branch = branch
+        self._push_btn.setVisible(can_push)
+        self._push_btn.setEnabled(can_push)
 
     def _on_push(self):
         branch = getattr(self, "_push_branch", "")
         if branch:
-            effective_elevated = self._is_elevated or not self._is_on_protected
-            if effective_elevated:
-                self.lock_actions()
-                self.push_requested.emit(branch)
-            else:
-                self.pr_open_requested.emit(branch)
+            self.lock_actions()
+            self.push_requested.emit(branch)
 
     def _on_hard_revert(self):
         branch   = getattr(self, "_action_branch", "")
@@ -1097,14 +998,10 @@ class DetailPanel(QWidget):
         self._clear_stash_btn.setEnabled(n > 0)
         self._save_stash_btn.setVisible(n > 0)
         self._save_stash_btn.setEnabled(n > 0)
-        if self._viewer_mode:
-            self._save_stash_btn.hide()
-            self._clear_stash_btn.hide()
         if files:
             self._stash_section.show()
         else:
             QTimer.singleShot(260, lambda: self._stash_section.hide() if not self._stash_data else None)
-        self._refresh_protected_banner()
 
     def refresh_stash_section(self):
         from core.ops import (get_stash_ref_for_commit, get_stash_diff_files,
@@ -1146,10 +1043,10 @@ class DetailPanel(QWidget):
         if files:
             self._stash_label.setText(f"UNSAVED  —  {n} file{'s' if n != 1 else ''}")
             self._view_stash_btn.setVisible(True)
-            self._clear_stash_btn.setVisible(not self._viewer_mode)
-            self._clear_stash_btn.setEnabled(not self._viewer_mode)
-            self._save_stash_btn.setVisible(not self._viewer_mode)
-            self._save_stash_btn.setEnabled(not self._viewer_mode)
+            self._clear_stash_btn.setVisible(True)
+            self._clear_stash_btn.setEnabled(True)
+            self._save_stash_btn.setVisible(True)
+            self._save_stash_btn.setEnabled(True)
             self._stash_section.show()
         else:
             self._view_stash_btn.setVisible(False)

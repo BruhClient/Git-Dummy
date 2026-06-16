@@ -6,7 +6,7 @@ from urllib.parse import urlparse
 
 import requests
 
-from .base_ops import _run, get_conflict_files, get_conflict_content
+from .base_ops import _run
 
 
 def create_github_repo(name: str, private: bool, token: str) -> tuple[bool, str, str]:
@@ -54,31 +54,7 @@ def push_branch(
     combined = (r.stdout + r.stderr).lower()
 
     if "non-fast-forward" in combined or "rejected" in combined:
-        ok2, err2 = _run(path, ["git", "fetch", "origin"], timeout=30)
-        if not ok2:
-            return False, err2, [], {}
-
-        r3 = subprocess.run(
-            ["git", "merge", f"origin/{branch}"],
-            cwd=path, capture_output=True, text=True, timeout=30,
-        )
-        if r3.returncode != 0:
-            combined3 = (r3.stdout + r3.stderr).lower()
-            conflict_files = get_conflict_files(path)
-            content = {f: get_conflict_content(path, f) for f in conflict_files}
-            subprocess.run(["git", "merge", "--abort"],
-                           cwd=path, capture_output=True, text=True, timeout=10)
-            if "conflict" in combined3:
-                return False, "merge_conflict", conflict_files, content
-            return False, r3.stderr.strip() or r3.stdout.strip(), [], {}
-
-        ok4, err4 = _run(path, ["git", "push", "-u", "origin", branch], timeout=60)
-        if ok4:
-            # Let the caller know a real merge commit was created from
-            # origin/{branch} before this push succeeded, so the user isn't
-            # surprised by an unexpected merge commit in their history.
-            return True, "merged_before_push", [], {}
-        return ok4, err4, [], {}
+        return False, "behind_remote", [], {}
 
     return False, r.stderr.strip() or r.stdout.strip(), [], {}
 
