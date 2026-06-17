@@ -805,6 +805,12 @@ class DetailPanel(QWidget):
     def set_branch_protection(self, protected_branch: str | None):
         self._protected_branch_name = protected_branch
         self._apply_hard_revert_protection()
+        self._refresh_push_btn_label()
+
+    def _refresh_push_btn_label(self):
+        branch = getattr(self, "_push_branch", "")
+        protected = bool(self._protected_branch_name) and branch == self._protected_branch_name
+        self._push_btn.setText("↑  Open Pull Request" if protected else "↑  Upload")
 
     def _apply_hard_revert_protection(self):
         protected = (
@@ -822,12 +828,16 @@ class DetailPanel(QWidget):
         self._push_branch = branch
         self._push_btn.setVisible(can_push)
         self._push_btn.setEnabled(can_push)
+        self._refresh_push_btn_label()
 
     def _on_push(self):
         branch = getattr(self, "_push_branch", "")
         if branch:
             self.lock_actions()
-            self.push_requested.emit(branch)
+            if self._protected_branch_name and branch == self._protected_branch_name:
+                self.pr_open_requested.emit(branch)
+            else:
+                self.push_requested.emit(branch)
 
     def _on_hard_revert(self):
         branch   = getattr(self, "_action_branch", "")
