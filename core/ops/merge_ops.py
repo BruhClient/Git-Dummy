@@ -45,12 +45,37 @@ def merge_with_decisions(path: str, source_branch: str, decisions: dict) -> tupl
     # Apply per-file decisions regardless of whether merge itself had conflicts.
     all_ok = True
     for filepath, choice in decisions.items():
-        flag = "--ours" if choice == "ours" else "--theirs"
-        ok_f, _ = _run(path, ["git", "checkout", flag, filepath])
-        if ok_f:
-            _run(path, ["git", "add", filepath])
+        ls = subprocess.run(
+            ["git", "ls-files", "--unmerged", filepath],
+            cwd=path, capture_output=True, text=True, timeout=5,
+            encoding="utf-8", errors="replace",
+        )
+        if ls.stdout.strip():
+            # Parse which stages are present (1=base, 2=ours, 3=theirs).
+            # modify/delete conflicts are missing stage 2 (we deleted) or stage 3 (they deleted).
+            stages = {int(line.split()[2]) for line in ls.stdout.strip().splitlines() if line.strip()}
+            if choice == "ours":
+                if 2 not in stages:
+                    # We deleted this file — remove it from the index
+                    _run(path, ["git", "rm", "--cached", filepath])
+                else:
+                    ok_f, _ = _run(path, ["git", "checkout", "--ours", filepath])
+                    if not ok_f:
+                        all_ok = False
+                        continue
+                    _run(path, ["git", "add", filepath])
+            else:
+                if 3 not in stages:
+                    # They deleted this file — remove it
+                    _run(path, ["git", "rm", "--cached", filepath])
+                else:
+                    ok_f, _ = _run(path, ["git", "checkout", "--theirs", filepath])
+                    if not ok_f:
+                        all_ok = False
+                        continue
+                    _run(path, ["git", "add", filepath])
         else:
-            all_ok = False
+            _run(path, ["git", "add", filepath])
     if not all_ok:
         subprocess.run(["git", "merge", "--abort"],
                        cwd=path, capture_output=True, text=True, timeout=10,

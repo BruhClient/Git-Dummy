@@ -10,7 +10,7 @@ from styles.theme import COLORS
 def _numbered(lines: list, start: int = 1) -> str:
     """Format lines with actual file line numbers as a left-justified gutter."""
     if not lines:
-        return "(empty)"
+        return "(no content)"
     end = start + len(lines) - 1
     w = len(str(end))
     return "\n".join(f"{str(start + i).rjust(w)}  {line}" for i, line in enumerate(lines))
@@ -221,8 +221,8 @@ class _ConflictDialog(QWidget):
                     from core.ops import get_conflict_content
                     orig_lines, orig_start, inc_lines, inc_start = get_conflict_content(repo_path, first)
                 self._diff_file_lbl.setText(first)
-                self._orig_role_lbl.setText(f"Original  ·  {original}")
-                self._inc_role_lbl.setText(f"Incoming  ·  {incoming}")
+                self._orig_role_lbl.setText("Original")
+                self._inc_role_lbl.setText("Incoming")
                 self._orig_code_te.setPlainText(_numbered(orig_lines, orig_start))
                 self._inc_code_te.setPlainText(_numbered(inc_lines,  inc_start))
                 self._code_area.show()
@@ -732,16 +732,16 @@ class _MergeConflictDialog(QWidget):
 
     def show_for_conflict(self, source: str, target: str, conflict_files: list = None,
                           repo_path: str = "", prefetched_content: dict = None):
-        self._source    = source
-        self._target    = target
-        self._files     = conflict_files or []
-        self._content   = prefetched_content or {}
+        self._source  = source
+        self._target  = target
+        self._content = prefetched_content or {}
         self._decisions = {}
-        self._idx       = 0
+        self._idx = 0
         self._branch_lbl2.setText(f"{target}  ↔  {source}")
-        self._acc_orig_btn.setText(f"Accept Original  ·  {target}")
-        self._acc_inc_btn.setText(f"Accept Incoming  ·  {source}")
+        self._acc_orig_btn.setText("Accept Original")
+        self._acc_inc_btn.setText("Accept Incoming")
         self._confirm_btn.setEnabled(False)
+        self._files = conflict_files or []
         self._show_file(0)
         self._card.adjustSize()
         self.setGeometry(self.parent().rect())
@@ -761,8 +761,8 @@ class _MergeConflictDialog(QWidget):
         resolved = len(self._decisions)
         self._progress_lbl.setText(f"{resolved} of {n} resolved")
         self._file_lbl2.setText(f)
-        self._orig_lbl2.setText(f"Original  ·  {self._target}")
-        self._inc_lbl2.setText(f"Incoming  ·  {self._source}")
+        self._orig_lbl2.setText("Original")
+        self._inc_lbl2.setText("Incoming")
         orig, orig_start, inc, inc_start = self._content.get(f, ([], 1, [], 1))
         self._orig_te2.setPlainText(_numbered(orig, orig_start))
         self._inc_te2.setPlainText(_numbered(inc,  inc_start))

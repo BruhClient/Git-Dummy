@@ -3,12 +3,31 @@ from __future__ import annotations
 import os
 import subprocess
 
+_commit_author: dict[str, str] = {}
+
+
+def set_commit_author(name: str, email: str) -> None:
+    global _commit_author
+    _commit_author = {}
+    if name:
+        _commit_author["GIT_AUTHOR_NAME"]    = name
+        _commit_author["GIT_COMMITTER_NAME"] = name
+    if email:
+        _commit_author["GIT_AUTHOR_EMAIL"]    = email
+        _commit_author["GIT_COMMITTER_EMAIL"] = email
+
+
+def clear_commit_author() -> None:
+    global _commit_author
+    _commit_author = {}
+
 
 def _run(path: str, cmd: list, timeout: int = 30) -> tuple[bool, str]:
     """Run a git command with a timeout. Returns (ok, error_message)."""
     try:
+        env = ({**os.environ, **_commit_author} if _commit_author else None)
         r = subprocess.run(cmd, cwd=path, capture_output=True, text=True, timeout=timeout,
-                           encoding="utf-8", errors="replace")
+                           encoding="utf-8", errors="replace", env=env)
         if r.returncode != 0:
             return False, r.stderr.strip() or r.stdout.strip()
         return True, ""

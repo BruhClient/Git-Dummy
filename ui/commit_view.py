@@ -275,6 +275,7 @@ class CommitViewPage(_PRMixin, QWidget):
         self._last_stash_shas: set = set()
         self._local_tip_shas:   set  = set()
         self._local_tip_branch: dict = {}
+        self._local_branch_tip: dict = {}   # {branch_name: sha} — all local refs
         self._remote_tip_shas:  set  = set()
         self._branch_head_shas: set  = set()
         self._branch_depths: dict    = {}
@@ -330,9 +331,16 @@ class CommitViewPage(_PRMixin, QWidget):
 
     def set_user(self, user: dict):
         self._user = user
+        from core.ops.base_ops import set_commit_author
+        name  = user.get("name") or user.get("login", "")
+        login = user.get("login", "")
+        email = user.get("email") or (f"{login}@users.noreply.github.com" if login else "")
+        set_commit_author(name, email)
 
     def reset(self):
         """Full teardown — called on sign out."""
+        from core.ops.base_ops import clear_commit_author
+        clear_commit_author()
         self._stop_all_threads()
         if self._tracker:
             self._tracker.close()
@@ -780,6 +788,7 @@ class CommitViewPage(_PRMixin, QWidget):
         _dflt = getattr(self._settings_panel, "_default_branch", "main")
         self._local_tip_shas   = set()
         self._local_tip_branch = {}
+        self._local_branch_tip = {}
         try:
             _r = _sp.run(
                 ["git", "for-each-ref",
@@ -792,6 +801,7 @@ class CommitViewPage(_PRMixin, QWidget):
                 if len(_parts) == 2:
                     sha, name = _parts[0], _parts[1]
                     self._local_tip_shas.add(sha)
+                    self._local_branch_tip[name] = sha
                     # Prefer the default branch when two local branches share a tip SHA
                     # (e.g. new-branch created at main's tip before any new commits).
                     if sha not in self._local_tip_branch or name == _dflt:
@@ -1178,7 +1188,8 @@ class CommitViewPage(_PRMixin, QWidget):
                     if not ok_co:
                         self._merge_done_sig.emit(False, err_co, [], source, target, {})
                         return
-                ok, err, files, content = merge_branch(path, source)
+                git_source = source if source in self._local_branch_tip else f"origin/{source}"
+                ok, err, files, content = merge_branch(path, git_source)
             except Exception as exc:
                 ok, err, files, content = False, str(exc), [], {}
             self._merge_done_sig.emit(ok, err, files, source, target, content)
@@ -1226,7 +1237,8 @@ class CommitViewPage(_PRMixin, QWidget):
         def _run():
             try:
                 from core.ops import merge_with_decisions
-                ok, err = merge_with_decisions(path, source, decisions)
+                git_source = source if source in self._local_branch_tip else f"origin/{source}"
+                ok, err = merge_with_decisions(path, git_source, decisions)
             except Exception as exc:
                 ok, err = False, str(exc)
             msg = f"Merged '{source}' into '{target}'."
@@ -1736,9 +1748,21 @@ class CommitViewPage(_PRMixin, QWidget):
 
         # Merge button — shown on branch heads, but not on merge commits
         # (re-merging from a merge commit causes broken state)
-        all_branches = sorted({c.branch for c in self._commits if c.branch})
+        # Use branch_tip_map (includes remote-only labels) filtered to commits
+        # currently visible in the graph. Remote-only branches are resolved to
+        # origin/<name> at merge time (see _on_merge_branch).
+        _visible = {c.sha for c in self._commits}
+        _seen: set = set()
+        _all: list = []
+        for _tip_sha, _names in self._branch_tip_map.items():
+            if _tip_sha in _visible:
+                for _name in _names:
+                    if _name != branch and _name not in _seen:
+                        _seen.add(_name)
+                        _all.append(_name)
+        all_branches = sorted(_all)
         is_merge_commit = len(commit.parents) > 1
-        show_merge = is_head and bool(branch) and len(all_branches) > 1 and not is_merge_commit
+        show_merge = is_head and bool(branch) and len(all_branches) > 0 and not is_merge_commit
         _dflt = getattr(self._settings_panel, "_default_branch", "main")
         self._panel.set_merge_state(show_merge, branch, all_branches, default_branch=_dflt)
         has_parent = len(commit.parents) > 0

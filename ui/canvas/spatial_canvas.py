@@ -161,14 +161,14 @@ class SpatialCanvas(QGraphicsView):
             for name in names:
                 if name in _local_tip_for_branch:
                     _, _local_order = _local_tip_for_branch[name]
-                    if _commit_order.get(sha, 10**9) > _local_order:
+                    if _commit_order.get(sha, 10**9) < _local_order:
                         _behind_branches.add(name)
                         break
         self._future_shas = {
             c.sha for c in commits
             if c.branch in _behind_branches
             and c.sha not in _local_tip_set
-            and _commit_order.get(c.sha, 10**9) > _local_tip_for_branch[c.branch][1]
+            and _commit_order.get(c.sha, 10**9) < _local_tip_for_branch[c.branch][1]
         }
 
         # ── Filter commits on anonymous lanes (deleted-branch ghosts) ──────
