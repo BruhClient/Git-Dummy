@@ -10,7 +10,7 @@ def get_stash_files(path: str, stash_id: str = "") -> list[str]:
     if stash_id:
         r = subprocess.run(
             ["git", "stash", "list"],
-            cwd=path, capture_output=True, text=True,
+            cwd=path, capture_output=True, text=True, encoding="utf-8", errors="replace",
         )
         for line in r.stdout.strip().splitlines():
             if stash_id in line:
@@ -47,20 +47,20 @@ def pop_auto_stash(path: str, stash_id: str = "") -> bool:
     if stash_id:
         r = subprocess.run(
             ["git", "stash", "list"],
-            cwd=path, capture_output=True, text=True,
+            cwd=path, capture_output=True, text=True, encoding="utf-8", errors="replace",
         )
         for line in r.stdout.strip().splitlines():
             if stash_id in line:
                 ref = line.split(":")[0].strip()
                 r2 = subprocess.run(
                     ["git", "stash", "pop", ref],
-                    cwd=path, capture_output=True, text=True,
+                    cwd=path, capture_output=True, text=True, encoding="utf-8", errors="replace",
                 )
                 return r2.returncode == 0
         return False
     r = subprocess.run(
         ["git", "stash", "pop"],
-        cwd=path, capture_output=True, text=True,
+        cwd=path, capture_output=True, text=True, encoding="utf-8", errors="replace",
     )
     return r.returncode == 0
 
@@ -69,7 +69,7 @@ def apply_stash(path: str, stash_ref: str) -> bool:
     """Apply a stash to the working directory without removing it from the stash list."""
     r = subprocess.run(
         ["git", "stash", "apply", stash_ref],
-        cwd=path, capture_output=True, text=True,
+        cwd=path, capture_output=True, text=True, encoding="utf-8", errors="replace",
     )
     return r.returncode == 0
 
@@ -78,7 +78,7 @@ def drop_stash(path: str, stash_ref: str) -> bool:
     """Remove a stash entry from the stash list without applying it."""
     r = subprocess.run(
         ["git", "stash", "drop", stash_ref],
-        cwd=path, capture_output=True, text=True,
+        cwd=path, capture_output=True, text=True, encoding="utf-8", errors="replace",
     )
     return r.returncode == 0
 
@@ -87,7 +87,7 @@ def get_stash_ref_for_commit(path: str, commit_sha: str) -> str:
     """Return the stash ref (e.g. 'stash@{0}') whose parent is commit_sha, or ''."""
     r = subprocess.run(
         ["git", "stash", "list", "--format=%gd %P"],
-        cwd=path, capture_output=True, text=True,
+        cwd=path, capture_output=True, text=True, encoding="utf-8", errors="replace",
     )
     for line in r.stdout.strip().splitlines():
         parts = line.strip().split()
@@ -100,7 +100,7 @@ def get_stash_commit_shas(path: str) -> set[str]:
     """Return the set of commit SHAs that have a stash sitting on top of them."""
     r = subprocess.run(
         ["git", "stash", "list", "--format=%P"],
-        cwd=path, capture_output=True, text=True,
+        cwd=path, capture_output=True, text=True, encoding="utf-8", errors="replace",
     )
     shas = set()
     for line in r.stdout.strip().splitlines():
@@ -114,7 +114,7 @@ def get_stash_list_id(path: str) -> str:
     """Return a cheap fingerprint of the current stash list for change detection."""
     r = subprocess.run(
         ["git", "stash", "list", "--format=%H"],
-        cwd=path, capture_output=True, text=True,
+        cwd=path, capture_output=True, text=True, encoding="utf-8", errors="replace",
     )
     return r.stdout.strip()
 
@@ -136,14 +136,14 @@ def save_stash_as_commit(path: str, stash_ref: str = "", message: str = "",
     """
     original_sha = subprocess.run(
         ["git", "rev-parse", "HEAD"],
-        cwd=path, capture_output=True, text=True, timeout=5,
+        cwd=path, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=5,
     ).stdout.strip()
 
     # 1. Apply stash so working tree has the changes.
     if stash_ref:
         r = subprocess.run(
             ["git", "stash", "apply", stash_ref],
-            cwd=path, capture_output=True, text=True, timeout=30,
+            cwd=path, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30,
         )
         if r.returncode != 0:
             return False, (r.stderr.strip() or r.stdout.strip() or
@@ -152,14 +152,14 @@ def save_stash_as_commit(path: str, stash_ref: str = "", message: str = "",
     # Determine whether we need to switch branches.
     cur = subprocess.run(
         ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-        cwd=path, capture_output=True, text=True, timeout=5,
+        cwd=path, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=5,
     ).stdout.strip()
     need_switch = bool(branch) and cur != branch
 
     if need_switch:
         local_exists = subprocess.run(
             ["git", "rev-parse", "--verify", f"refs/heads/{branch}"],
-            cwd=path, capture_output=True, text=True, timeout=5,
+            cwd=path, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=5,
         ).returncode == 0
 
         if not local_exists:
@@ -180,7 +180,7 @@ def save_stash_as_commit(path: str, stash_ref: str = "", message: str = "",
             subprocess.run(["git", "add", "-A"], cwd=path, capture_output=True, timeout=10)
             status = subprocess.run(
                 ["git", "status", "--porcelain"],
-                cwd=path, capture_output=True, text=True, timeout=10,
+                cwd=path, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=10,
             ).stdout.strip()
             if not status:
                 return False, "Nothing new to commit — changes already in branch.", [], {}
@@ -193,7 +193,7 @@ def save_stash_as_commit(path: str, stash_ref: str = "", message: str = "",
 
             saved_sha = subprocess.run(
                 ["git", "rev-parse", "HEAD"],
-                cwd=path, capture_output=True, text=True, timeout=5,
+                cwd=path, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=5,
             ).stdout.strip()
 
             ok_co, err_co = _run(path, ["git", "checkout", branch])
@@ -247,14 +247,14 @@ def save_stash_as_commit(path: str, stash_ref: str = "", message: str = "",
 
             if stash_ref:
                 subprocess.run(["git", "stash", "drop", stash_ref],
-                               cwd=path, capture_output=True, text=True, timeout=10)
+                               cwd=path, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=10)
             return True, "", [], {}
 
     # ── Shared: stage + commit directly on the current (or freshly-checked-out) branch ──
     subprocess.run(["git", "add", "-A"], cwd=path, capture_output=True, timeout=10)
     status = subprocess.run(
         ["git", "status", "--porcelain"],
-        cwd=path, capture_output=True, text=True, timeout=10,
+        cwd=path, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=10,
     ).stdout.strip()
     if not status:
         return False, "Nothing new to commit — changes already in branch.", [], {}
@@ -267,5 +267,5 @@ def save_stash_as_commit(path: str, stash_ref: str = "", message: str = "",
 
     if stash_ref:
         subprocess.run(["git", "stash", "drop", stash_ref],
-                       cwd=path, capture_output=True, text=True, timeout=10)
+                       cwd=path, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=10)
     return True, "", [], {}

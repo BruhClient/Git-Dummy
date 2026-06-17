@@ -9,17 +9,19 @@ def get_stash_diff_files(path: str, stash_ref: str) -> list[dict]:
     r = subprocess.run(
         ["git", "show", "--format=", "--numstat", stash_ref],
         cwd=path, capture_output=True, text=True,
+        encoding="utf-8", errors="replace",
     )
     patch = subprocess.run(
         ["git", "stash", "show", "-p", stash_ref],
         cwd=path, capture_output=True, text=True,
+        encoding="utf-8", errors="replace",
     )
 
     # Build a map of file path → diff lines from the patch
     diff_by_path: dict[str, list] = {}
     current: list = []
     current_path = ""
-    for line in patch.stdout.splitlines():
+    for line in (patch.stdout or "").splitlines():
         if line.startswith("diff --git "):
             if current_path:
                 diff_by_path[current_path] = current
@@ -141,6 +143,7 @@ def get_working_dir_diff_files(path: str) -> list[dict]:
     untracked = subprocess.run(
         ["git", "ls-files", "--others", "--exclude-standard"],
         cwd=path, capture_output=True, text=True,
+        encoding="utf-8", errors="replace",
     )
     for fpath in untracked.stdout.strip().splitlines():
         fpath = fpath.strip()

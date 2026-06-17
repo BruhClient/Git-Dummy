@@ -13,6 +13,7 @@ def merge_branch(path: str, source_branch: str) -> tuple[bool, str, list, dict]:
     r = subprocess.run(
         ["git", "merge", "--no-ff", source_branch],
         cwd=path, capture_output=True, text=True, timeout=60,
+        encoding="utf-8", errors="replace",
     )
     if r.returncode == 0:
         combined = (r.stdout + r.stderr).lower()
@@ -26,10 +27,12 @@ def merge_branch(path: str, source_branch: str) -> tuple[bool, str, list, dict]:
         content = {f: get_conflict_content(path, f) for f in files}
         # Abort so VSCode files go back to clean state
         subprocess.run(["git", "merge", "--abort"],
-                       cwd=path, capture_output=True, text=True, timeout=10)
+                       cwd=path, capture_output=True, text=True, timeout=10,
+                       encoding="utf-8", errors="replace")
         return False, "merge_conflict", files, content
     subprocess.run(["git", "merge", "--abort"],
-                   cwd=path, capture_output=True, text=True, timeout=10)
+                   cwd=path, capture_output=True, text=True, timeout=10,
+                   encoding="utf-8", errors="replace")
     return False, err, [], {}
 
 
@@ -50,12 +53,14 @@ def merge_with_decisions(path: str, source_branch: str, decisions: dict) -> tupl
             all_ok = False
     if not all_ok:
         subprocess.run(["git", "merge", "--abort"],
-                       cwd=path, capture_output=True, text=True, timeout=10)
+                       cwd=path, capture_output=True, text=True, timeout=10,
+                       encoding="utf-8", errors="replace")
         return False, "Could not apply all file decisions — merge aborted."
     ok2, err2 = _run(path, ["git", "commit", "--no-edit"], timeout=30)
     if not ok2:
         subprocess.run(["git", "merge", "--abort"],
-                       cwd=path, capture_output=True, text=True, timeout=10)
+                       cwd=path, capture_output=True, text=True, timeout=10,
+                       encoding="utf-8", errors="replace")
     return ok2, err2
 
 
@@ -91,6 +96,7 @@ def conflict_keep_local(path: str, branch: str) -> tuple[bool, str]:
         diff_r = subprocess.run(
             ["git", "diff", f"origin/{branch}...HEAD"],
             cwd=path, capture_output=True, text=True, timeout=30,
+            encoding="utf-8", errors="replace",
         )
         patch = diff_r.stdout
     except Exception as e:
@@ -100,6 +106,7 @@ def conflict_keep_local(path: str, branch: str) -> tuple[bool, str]:
     saved_r = subprocess.run(
         ["git", "rev-parse", "HEAD"],
         cwd=path, capture_output=True, text=True, timeout=5,
+        encoding="utf-8", errors="replace",
     )
     saved_sha = saved_r.stdout.strip()
 
@@ -114,6 +121,7 @@ def conflict_keep_local(path: str, branch: str) -> tuple[bool, str]:
             r = subprocess.run(
                 ["git", "apply", "--whitespace=fix"],
                 input=patch, cwd=path, capture_output=True, text=True, timeout=30,
+                encoding="utf-8", errors="replace",
             )
             if r.returncode != 0:
                 # Apply failed — restore to our pre-reset state so no local work is lost.
@@ -121,6 +129,7 @@ def conflict_keep_local(path: str, branch: str) -> tuple[bool, str]:
                     subprocess.run(
                         ["git", "reset", "--hard", saved_sha],
                         cwd=path, capture_output=True, text=True, timeout=10,
+                        encoding="utf-8", errors="replace",
                     )
                 return False, (r.stderr.strip() or r.stdout.strip() or
                                "Could not re-apply local changes after syncing to remote.")
@@ -129,6 +138,7 @@ def conflict_keep_local(path: str, branch: str) -> tuple[bool, str]:
                 subprocess.run(
                     ["git", "reset", "--hard", saved_sha],
                     cwd=path, capture_output=True, text=True, timeout=10,
+                    encoding="utf-8", errors="replace",
                 )
             return False, str(e)
         for cmd in (["git", "add", "-A"],
@@ -150,7 +160,8 @@ def check_pr_conflicts(path: str, feature_branch: str,
     try:
         # Fetch latest from remote so we're comparing current state
         subprocess.run(["git", "fetch", "origin"],
-                       cwd=path, capture_output=True, text=True, timeout=30)
+                       cwd=path, capture_output=True, text=True, timeout=30,
+                       encoding="utf-8", errors="replace")
 
         # Resolve remote refs
         feat_ref   = f"origin/{feature_branch}"
@@ -160,6 +171,7 @@ def check_pr_conflicts(path: str, feature_branch: str,
         base_r = subprocess.run(
             ["git", "merge-base", target_ref, feat_ref],
             cwd=path, capture_output=True, text=True, timeout=10,
+            encoding="utf-8", errors="replace",
         )
         if base_r.returncode != 0:
             # No common ancestor — treat as no conflicts (GitHub will decide)
@@ -187,10 +199,12 @@ def check_pr_conflicts(path: str, feature_branch: str,
             subprocess.run(
                 ["git", "read-tree", "-m", base_sha, target_ref, feat_ref],
                 cwd=path, env=env, capture_output=True, text=True, timeout=15,
+                encoding="utf-8", errors="replace",
             )
             ls = subprocess.run(
                 ["git", "ls-files", "--unmerged"],
                 cwd=path, env=env, capture_output=True, text=True, timeout=10,
+                encoding="utf-8", errors="replace",
             )
             for line in ls.stdout.strip().splitlines():
                 # format: "<mode> <object> <stage>\t<path>"
@@ -246,6 +260,7 @@ def check_pr_conflicts(path: str, feature_branch: str,
                 mf = subprocess.run(
                     ["git", "merge-file", "-p", ours_f, base_f, theirs_f],
                     capture_output=True, text=True, timeout=10,
+                    encoding="utf-8", errors="replace",
                 )
                 orig, orig_start, inc, inc_start = parse_conflict_markers(
                     mf.stdout.splitlines(keepends=True)
@@ -282,6 +297,7 @@ def merge_pr_locally(path: str, feature_branch: str, target_branch: str,
         cur_r = subprocess.run(
             ["git", "rev-parse", "--abbrev-ref", "HEAD"],
             cwd=path, capture_output=True, text=True, timeout=5,
+            encoding="utf-8", errors="replace",
         )
         current = cur_r.stdout.strip()
         if current != target_branch:
@@ -307,7 +323,8 @@ def merge_pr_locally(path: str, feature_branch: str, target_branch: str,
         ok_merge, err_merge = _run(path, ["git", "merge", "--no-ff", "--no-commit", feature_branch], timeout=60)
         if not ok_merge and "conflict" not in err_merge.lower():
             subprocess.run(["git", "merge", "--abort"],
-                           cwd=path, capture_output=True, text=True, timeout=10)
+                           cwd=path, capture_output=True, text=True, timeout=10,
+                           encoding="utf-8", errors="replace")
             return False, err_merge
 
         # Apply per-file decisions
@@ -326,7 +343,8 @@ def merge_pr_locally(path: str, feature_branch: str, target_branch: str,
         )
         if not ok_c:
             subprocess.run(["git", "merge", "--abort"],
-                           cwd=path, capture_output=True, text=True, timeout=10)
+                           cwd=path, capture_output=True, text=True, timeout=10,
+                           encoding="utf-8", errors="replace")
             return False, err_c
 
         # Push target branch
@@ -338,7 +356,8 @@ def merge_pr_locally(path: str, feature_branch: str, target_branch: str,
     except Exception as e:
         try:
             subprocess.run(["git", "merge", "--abort"],
-                           cwd=path, capture_output=True, text=True, timeout=10)
+                           cwd=path, capture_output=True, text=True, timeout=10,
+                           encoding="utf-8", errors="replace")
         except Exception:
             pass
         return False, str(e)

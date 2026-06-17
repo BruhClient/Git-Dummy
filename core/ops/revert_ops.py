@@ -16,7 +16,8 @@ def discard_all_changes(path: str) -> tuple[bool, str]:
 def hard_revert_to(path: str, branch: str, target_sha: str) -> tuple[bool, str]:
     try:
         cur = subprocess.run(["git", "rev-parse", "--abbrev-ref", "HEAD"],
-                             cwd=path, capture_output=True, text=True, timeout=5)
+                             cwd=path, capture_output=True, text=True,
+                             encoding="utf-8", errors="replace", timeout=5)
         current = cur.stdout.strip()
         if current == "HEAD":
             current = ""
@@ -29,9 +30,13 @@ def hard_revert_to(path: str, branch: str, target_sha: str) -> tuple[bool, str]:
 
     pre_r = subprocess.run(
         ["git", "rev-parse", branch],
-        cwd=path, capture_output=True, text=True, timeout=5,
+        cwd=path, capture_output=True, text=True,
+        encoding="utf-8", errors="replace", timeout=5,
     )
     pre_reset_sha = pre_r.stdout.strip() if pre_r.returncode == 0 else ""
+
+    if not pre_reset_sha:
+        return False, "Could not determine current branch tip — aborting to avoid leaving the repo in a broken state."
 
     ok, err = _run(path, ["git", "reset", "--hard", target_sha])
     if not ok:
@@ -44,7 +49,8 @@ def hard_revert_to(path: str, branch: str, target_sha: str) -> tuple[bool, str]:
     if has_remote:
         r = subprocess.run(
             ["git", "push", "--force", "origin", branch],
-            cwd=path, capture_output=True, text=True, timeout=30,
+            cwd=path, capture_output=True, text=True,
+            encoding="utf-8", errors="replace", timeout=30,
         )
         if r.returncode != 0:
             if pre_reset_sha:
@@ -66,7 +72,8 @@ def soft_revert_to(path: str, branch: str, tip_sha: str, parent_sha: str = "") -
 
     try:
         cur = subprocess.run(["git", "rev-parse", "--abbrev-ref", "HEAD"],
-                             cwd=path, capture_output=True, text=True, timeout=5)
+                             cwd=path, capture_output=True, text=True,
+                             encoding="utf-8", errors="replace", timeout=5)
         current = cur.stdout.strip()
         if current == "HEAD":
             current = ""
@@ -96,7 +103,12 @@ def soft_revert_to(path: str, branch: str, tip_sha: str, parent_sha: str = "") -
 
     ok, err = _run(path, ["git", "commit", "-m", msg])
     if not ok:
-        # Uncommit the staged changes so the working tree is not left dirty-staged.
         subprocess.run(["git", "reset", "HEAD"], cwd=path, capture_output=True, timeout=10)
+        if "nothing to commit" in err.lower():
+            return False, (
+                "Nothing to revert — the merged branch introduced no file changes, "
+                "so this commit's content is identical to its parent. "
+                "On a protected branch, Hard Revert (which removes commits from history) is blocked."
+            )
         return False, err
     return True, ""

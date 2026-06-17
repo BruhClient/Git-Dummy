@@ -95,6 +95,7 @@ class PositionPanel(QWidget):
     PANEL_W = PANEL_W
     jump_requested   = pyqtSignal(str)
     return_requested = pyqtSignal()
+    pull_requested   = pyqtSignal(str)  # emits branch name
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -217,6 +218,20 @@ class PositionPanel(QWidget):
         self._jump_btn.clicked.connect(self._on_jump)
         bl.addWidget(self._jump_btn)
 
+        self._pull_btn = QPushButton("↓ Pull to latest")
+        self._pull_btn.setCursor(Qt.PointingHandCursor)
+        self._pull_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: {COLORS['accent']}; border: none; border-radius: 8px;
+                color: {COLORS['text_on_accent']}; font-size: 12px; font-weight: 600; font-family: 'Tilt Warp';
+                padding: 8px 16px;
+            }}
+            QPushButton:hover {{ background: {COLORS['accent_dim']}; }}
+        """)
+        self._pull_btn.clicked.connect(lambda: self.pull_requested.emit(self._current_branch))
+        self._pull_btn.hide()
+        bl.addWidget(self._pull_btn)
+
         self._return_btn = QPushButton("Go back to my work →")
         self._return_btn.setCursor(Qt.PointingHandCursor)
         self._return_btn.setStyleSheet(f"""
@@ -251,17 +266,22 @@ class PositionPanel(QWidget):
 
         root.addWidget(body)
 
-        self._current_sha = ""
+        self._current_sha    = ""
+        self._current_branch = ""
 
     def _on_jump(self):
         if self._current_sha:
             self.jump_requested.emit(self._current_sha)
+
+    def set_pull_state(self, can_pull: bool):
+        self._pull_btn.setVisible(can_pull)
 
     def set_exploring(self, exploring: bool, stashed_files: list[str] | None = None):
         self._explore_badge.setVisible(exploring)
         self._return_btn.setVisible(exploring)
         self._jump_btn.setVisible(not exploring)
         if exploring:
+            self._pull_btn.hide()
             self._title.setText("Exploring the past")
             self._dot.setStyleSheet(
                 f"background: transparent; font-size: 8px; color: {COLORS['warning']};"
@@ -297,7 +317,8 @@ class PositionPanel(QWidget):
         self._stash_files_lbl.show()
 
     def load(self, message: str, branch: str, sha: str, author: str = "", avatar_url: str = ""):
-        self._current_sha = sha
+        self._current_sha    = sha
+        self._current_branch = branch
         self._avatar.set_author(author or "?", avatar_url)
         self._author_lbl.setText(author or "—")
         self._name_lbl.set_value(message.splitlines()[0] if message else "—")
@@ -312,6 +333,7 @@ class PositionPanel(QWidget):
         self._branch_lbl.set_value("—")
         self._sha_lbl.set_value("—")
         self.set_exploring(False)
+        self.set_pull_state(False)
         self.adjustSize()
         self.hide()
 

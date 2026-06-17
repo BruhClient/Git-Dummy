@@ -307,8 +307,30 @@ class DetailPanel(QWidget):
         self._header_branch.setStyleSheet(
             f"background: transparent; font-size: 11px; color: {COLORS['text_muted']}; letter-spacing: 0.02em;"
         )
+        _warn = COLORS.get("warning", "#f59e0b")
+        self._protected_badge = QWidget()
+        self._protected_badge.setStyleSheet("background: transparent;")
+        _badge_hl = QHBoxLayout(self._protected_badge)
+        _badge_hl.setContentsMargins(0, 0, 0, 0)
+        _badge_hl.setSpacing(3)
+        _badge_icon = QLabel()
+        _badge_icon.setPixmap(qta.icon("ph.lock", color=_warn).pixmap(10, 10))
+        _badge_icon.setStyleSheet("background: transparent;")
+        _badge_text = QLabel("Protected")
+        _badge_text.setStyleSheet(f"background: transparent; font-size: 10px; color: {_warn};")
+        _badge_hl.addWidget(_badge_icon)
+        _badge_hl.addWidget(_badge_text)
+        self._protected_badge.hide()
+
+        branch_row = QHBoxLayout()
+        branch_row.setSpacing(6)
+        branch_row.setContentsMargins(0, 0, 0, 0)
+        branch_row.addWidget(self._header_branch)
+        branch_row.addWidget(self._protected_badge)
+        branch_row.addStretch()
+
         name_block.addWidget(self._header_name)
-        name_block.addWidget(self._header_branch)
+        name_block.addLayout(branch_row)
         header_layout.addLayout(name_block)
         header_layout.addStretch()
 
@@ -794,6 +816,7 @@ class DetailPanel(QWidget):
         self._hard_revert_btn.setToolTip(
             "This branch is protected on GitHub — hard revert is blocked" if protected else ""
         )
+        self._protected_badge.setVisible(protected)
 
     def set_push_state(self, can_push: bool, branch: str = "", is_protected: bool = False):
         self._push_branch = branch

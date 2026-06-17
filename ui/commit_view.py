@@ -104,7 +104,8 @@ class CommitViewPage(_PRMixin, QWidget):
     _wizard_push_done_sig   = pyqtSignal(bool, str)          # ok, err
     _wizard_pr_done_sig     = pyqtSignal(bool, str)          # ok, err
     # PR merge conflict check (thread → main)
-    _pr_conflict_check_sig  = pyqtSignal(bool, list, object, object)  # has_conflicts, files, content, pr
+    _pr_conflict_check_sig      = pyqtSignal(bool, list, object, object)  # has_conflicts, files, content, pr
+    _pr_conflict_check_err_sig  = pyqtSignal(str)                         # err
     # Emitted when repo access is denied (private / inaccessible) — carries repo path
     access_denied           = pyqtSignal(str)
 
@@ -236,6 +237,7 @@ class CommitViewPage(_PRMixin, QWidget):
         self._wizard_push_done_sig.connect(self._on_wizard_push_done)
         self._wizard_pr_done_sig.connect(self._on_wizard_pr_done)
         self._pr_conflict_check_sig.connect(self._on_pr_conflict_check)
+        self._pr_conflict_check_err_sig.connect(self._on_pr_conflict_check_err)
         self._pending_merge_pr: dict = {}
 
         self._orientation: str = ORIENT_LR
@@ -254,7 +256,9 @@ class CommitViewPage(_PRMixin, QWidget):
         self._vis_thread:       Optional[QThread] = None
         self._navigate_thread:  Optional[QThread] = None
         self._navigate_worker   = None
+        self._nav_gen:          int  = 0
         self._navigating:       bool = False
+        self._last_pull_branch: str  = ""
         self._last_dirty:       bool = False
         self._last_stash_id:    str  = ""
         self._uncommitted_thread: Optional[QThread] = None
@@ -309,6 +313,7 @@ class CommitViewPage(_PRMixin, QWidget):
             lambda info: self._changes_panel.show_file(info, source="stash")
         )
         self._position_panel.jump_requested.connect(self._canvas.jump_to_commit)
+        self._position_panel.pull_requested.connect(self._on_pull_branch)
         self._panel.navigate_requested.connect(self._on_navigate)
         self._panel.branch_create_requested.connect(self._on_branch_create)
         self._panel.push_requested.connect(self._on_push_branch)
@@ -931,6 +936,20 @@ class CommitViewPage(_PRMixin, QWidget):
             avatar_url = self._avatar_url_for_author(head_commit.author)
             self._position_panel.load(head_commit.message, branch, head_commit.sha, head_commit.author, avatar_url)
             self._reposition_position()
+
+            # Show pull button when HEAD branch is behind its remote tip
+            commit_order = {c.sha: i for i, c in enumerate(commits)}
+            local_sha = next((s for s, n in self._local_tip_branch.items() if n == branch), None)
+            remote_sha = next(
+                (s for s, names in self._last_branch_tips.items()
+                 if branch in names and s not in self._local_tip_branch),
+                None
+            )
+            is_behind = bool(local_sha and remote_sha and local_sha != remote_sha
+                             and commit_order.get(remote_sha, 10**9)
+                             < commit_order.get(local_sha, 10**9))
+            self._position_panel.set_pull_state(is_behind)
+
         self._canvas.set_head_sha(head_sha)
         self._panel.set_head_sha(head_sha)
         self._last_head_sha = head_sha
@@ -1076,10 +1095,10 @@ class CommitViewPage(_PRMixin, QWidget):
             def _run():
                 try:
                     from core.ops import discard_all_changes
-                    ok, _ = discard_all_changes(path)
+                    ok, err = discard_all_changes(path)
                 except Exception as exc:
-                    ok = False
-                self._stash_done_sig.emit(ok, "Changes discarded.", [], {})
+                    ok, err = False, str(exc)
+                self._stash_done_sig.emit(ok, "Changes discarded." if ok else err, [], {})
         import threading as _threading
         _threading.Thread(target=_run, daemon=True).start()
 
@@ -1147,6 +1166,7 @@ class CommitViewPage(_PRMixin, QWidget):
         self._panel_op_active = True
         self._navigating = True
         self._reload_debounce.stop()
+        self._toast.show_message("Merging…", kind="loading")
         path = self._tracker._path
         def _run():
             try:
@@ -1253,6 +1273,8 @@ class CommitViewPage(_PRMixin, QWidget):
             self._do_clean_pull(branch)
 
     def _do_clean_pull(self, branch: str):
+        self._last_pull_branch = branch
+        self._toast.show_message("Pulling…", kind="loading")
         path = self._tracker._path
         def _run():
             try:
@@ -1268,9 +1290,11 @@ class CommitViewPage(_PRMixin, QWidget):
         if choice == "cancel":
             self._panel.unlock_actions()
             return
+        self._last_pull_branch = branch
         self._panel_op_active = True
         self._navigating = True
         self._reload_debounce.stop()
+        self._toast.show_message("Pulling…", kind="loading")
         path = self._tracker._path
         if choice == "stash_pull":
             success_msg = f"Stash re-applied on top of '{branch}'."
@@ -1313,12 +1337,12 @@ class CommitViewPage(_PRMixin, QWidget):
             # Re-lock while the conflict dialog is open — _on_conflict_done will release.
             self._panel_op_active = True
             self._conflict_dialog.show_for_branch(
-                self._pull_dirty_dialog._branch, "PULL CONFLICT", [], arrow="←", repo_path=self._tracker._path if self._tracker else "")
+                getattr(self, "_last_pull_branch", ""), "PULL CONFLICT", [], arrow="←", repo_path=self._tracker._path if self._tracker else "")
         elif err == "merge_conflict":
             # Re-lock while the conflict dialog is open — _on_conflict_done will release.
             self._panel_op_active = True
             self._conflict_dialog.show_for_branch(
-                self._pull_dirty_dialog._branch, "PULL CONFLICT", conflict_files, arrow="←", repo_path=self._tracker._path if self._tracker else "")
+                getattr(self, "_last_pull_branch", ""), "PULL CONFLICT", conflict_files, arrow="←", repo_path=self._tracker._path if self._tracker else "")
         else:
             msg = "Timed out." if err == "timed_out" else f"Pull failed: {err[:120]}"
             self._toast.show_message(msg, kind="error", duration_ms=6000)
@@ -1329,6 +1353,7 @@ class CommitViewPage(_PRMixin, QWidget):
             return
         self._panel_op_active = True
         self._reload_debounce.stop()
+        self._toast.show_message("Pushing…", kind="loading")
         path       = self._tracker._path
         username   = self._user.get("login", "")
         token      = self._user.get("access_token", "")
@@ -1403,6 +1428,7 @@ class CommitViewPage(_PRMixin, QWidget):
         else:
             msg = "Timed out." if err == "timed_out" else f"Failed: {err[:120]}"
             self._toast.show_message(msg, kind="error", duration_ms=6000)
+            self._start_load()
         self._panel.unlock_actions()
 
     def _on_hard_revert(self, branch: str, target_sha: str):
@@ -1500,6 +1526,7 @@ class CommitViewPage(_PRMixin, QWidget):
             self._start_load()
         else:
             self._toast.show_message(f"Failed: {err[:120]}", kind="error", duration_ms=6000)
+            self._start_load()
         self._panel.unlock_actions()
 
     @staticmethod
@@ -1722,7 +1749,12 @@ class CommitViewPage(_PRMixin, QWidget):
         parent_branch = self._sha_to_branch.get(parent_sha, "")
         canonical_branch = commit.branch  # lane-assigned; stable when multiple local branches share a SHA
         branch_commit_count = sum(1 for b in self._sha_to_branch.values() if b == canonical_branch)
-        is_first = not has_parent or (parent_branch and parent_branch != canonical_branch and branch_commit_count <= 1)
+        is_first = not has_parent or (
+            not is_merge_commit
+            and parent_branch
+            and parent_branch != canonical_branch
+            and branch_commit_count <= 1
+        )
 
         self._panel.set_commit_actions(
             branch=branch,
@@ -1751,11 +1783,10 @@ class CommitViewPage(_PRMixin, QWidget):
             self._toast.show_message("Navigation already in progress — please wait.", kind="info")
             return
 
-        # If there are unsaved changes, prompt the user before proceeding.
+        # If there are unsaved changes, auto-stash and navigate immediately.
         if self._last_dirty:
-            self._panel.lock_actions()
-            self._navigate_dirty_dialog.show_for_sha(sha)
-            return  # worker launched in _on_navigate_dirty_choice
+            self._launch_navigate(sha, discard=False)
+            return
 
         self._launch_navigate(sha)
 
@@ -1767,7 +1798,10 @@ class CommitViewPage(_PRMixin, QWidget):
         self._navigating = True
         self._panel_op_active = True
         self._reload_debounce.stop()
+        self._toast.show_message("Switching…", kind="loading")
 
+        self._nav_gen += 1
+        gen = self._nav_gen
         current_head = self._tracker.head_sha()
         self._navigate_thread = QThread()
         self._navigate_worker = _NavigateWorker(
@@ -1775,7 +1809,7 @@ class CommitViewPage(_PRMixin, QWidget):
         )
         self._navigate_worker.moveToThread(self._navigate_thread)
         self._navigate_thread.started.connect(self._navigate_worker.run)
-        self._navigate_worker.finished.connect(self._on_navigate_done)
+        self._navigate_worker.finished.connect(lambda ok, err, _gen=gen: self._on_navigate_done(ok, err, _gen))
         self._navigate_worker.finished.connect(self._navigate_thread.quit)
         self._navigate_thread.finished.connect(lambda: setattr(self, '_navigate_thread', None))
         self._navigate_thread.start()
@@ -1786,7 +1820,10 @@ class CommitViewPage(_PRMixin, QWidget):
             return
         self._launch_navigate(sha, discard=(choice == "discard"))
 
-    def _on_navigate_done(self, ok: bool, err: str):
+    def _on_navigate_done(self, ok: bool, err: str, gen: int = 0):
+        # Stale-worker guard: if a newer navigate was launched, ignore this result.
+        if gen != 0 and gen != self._nav_gen:
+            return
         self._navigating = False
         self._panel_op_active = False
         self._panel.unlock_actions()

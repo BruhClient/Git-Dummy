@@ -7,7 +7,8 @@ import subprocess
 def _run(path: str, cmd: list, timeout: int = 30) -> tuple[bool, str]:
     """Run a git command with a timeout. Returns (ok, error_message)."""
     try:
-        r = subprocess.run(cmd, cwd=path, capture_output=True, text=True, timeout=timeout)
+        r = subprocess.run(cmd, cwd=path, capture_output=True, text=True, timeout=timeout,
+                           encoding="utf-8", errors="replace")
         if r.returncode != 0:
             return False, r.stderr.strip() or r.stdout.strip()
         return True, ""
@@ -18,7 +19,7 @@ def _run(path: str, cmd: list, timeout: int = 30) -> tuple[bool, str]:
 def has_uncommitted_changes(path: str) -> bool:
     r = subprocess.run(
         ["git", "status", "--porcelain"],
-        cwd=path, capture_output=True, text=True,
+        cwd=path, capture_output=True, text=True, encoding="utf-8", errors="replace",
     )
     return bool(r.stdout.strip())
 
@@ -26,7 +27,7 @@ def has_uncommitted_changes(path: str) -> bool:
 def checkout_commit(path: str, sha: str) -> tuple[bool, str]:
     r = subprocess.run(
         ["git", "checkout", sha],
-        cwd=path, capture_output=True, text=True,
+        cwd=path, capture_output=True, text=True, encoding="utf-8", errors="replace",
     )
     return r.returncode == 0, r.stderr.strip()
 
@@ -34,7 +35,7 @@ def checkout_commit(path: str, sha: str) -> tuple[bool, str]:
 def checkout_branch(path: str, branch: str) -> tuple[bool, str]:
     r = subprocess.run(
         ["git", "checkout", branch],
-        cwd=path, capture_output=True, text=True,
+        cwd=path, capture_output=True, text=True, encoding="utf-8", errors="replace",
     )
     return r.returncode == 0, r.stderr.strip()
 
@@ -43,7 +44,7 @@ def current_branch(path: str) -> str:
     """Return the current branch name, or '' if in detached HEAD state."""
     r = subprocess.run(
         ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-        cwd=path, capture_output=True, text=True,
+        cwd=path, capture_output=True, text=True, encoding="utf-8", errors="replace",
     )
     result = r.stdout.strip()
     return "" if result == "HEAD" else result
@@ -53,7 +54,7 @@ def reset_hard(path: str) -> bool:
     """Reset index and working tree to HEAD, aborting any partial stash apply."""
     r = subprocess.run(
         ["git", "reset", "--hard", "HEAD"],
-        cwd=path, capture_output=True, text=True,
+        cwd=path, capture_output=True, text=True, encoding="utf-8", errors="replace",
     )
     return r.returncode == 0
 
@@ -64,6 +65,7 @@ def get_conflict_files(path: str) -> list:
         r = subprocess.run(
             ["git", "diff", "--name-only", "--diff-filter=U"],
             cwd=path, capture_output=True, text=True, timeout=10,
+            encoding="utf-8", errors="replace",
         )
         return [f for f in r.stdout.strip().splitlines() if f]
     except Exception:

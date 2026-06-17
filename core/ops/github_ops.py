@@ -46,6 +46,7 @@ def push_branch(
     r = subprocess.run(
         ["git", "push", "-u", "origin", branch],
         cwd=path, capture_output=True, text=True, timeout=60,
+        encoding="utf-8", errors="replace",
     )
     if r.returncode == 0:
         return True, "", [], {}
@@ -75,7 +76,8 @@ def push_to_github(
         def run(*args, **kw):
             r = subprocess.run(
                 list(args), cwd=path,
-                capture_output=True, text=True, **kw,
+                capture_output=True, text=True,
+                encoding="utf-8", errors="replace", **kw,
             )
             if r.returncode != 0:
                 raise RuntimeError(r.stderr.strip() or r.stdout.strip())

@@ -43,6 +43,7 @@ class _PRMixin:
         """Wizard Step 1: push branch."""
         if not self._tracker:
             return
+        self._panel_op_active = True
         path       = self._tracker._path
         username   = self._user.get("login", "")
         token      = self._user.get("access_token", "")
@@ -94,6 +95,7 @@ class _PRMixin:
         """User clicked Merge on a PR row. Check for conflicts first."""
         if not self._tracker:
             return
+        self._panel_op_active = True
         feature_branch = (pr.get("head") or {}).get("ref", "")
         target_branch  = (pr.get("base") or {}).get("ref", "main")
         path           = self._tracker._path
@@ -106,11 +108,15 @@ class _PRMixin:
                 has_conflicts, files, content = check_pr_conflicts(
                     path, feature_branch, target_branch
                 )
+                self._pr_conflict_check_sig.emit(has_conflicts, files, content, pr)
             except Exception as e:
-                has_conflicts, files, content = False, [], {}
-            self._pr_conflict_check_sig.emit(has_conflicts, files, content, pr)
+                self._pr_conflict_check_err_sig.emit(str(e))
         import threading as _threading
         _threading.Thread(target=_run, daemon=True).start()
+
+    def _on_pr_conflict_check_err(self, err: str):
+        self._panel_op_active = False
+        self._toast.show_message(f"Conflict check failed: {err}", kind="error")
 
     def _on_pr_conflict_check(self, has_conflicts: bool, files: list,
                                content: object, pr: dict):
@@ -118,20 +124,25 @@ class _PRMixin:
             source = (pr.get("head") or {}).get("ref", "?")
             target = (pr.get("base") or {}).get("ref", "main")
             self._pending_merge_pr = pr
+            self._panel_op_active = False
             self._merge_conflict_dialog.show_for_conflict(
                 source, target, files, prefetched_content=content or {}
             )
         else:
+            self._panel_op_active = False
             self._pr_panel.merge_via_api(pr)
 
     # ── PR Wizard done handlers (main thread) ─────────────────────────────────
 
     def _on_wizard_push_done(self, ok: bool, err: str):
+        if not ok:
+            self._panel_op_active = False
         self._pr_wizard.notify_push_done(ok, err)
         if ok:
             self._start_load()
 
     def _on_wizard_pr_done(self, ok: bool, err: str):
+        self._panel_op_active = False
         self._pr_wizard.notify_pr_created(ok, err)
         if ok:
             # Switch to Collaboration tab so user sees their new PR.

@@ -630,6 +630,8 @@ class SettingsPanel(QWidget):
         self._collab_body.setVisible(self._collab_expanded)
         self._collab_toggle.setText("▾" if self._collab_expanded else "▸")
         self._collab_card.adjustSize()
+        self._scroll.widget().adjustSize()
+        self._scroll.updateGeometry()
 
     def _fetch_repo_info(self):
         try:
@@ -705,25 +707,19 @@ class SettingsPanel(QWidget):
         row = QWidget()
         row.setStyleSheet("background: transparent;")
         hl = QHBoxLayout(row)
-        hl.setContentsMargins(2, 2, 2, 6)
+        hl.setContentsMargins(2, 0, 2, 4)
         hl.setSpacing(6)
 
-        icon_name  = "fa5s.lock" if protected else "fa5s.lock-open"
+        icon_name  = "ph.lock" if protected else "ph.lock-open"
         icon_color = COLORS.get("warning", "#f59e0b") if protected else COLORS["text_muted"]
         icon_lbl = QLabel()
-        icon_lbl.setPixmap(qta.icon(icon_name, color=icon_color).pixmap(12, 12))
+        icon_lbl.setPixmap(qta.icon(icon_name, color=icon_color).pixmap(11, 11))
         icon_lbl.setStyleSheet("background: transparent;")
         hl.addWidget(icon_lbl)
 
-        if protected:
-            text  = f"{branch} is protected — force-push and direct commits are blocked."
-            color = COLORS.get("warning", "#f59e0b")
-        else:
-            text  = f"{branch} is not protected"
-            color = COLORS["text_muted"]
-
-        text_lbl = QLabel(text)
-        text_lbl.setWordWrap(True)
+        status = "Protected" if protected else "Not protected"
+        color  = COLORS.get("warning", "#f59e0b") if protected else COLORS["text_muted"]
+        text_lbl = QLabel(f"{branch}  ·  {status}")
         text_lbl.setStyleSheet(
             f"background: transparent; font-size: 12px; color: {color};"
         )
@@ -736,6 +732,8 @@ class SettingsPanel(QWidget):
         self._rules_body.setVisible(self._rules_expanded)
         self._rules_toggle.setText("▾" if self._rules_expanded else "▸")
         self._rules_card.adjustSize()
+        self._scroll.widget().adjustSize()
+        self._scroll.updateGeometry()
 
     def _on_rulesets_ready(self, rulesets: list, status: str):
         while self._rules_list.count():
@@ -780,47 +778,13 @@ class SettingsPanel(QWidget):
         if self._branch_protected_state:
             self._insert_protection_row(*self._branch_protected_state)
 
-    def _build_ruleset_card(self, rs: dict) -> QWidget:
-        card = QWidget()
-        card.setAttribute(Qt.WA_StyledBackground, True)
-        card.setStyleSheet(f"""
-            QWidget {{
-                background: {COLORS['bg_secondary']};
-                border-radius: 6px;
-            }}
-        """)
-        vl = QVBoxLayout(card)
-        vl.setContentsMargins(10, 8, 10, 10)
-        vl.setSpacing(4)
-
-        name_lbl = QLabel(rs.get("name", "Unnamed ruleset"))
-        name_lbl.setStyleSheet(
-            f"background: transparent; font-size: 13px; font-weight: 700; font-family: 'Tilt Warp';"
-            f" color: {COLORS['text_primary']};"
+    def _build_ruleset_card(self, rs: dict) -> QLabel:
+        name       = rs.get("name") or "Unnamed ruleset"
+        rule_count = len(rs.get("rules") or [])
+        suffix     = f"  ·  {rule_count} rule{'s' if rule_count != 1 else ''}" if rule_count else ""
+        lbl = QLabel(f"• {name}{suffix}")
+        lbl.setStyleSheet(
+            f"background: transparent; font-size: 12px; color: {COLORS['text_secondary']};"
         )
-        vl.addWidget(name_lbl)
-
-        conditions = rs.get("conditions") or {}
-        ref_name   = conditions.get("ref_name") or {}
-        includes   = ref_name.get("include") or []
-        if includes:
-            targets = ", ".join(_humanize_ref(p) for p in includes)
-            target_lbl = QLabel(targets)
-            target_lbl.setStyleSheet(
-                f"background: transparent; font-size: 11px; font-family: monospace;"
-                f" color: {COLORS['text_muted']};"
-            )
-            vl.addWidget(target_lbl)
-
-        for rule in (rs.get("rules") or []):
-            label = _RULE_LABELS.get(rule.get("type", ""))
-            if not label:
-                continue
-            rule_lbl = QLabel(f"• {label}")
-            rule_lbl.setStyleSheet(
-                f"background: transparent; font-size: 12px; color: {COLORS['text_secondary']};"
-            )
-            vl.addWidget(rule_lbl)
-
-        return card
+        return lbl
 
