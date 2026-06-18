@@ -13,7 +13,7 @@ def discard_all_changes(path: str) -> tuple[bool, str]:
     return True, ""
 
 
-def hard_revert_to(path: str, branch: str, target_sha: str) -> tuple[bool, str]:
+def hard_revert_to(path: str, branch: str, target_sha: str, force_push: bool = True) -> tuple[bool, str]:
     try:
         cur = subprocess.run(["git", "rev-parse", "--abbrev-ref", "HEAD"],
                              cwd=path, capture_output=True, text=True,
@@ -46,7 +46,7 @@ def hard_revert_to(path: str, branch: str, target_sha: str) -> tuple[bool, str]:
         ["git", "remote", "get-url", "origin"],
         cwd=path, capture_output=True, timeout=5,
     ).returncode == 0
-    if has_remote:
+    if has_remote and force_push:
         r = subprocess.run(
             ["git", "push", "--force", "origin", branch],
             cwd=path, capture_output=True, text=True,

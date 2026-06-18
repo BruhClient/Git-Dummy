@@ -180,6 +180,9 @@ class GitTracker:
                 except Exception:
                     pass
 
+        # Capture the ground-truth remote tip SHAs before local branches are appended.
+        remote_origin_shas: set[str] = {sha for _, _, sha in ref_list}
+
         local_only: set[str] = set()
 
         # Fall back to local branches if no remote refs are available
@@ -222,7 +225,7 @@ class GitTracker:
                     pass
 
         if not ref_list:
-            return [], {}, set()
+            return [], {}, set(), set()
 
         # ── branch_tip_map ────────────────────────────────────────────────
         branch_tip_map: dict[str, list[str]] = {}
@@ -260,7 +263,7 @@ class GitTracker:
                 parents=[p.hexsha for p in c.parents],
             ))
 
-        return commits, branch_tip_map, local_only
+        return commits, branch_tip_map, local_only, remote_origin_shas
 
     def fetch(self) -> bool:
         """Fetch from origin. Returns True if refs changed."""

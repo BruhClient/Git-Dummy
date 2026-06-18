@@ -119,6 +119,29 @@ def get_stash_list_id(path: str) -> str:
     return r.stdout.strip()
 
 
+def migrate_stash_after_pull(path: str, old_head_sha: str) -> bool:
+    """After a pull, apply and drop any stash whose parent was the old HEAD.
+
+    This moves the stash's content into the working tree on the new HEAD so the
+    stash indicator disappears from the old commit.  If the apply conflicts with
+    the current working tree the stash is left untouched.
+    """
+    stash_ref = get_stash_ref_for_commit(path, old_head_sha)
+    if not stash_ref:
+        return False
+    r = subprocess.run(
+        ["git", "stash", "apply", stash_ref],
+        cwd=path, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30,
+    )
+    if r.returncode != 0:
+        return False
+    subprocess.run(
+        ["git", "stash", "drop", stash_ref],
+        cwd=path, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=10,
+    )
+    return True
+
+
 def save_stash_as_commit(path: str, stash_ref: str = "", message: str = "",
                          branch: str = "") -> tuple[bool, str, list, dict]:
     """Commit saved changes at the tip of branch.

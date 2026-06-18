@@ -21,6 +21,7 @@ def _branch_base(name: str) -> str:
 def _compute_lanes(
     commits: list[CommitInfo],
     branch_tip_map: dict[str, list[str]],
+    local_tip_shas: set[str] | None = None,
 ) -> tuple[dict[str, int], dict[int, str]]:
     """
     Classic streaming lane algorithm — the same approach used by git log --graph.
@@ -83,7 +84,14 @@ def _compute_lanes(
                 if not c or not c.parents:
                     break
                 sha = c.parents[0]
-            primary_tip = newest if reachable else oldest
+            if reachable:
+                primary_tip = newest
+            else:
+                if local_tip_shas:
+                    remote_cands = [s for s in primary_candidates if s not in local_tip_shas]
+                    primary_tip = remote_cands[0] if remote_cands else oldest
+                else:
+                    primary_tip = oldest
     else:
         primary_tip = None
 
@@ -160,9 +168,10 @@ def _compute_lanes(
         if sha not in commit_owner:
             commit_owner[sha] = primary or 'main'
 
+    _local = local_tip_shas or set()
     for tip_sha in sorted(
         (s for s in branch_tip_map if s != primary_tip and s in commit_sha_set),
-        key=lambda s: commit_index.get(s, 10**9),
+        key=lambda s: (1 if s in _local else 0, commit_index.get(s, 10**9)),
     ):
         if not any(s == tip_sha for s in lanes):
             free = next((i for i, s in enumerate(lanes) if s is None), None)
@@ -375,9 +384,26 @@ def _compute_lanes(
         if parent_lane != lane:
             lane_depth[lane] = lane_depth.get(parent_lane, 0) + 1
 
+    # ── Normalize depths for same-named sibling lanes ─────────────────────
+    # Diverged local/remote tips of the same branch share the same
+    # _branch_base name (e.g. "main" and "origin/main" both → "main").
+    # Without this, the remote tip gets depth = local_depth + 1 because its
+    # parent commit sits on the local branch's lane, pushing it far away
+    # visually.  Force all same-named lanes to the group's minimum depth.
+    _name_min_depth: dict[str, int] = {}
+    for _l, _d in lane_depth.items():
+        _b = _branch_base(lane_branch.get(_l, ''))
+        if _b:
+            _name_min_depth[_b] = min(_name_min_depth.get(_b, _d), _d)
+    for _l in list(lane_depth):
+        _b = _branch_base(lane_branch.get(_l, ''))
+        if _b and _b in _name_min_depth:
+            lane_depth[_l] = _name_min_depth[_b]
+
+    _local_lanes = {assignment.get(s) for s in (local_tip_shas or set()) if s in assignment}
     non_main = sorted(
         {l for l in assignment.values() if l != 0},
-        key=lambda l: (lane_depth.get(l, 0), l),
+        key=lambda l: (lane_depth.get(l, 0), 1 if l in _local_lanes else 0, l),
     )
     lane_remap: dict[int, int] = {0: 0}
     for new_idx, old_idx in enumerate(non_main, start=1):

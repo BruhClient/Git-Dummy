@@ -357,10 +357,10 @@ class _PullDirtyDialog(QWidget):
             b.clicked.connect(slot)
             body_vl.addWidget(b)
 
-        _btn("Auto-stash  →  Pull  →  Re-apply", COLORS["accent"],       self._stash_pull)
-        _btn("Save as Commit  →  Merge",          COLORS["text_secondary"], self._save_merge)
-        _btn("Discard  →  Pull",                  COLORS["danger"],       self._discard_pull)
-        _btn("Cancel",                            COLORS["text_muted"],   self._cancel)
+        _btn("Hold my changes  →  Pull  →  Restore after", COLORS["accent"],       self._stash_pull)
+        _btn("Commit my changes  →  Merge updates",       COLORS["text_secondary"], self._save_merge)
+        _btn("Discard my changes  →  Pull",               COLORS["danger"],       self._discard_pull)
+        _btn("Cancel",                                    COLORS["text_muted"],   self._cancel)
         card_vl.addWidget(body)
 
     def show_for_branch(self, branch: str):

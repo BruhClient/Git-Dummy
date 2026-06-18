@@ -21,6 +21,7 @@ from .stash_ops import (   # noqa: F401
     get_stash_commit_shas,
     get_stash_list_id,
     save_stash_as_commit,
+    migrate_stash_after_pull,
 )
 from .diff_ops import (   # noqa: F401
     get_stash_diff_files,

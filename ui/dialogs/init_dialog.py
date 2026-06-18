@@ -315,11 +315,11 @@ class InitDialog(QDialog):
         def _work():
             ok, err, clone_url = git_ops.create_github_repo(repo_name, private, token)
             if not ok:
-                return False, f"Could not create repo: {err}"
+                return False, "Couldn't create the GitHub repository — check your connection."
             self._step_progress.set_text("Uploading your files…")
             ok2, err2 = git_ops.push_to_github(self._path, clone_url, login, token, user_name, user_email)
             if not ok2:
-                return False, f"Push failed: {err2}"
+                return False, "Upload to GitHub failed — try again."
             return True, clone_url
 
         self._run_in_thread(_work, self._on_push_done)

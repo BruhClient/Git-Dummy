@@ -31,7 +31,7 @@ class _CollabLoader(QObject):
 
 
 class _Loader(QObject):
-    finished = pyqtSignal(list, dict, set, set, set)  # commits, branch_tip_map, local_only, unpushed, stash_shas
+    finished = pyqtSignal(list, dict, set, set, set, set)  # commits, branch_tip_map, local_only, unpushed, stash_shas, remote_tip_shas
 
     def __init__(self, path: str):
         super().__init__()
@@ -42,7 +42,7 @@ class _Loader(QObject):
         t = GitTracker(self._path)
         try:
             t.open()
-            commits, branch_tip_map, local_only = t.graph_commits()
+            commits, branch_tip_map, local_only, remote_tip_shas = t.graph_commits()
             unpushed = t.get_unpushed_shas()
             from core.ops import get_stash_commit_shas, has_uncommitted_changes
             stash_shas = get_stash_commit_shas(self._path)
@@ -51,10 +51,10 @@ class _Loader(QObject):
                 if head:
                     stash_shas = stash_shas | {head}
         except Exception:
-            commits, branch_tip_map, local_only, unpushed, stash_shas = [], {}, set(), set(), set()
+            commits, branch_tip_map, local_only, unpushed, stash_shas, remote_tip_shas = [], {}, set(), set(), set(), set()
         finally:
             t.close()
-        self.finished.emit(commits, branch_tip_map, local_only, unpushed, stash_shas)
+        self.finished.emit(commits, branch_tip_map, local_only, unpushed, stash_shas, remote_tip_shas)
 
 
 class _CommitDetailWorker(QObject):

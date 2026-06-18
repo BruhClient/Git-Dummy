@@ -237,7 +237,7 @@ class PROpenWizard(QWidget):
         if ok:
             self._go_to_step(2)
         else:
-            self._push_status.setText(f"Push failed: {err[:80]}")
+            self._push_status.setText("Push failed — check your connection and try again.")
 
     def notify_pr_created(self, ok: bool, err: str = ""):
         """Call from commit_view after GitHub API PR creation."""
@@ -247,7 +247,7 @@ class PROpenWizard(QWidget):
             self._open_pr_btn.setEnabled(False)
             QTimer.singleShot(1200, self._finish)
         else:
-            self._submit_status.setText(f"Failed: {err[:80]}")
+            self._submit_status.setText("Couldn't open the pull request — try again.")
             self._submit_status.show()
             self._open_pr_btn.setEnabled(True)
 

@@ -508,7 +508,7 @@ class PullRequestsPanel(QWidget):
                 timeout=15,
             )
             ok = r.status_code in (200, 201)
-            msg = "PR approved." if ok else f"Approval failed ({r.status_code})."
+            msg = "PR approved." if ok else "Couldn't approve this PR — try again."
             self._action_done.emit(ok, msg)
         except Exception:
             self._action_done.emit(False, "Network error.")
@@ -527,7 +527,7 @@ class PullRequestsPanel(QWidget):
                 timeout=15,
             )
             ok = r.status_code == 200
-            msg = "PR closed." if ok else f"Close failed ({r.status_code})."
+            msg = "PR closed." if ok else "Couldn't close this PR — try again."
             self._action_done.emit(ok, msg)
             if ok:
                 # Refresh the list to move it to Closed tab
@@ -551,7 +551,7 @@ class PullRequestsPanel(QWidget):
                 timeout=15,
             )
             ok = r.status_code in (200, 201)
-            msg = "PR merged successfully." if ok else f"Merge failed ({r.status_code})."
+            msg = "PR merged successfully." if ok else "Couldn't merge this PR — try again."
             self._action_done.emit(ok, msg)
             if ok:
                 QTimer.singleShot(500, self._do_refresh)

@@ -98,6 +98,7 @@ class CommitViewPage(_PRMixin, QWidget):
     _merge_done_sig         = pyqtSignal(bool, str, list, str, str, object)  # ok, err, files, source, target, content
     _merge_resolve_done_sig = pyqtSignal(bool, str, str)             # ok, err, success_msg
     _pull_done_sig      = pyqtSignal(bool, str, str, list)  # ok, err, success_msg, conflict_files
+    _auto_pull_done_sig = pyqtSignal(bool, str)              # ok, err
     _create_done_sig= pyqtSignal(bool, str, str)             # ok, err, branch_name
     _stash_done_sig = pyqtSignal(bool, str, list, object)   # ok, msg, conflict_files, conflict_content
     # PR wizard signals (thread → main)
@@ -231,6 +232,7 @@ class CommitViewPage(_PRMixin, QWidget):
         self._merge_done_sig.connect(self._on_merge_done)
         self._merge_resolve_done_sig.connect(self._on_merge_resolve_done)
         self._pull_done_sig.connect(self._on_pull_done)
+        self._auto_pull_done_sig.connect(self._on_auto_pull_done)
         self._create_done_sig.connect(self._on_branch_create_done)
         self._stash_done_sig.connect(self._on_clear_stash_done)
         # PR wizard / inbox signals
@@ -320,6 +322,7 @@ class CommitViewPage(_PRMixin, QWidget):
         self._panel.push_requested.connect(self._on_push_branch)
         self._panel.pr_open_requested.connect(self._on_pr_open_requested)
         self._panel.pull_requested.connect(self._on_pull_branch)
+        self._panel.sync_requested.connect(self._on_sync_branch)
         self._panel.merge_requested.connect(self._on_merge_branch)
         self._panel.save_stash_requested.connect(self._on_save_stash)
         self._panel.clear_stash_requested.connect(self._on_clear_stash)
@@ -574,7 +577,36 @@ class CommitViewPage(_PRMixin, QWidget):
         self._last_remote_pusher = last_pusher
         if changed:
             self._reload_from_remote = True
-            self._start_load()
+            if self._tracker and not self._panel_op_active:
+                self._try_auto_pull()
+            else:
+                self._start_load()
+
+    def _try_auto_pull(self):
+        path = self._tracker._path
+        def _run():
+            try:
+                from core.ops import has_uncommitted_changes, pull_ff, current_branch
+                branch = current_branch(path)
+                if branch == "HEAD" or has_uncommitted_changes(path):
+                    self._auto_pull_done_sig.emit(True, "")
+                    return
+                ok, err = pull_ff(path, branch)
+                self._auto_pull_done_sig.emit(ok, err)
+            except Exception:
+                self._auto_pull_done_sig.emit(False, "")
+        import threading as _threading
+        _threading.Thread(target=_run, daemon=True).start()
+
+    def _on_auto_pull_done(self, ok: bool, err: str):
+        if not ok and err:
+            if "non-fast-forward" in err or "rejected" in err or "diverge" in err.lower():
+                self._toast.show_message(
+                    "Branch has diverged from remote — use Sync to merge.", kind="error", duration_ms=6000)
+            else:
+                self._toast.show_message(
+                    "Auto-pull failed — pull manually to update.", kind="error", duration_ms=5000)
+        self._start_load()
 
     def _find_nearest_surviving_ancestor(self, deleted_sha: str, new_sha_set: set) -> str:
         """BFS up the old commit graph from deleted_sha, returning the first
@@ -741,7 +773,8 @@ class CommitViewPage(_PRMixin, QWidget):
         self.access_denied.emit(path)
 
     def _on_loaded(self, commits: list[CommitInfo], branch_tip_map: dict,
-                   local_only: set, unpushed: set, stash_shas: set = None):
+                   local_only: set, unpushed: set, stash_shas: set = None,
+                   remote_tip_shas: set = None):
         if not commits and self._tracker:
             self._make_first_commit()
             return
@@ -849,21 +882,12 @@ class CommitViewPage(_PRMixin, QWidget):
         self._commits        = commits
         self._branch_tip_map = branch_tip_map
         self._panel.set_stash_shas(stash_shas)
-        # _remote_tip_shas: every branch tip rendered in the canvas that has at
-        # least one remote (non-local-only) branch name.  Derived directly from
-        # branch_tip_map so it is always in sync with what the canvas renders —
-        # no GitPython ref iteration or subprocess filtering needed.
-        # Exclude stale remote shas where the local branch has moved ahead.
-        # When local Shaun is ahead of origin/Shaun, branch_tip_map contains
-        # both the old remote sha and the new local sha under "Shaun". The old
-        # remote sha should not get the remote-tip dot indicator.
-        _local_branch_names = set(self._local_tip_branch.values())
-        self._remote_tip_shas: set[str] = {
-            sha for sha, names in branch_tip_map.items()
-            if any(name not in local_only for name in names)
-            and not (sha not in self._local_tip_branch
-                     and any(name in _local_branch_names for name in names))
-        }
+        # Use the ground-truth remote tip SHAs from git for-each-ref refs/remotes/
+        # rather than a heuristic derived from branch_tip_map.  The heuristic
+        # incorrectly excluded the actual remote tip when local is *behind* remote
+        # (both SHAs share the same display name, and the newer remote SHA was
+        # filtered out because it wasn't in local_tip_branch).
+        self._remote_tip_shas: set[str] = remote_tip_shas or set()
 
         # Local tip is always the authoritative head — show the hollow ring on it
         # regardless of whether remote is ahead or behind.
@@ -1132,7 +1156,7 @@ class CommitViewPage(_PRMixin, QWidget):
         else:
             self._panel_op_active = False
             self._panel.unlock_actions()
-            self._toast.show_message(f"Failed: {msg[:140]}", kind="error", duration_ms=8000)
+            self._toast.show_message("Something went wrong — your changes are still safe. Try again.", kind="error", duration_ms=8000)
             self._start_load()
 
     def _on_connect_requested(self):
@@ -1221,7 +1245,7 @@ class CommitViewPage(_PRMixin, QWidget):
         else:
             self._panel_op_active = False
             self._navigating = False
-            msg = "Timed out." if err == "timed_out" else f"Merge failed: {err[:120]}"
+            msg = "Timed out." if err == "timed_out" else "Merge failed — try again or check for conflicting changes."
             self._toast.show_message(msg, kind="error", duration_ms=6000)
             self._panel.unlock_actions()
 
@@ -1253,7 +1277,7 @@ class CommitViewPage(_PRMixin, QWidget):
             self._toast.show_message(success_msg, kind="success", duration_ms=5000)
             self._start_load()
         else:
-            msg = "Timed out." if err == "timed_out" else f"Failed: {err[:120]}"
+            msg = "Timed out." if err == "timed_out" else "Couldn't finish the merge — try again."
             self._toast.show_message(msg, kind="error", duration_ms=6000)
         self._panel.unlock_actions()
 
@@ -1269,6 +1293,44 @@ class CommitViewPage(_PRMixin, QWidget):
             except Exception as exc:
                 ok, err, cf, cc = False, str(exc), [], {}
             self._stash_done_sig.emit(ok, "Changes saved as commit." if ok else err, cf, cc)
+        import threading as _threading
+        _threading.Thread(target=_run, daemon=True).start()
+
+    def _on_sync_branch(self, branch: str):
+        if not self._tracker or self._panel_op_active:
+            return
+        self._panel_op_active = True
+        self._navigating = True
+        self._reload_debounce.stop()
+        self._toast.show_message("Syncing with remote…", kind="loading")
+        path = self._tracker._path
+        def _run():
+            try:
+                from core.ops import _run as git_run, merge_branch
+                import subprocess
+                old_head = subprocess.run(
+                    ["git", "rev-parse", "HEAD"],
+                    cwd=path, capture_output=True, text=True,
+                    encoding="utf-8", errors="replace", timeout=5,
+                ).stdout.strip()
+                print(f"[sync] branch={branch} path={path} old_head={old_head}")
+                fetch_ok, fetch_err = git_run(path, ["git", "fetch", "origin"], timeout=30)
+                print(f"[sync] fetch ok={fetch_ok} err={fetch_err[:200] if fetch_err else ''}")
+                print(f"[sync] merging origin/{branch}")
+                ok, err, files, content = merge_branch(path, f"origin/{branch}")
+                print(f"[sync] merge ok={ok} err={err[:200] if err else ''} files={files}")
+                if ok:
+                    push_ok, push_err = git_run(path, ["git", "push", "origin", branch], timeout=30)
+                    print(f"[sync] push ok={push_ok} err={push_err[:200] if push_err else ''}")
+                    if not push_ok:
+                        ok, err = False, push_err
+                if ok and old_head:
+                    from core.ops import migrate_stash_after_pull
+                    migrate_stash_after_pull(path, old_head)
+            except Exception as exc:
+                print(f"[sync] EXCEPTION: {exc}")
+                ok, err, files, content = False, str(exc), [], {}
+            self._merge_done_sig.emit(ok, err, files, f"origin/{branch}", branch, content)
         import threading as _threading
         _threading.Thread(target=_run, daemon=True).start()
 
@@ -1356,7 +1418,12 @@ class CommitViewPage(_PRMixin, QWidget):
             self._conflict_dialog.show_for_branch(
                 getattr(self, "_last_pull_branch", ""), "PULL CONFLICT", conflict_files, arrow="←", repo_path=self._tracker._path if self._tracker else "")
         else:
-            msg = "Timed out." if err == "timed_out" else f"Pull failed: {err[:120]}"
+            if err == "timed_out":
+                msg = "Timed out."
+            elif "non-fast-forward" in err or "rejected" in err or "diverge" in err.lower():
+                msg = "Can't pull — your branch has diverged from remote. Merge or force-push to resolve."
+            else:
+                msg = "Couldn't pull — check your internet connection and try again."
             self._toast.show_message(msg, kind="error", duration_ms=6000)
             self._panel.unlock_actions()
 
@@ -1404,7 +1471,7 @@ class CommitViewPage(_PRMixin, QWidget):
                 prefetched_content=conflict_content or {})
             return
         else:
-            msg = "Timed out." if err == "timed_out" else f"Push failed: {err[:120]}"
+            msg = "Timed out." if err == "timed_out" else "Couldn't push — check your connection and try again."
             self._toast.show_message(msg, kind="error", duration_ms=6000)
         self._panel.unlock_actions()
 
@@ -1438,14 +1505,15 @@ class CommitViewPage(_PRMixin, QWidget):
             self._toast.show_message(success_msg, kind="success", duration_ms=5000)
             self._start_load()
         else:
-            msg = "Timed out." if err == "timed_out" else f"Failed: {err[:120]}"
+            msg = "Timed out." if err == "timed_out" else "Couldn't resolve the conflict — try again."
             self._toast.show_message(msg, kind="error", duration_ms=6000)
             self._start_load()
         self._panel.unlock_actions()
 
     def _on_hard_revert(self, branch: str, target_sha: str):
+        _fp = not getattr(self, "_last_detail_diverged", False)
         self._run_branch_op(
-            lambda p: __import__("core.ops", fromlist=["hard_revert_to"]).hard_revert_to(p, branch, target_sha),
+            lambda p: __import__("core.ops", fromlist=["hard_revert_to"]).hard_revert_to(p, branch, target_sha, force_push=_fp),
             success_msg=f"Hard reverted '{branch}'.",
             fail_prefix="Hard revert failed",
             start_msg=f"Hard reverting '{branch}'…",
@@ -1500,7 +1568,7 @@ class CommitViewPage(_PRMixin, QWidget):
             self._jump_to_head = True   # always scroll to new HEAD after any successful op
             self._start_load()
         else:
-            msg = "Timed out." if err == "timed_out" else f"{fail_prefix}: {err[:120]}"
+            msg = "Timed out." if err == "timed_out" else "Something went wrong — try again."
             self._toast.show_message(msg, kind="error", duration_ms=6000)
             if close_panel:
                 self._panel.hide_panel()
@@ -1537,7 +1605,7 @@ class CommitViewPage(_PRMixin, QWidget):
             self._jump_to_head     = True      # scroll canvas to new branch's tip commit
             self._start_load()
         else:
-            self._toast.show_message(f"Failed: {err[:120]}", kind="error", duration_ms=6000)
+            self._toast.show_message("Couldn't create that branch — the name may already be taken.", kind="error", duration_ms=6000)
             self._start_load()
         self._panel.unlock_actions()
 
@@ -1721,10 +1789,7 @@ class CommitViewPage(_PRMixin, QWidget):
                                    commit.branch in self._last_local_only)
         # True when the branch exists on remote (not local-only) and a remote is configured.
         is_remote_branch = has_remote and commit.branch not in self._last_local_only
-        self._panel.set_push_state(can_push, commit.branch)
-
-        # Pull button — shown when this branch's local tip is behind its remote tip
-        commit_order = {c.sha: i for i, c in enumerate(self._commits)}
+        # Determine branch state: ahead / behind / diverged
         local_sha  = next((s for s, n in self._local_tip_branch.items()
                            if n == commit.branch), None)
         remote_sha = next(
@@ -1732,10 +1797,48 @@ class CommitViewPage(_PRMixin, QWidget):
              if commit.branch in names and s not in self._local_tip_branch),
             None
         )
-        is_behind  = bool(local_sha and remote_sha and local_sha != remote_sha
-                          and commit_order.get(remote_sha, 10**9)
-                          < commit_order.get(local_sha, 10**9))
-        self._panel.set_pull_state(is_behind, commit.branch)
+        is_behind = False
+        is_diverged = False
+        if local_sha and remote_sha and local_sha != remote_sha:
+            _cmap = {c.sha: c for c in self._commits}
+            _sha, _vis = local_sha, set()
+            _local_ahead = False
+            while _sha and _sha in _cmap and _sha not in _vis:
+                _vis.add(_sha)
+                if _sha == remote_sha:
+                    _local_ahead = True
+                    break
+                _c = _cmap[_sha]
+                _sha = _c.parents[0] if _c.parents else None
+            _sha, _vis = remote_sha, set()
+            _local_behind = False
+            while _sha and _sha in _cmap and _sha not in _vis:
+                _vis.add(_sha)
+                if _sha == local_sha:
+                    _local_behind = True
+                    break
+                _c = _cmap[_sha]
+                _sha = _c.parents[0] if _c.parents else None
+            is_behind = _local_behind
+            is_diverged = not _local_ahead and not _local_behind
+
+        self._last_detail_diverged = is_diverged
+
+        # Mutually exclusive: Upload / Pull / Sync
+        if is_diverged:
+            is_local_tip = commit.sha in self._local_tip_shas
+            is_current_head = commit.sha == self._last_head_sha
+            self._panel.set_push_state(False, commit.branch)
+            self._panel.set_pull_state(False, commit.branch)
+            self._panel.set_sync_state(is_local_tip and is_current_head, commit.branch)
+        elif is_behind:
+            self._panel.set_push_state(False, commit.branch)
+            self._panel.set_pull_state(True, commit.branch)
+            self._panel.set_sync_state(False, commit.branch)
+        else:
+            self._panel.set_push_state(can_push, commit.branch)
+            self._panel.set_pull_state(False, commit.branch)
+            self._panel.set_sync_state(False, commit.branch)
 
         # Commit actions — follow same source of truth as the red dot.
         # Suppress all actions while another operation is in progress.
@@ -1762,9 +1865,12 @@ class CommitViewPage(_PRMixin, QWidget):
                         _all.append(_name)
         all_branches = sorted(_all)
         is_merge_commit = len(commit.parents) > 1
-        show_merge = is_head and bool(branch) and len(all_branches) > 0 and not is_merge_commit
+        show_merge = is_head and bool(branch) and len(all_branches) > 0
+        print(f"[merge] sha={commit.sha[:8]} branch={branch} is_head={is_head} all_branches={all_branches} is_merge_commit={is_merge_commit} show_merge={show_merge}")
         _dflt = getattr(self._settings_panel, "_default_branch", "main")
-        self._panel.set_merge_state(show_merge, branch, all_branches, default_branch=_dflt)
+        _branch_colors = getattr(self._canvas, "_branch_colors", {})
+        self._panel.set_merge_state(show_merge, branch, all_branches,
+                                    default_branch=_dflt, branch_colors=_branch_colors)
         has_parent = len(commit.parents) > 0
         parent_sha = commit.parents[0] if commit.parents else ""
         # "Main" = default branch by name, OR any branch that exists on remote
@@ -1791,6 +1897,7 @@ class CommitViewPage(_PRMixin, QWidget):
             is_merge_commit=is_merge_commit,
             branch_depth=self._branch_depths.get(branch, 0),
             is_remote_branch=is_remote_branch,
+            is_remote_only=commit.sha in self._canvas._future_shas,
         )
 
     def _on_detail_thread_done(self, thread: QThread):
@@ -1864,7 +1971,7 @@ class CommitViewPage(_PRMixin, QWidget):
                 )
             else:
                 self._toast.show_message(
-                    f"Couldn't switch to that commit: {err[:120]}",
+                    "Couldn't switch to that snapshot — try again.",
                     kind="error",
                 )
             self._start_load()
@@ -1984,6 +2091,7 @@ class CommitViewPage(_PRMixin, QWidget):
                 you_shas=self._you_shas,
                 local_only_branches=self._last_local_only,
                 unpushed_shas=self._last_unpushed,
+                remote_tip_shas=self._remote_tip_shas,
                 orientation=orient,
                 head_sha=self._last_head_sha,
                 is_initial=True,

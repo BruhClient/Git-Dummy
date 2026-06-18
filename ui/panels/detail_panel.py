@@ -10,7 +10,7 @@ from PyQt5.QtCore import Qt, QSize, QPropertyAnimation, QEasingCurve, QRect, QPo
 from PyQt5.QtGui import QPainter, QColor, QBrush, QPen, QPainterPath, QPixmap, QFont
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QFrame, QLineEdit, QComboBox,
+    QFrame, QLineEdit,
 )
 
 from styles.theme import COLORS
@@ -242,6 +242,7 @@ class DetailPanel(QWidget):
     push_requested          = pyqtSignal(str)          # branch name (kept for compat)
     pr_open_requested       = pyqtSignal(str)          # branch name → triggers PR wizard
     pull_requested          = pyqtSignal(str)          # branch name
+    sync_requested          = pyqtSignal(str)          # branch name (merge remote into local)
     merge_requested         = pyqtSignal(str, str)    # source_branch, target_branch
     save_stash_requested    = pyqtSignal(str, str, str, str)  # commit sha, stash_ref, message, branch
     clear_stash_requested   = pyqtSignal(str, str)    # commit sha, stash_ref
@@ -450,6 +451,26 @@ class DetailPanel(QWidget):
         self._pull_btn.hide()
         content_layout.addWidget(self._pull_btn)
 
+        self._sync_btn = QPushButton("↕  Sync with remote")
+        self._sync_btn.setCursor(Qt.PointingHandCursor)
+        self._sync_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: transparent;
+                border: 1px solid {COLORS['border']};
+                border-radius: 8px;
+                color: {COLORS['text_secondary']};
+                font-size: 12px; font-weight: 600; font-family: 'Tilt Warp'; padding: 9px 16px;
+            }}
+            QPushButton:hover {{
+                border-color: {COLORS['accent']};
+                color: {COLORS['accent']};
+            }}
+        """)
+        self._sync_btn.setToolTip("Your branch has diverged from remote — merge remote changes into local and create a merge commit")
+        self._sync_btn.clicked.connect(self._on_sync)
+        self._sync_btn.hide()
+        content_layout.addWidget(self._sync_btn)
+
         def _action_style(color: str) -> str:
             return (f"QPushButton {{ background: transparent;"
                     f" border: 1px solid {color}; border-radius: 8px;"
@@ -487,43 +508,20 @@ class DetailPanel(QWidget):
         self._soft_revert_btn.hide()
         content_layout.addWidget(self._soft_revert_btn)
 
-        self._merge_row = QWidget()
-        self._merge_row.setStyleSheet("background: transparent;")
-        merge_hl = QHBoxLayout(self._merge_row)
-        merge_hl.setContentsMargins(0, 0, 0, 0)
-        merge_hl.setSpacing(8)
-        self._merge_btn = QPushButton("⇢  Merge into")
+        self._merge_btn = QPushButton("⇢  Merge into…")
         self._merge_btn.setCursor(Qt.PointingHandCursor)
-        self._merge_btn.setFixedHeight(38)
         self._merge_btn.setStyleSheet(f"""
             QPushButton {{
                 background: transparent; border: 1px solid {COLORS['border']};
                 border-radius: 8px; color: {COLORS['text_secondary']};
-                font-size: 12px; font-weight: 600; font-family: 'Tilt Warp'; padding: 0 12px;
+                font-size: 12px; font-weight: 600; font-family: 'Tilt Warp'; padding: 9px 16px;
             }}
             QPushButton:hover {{ border-color: {COLORS['accent']}; color: {COLORS['accent']}; }}
             QPushButton:disabled {{ color: {COLORS['text_muted']}; }}
         """)
         self._merge_btn.clicked.connect(self._on_merge)
-        merge_hl.addWidget(self._merge_btn)
-        self._merge_combo = QComboBox()
-        self._merge_combo.setFixedHeight(38)
-        self._merge_combo.setStyleSheet(f"""
-            QComboBox {{
-                background: {COLORS['bg_card']}; border: 1px solid {COLORS['border']};
-                border-radius: 8px; color: {COLORS['text_primary']};
-                font-size: 12px; padding: 0 10px; font-family: monospace;
-            }}
-            QComboBox:disabled {{ color: {COLORS['text_muted']}; }}
-            QComboBox::drop-down {{ border: none; width: 24px; }}
-            QComboBox QAbstractItemView {{
-                background: {COLORS['bg_card']}; border: 1px solid {COLORS['border']};
-                color: {COLORS['text_primary']}; selection-background-color: {COLORS['bg_hover']};
-            }}
-        """)
-        merge_hl.addWidget(self._merge_combo, 1)
-        self._merge_row.hide()
-        content_layout.addWidget(self._merge_row)
+        self._merge_btn.hide()
+        content_layout.addWidget(self._merge_btn)
 
         self._delete_branch_btn = QPushButton("Delete Branch")
         self._delete_branch_btn.setCursor(Qt.PointingHandCursor)
@@ -673,18 +671,16 @@ class DetailPanel(QWidget):
 
     def lock_actions(self):
         for btn in (self._goto_btn, self._branch_btn, self._push_btn,
-                    self._pull_btn, self._merge_btn, self._hard_revert_btn,
+                    self._pull_btn, self._sync_btn, self._merge_btn, self._hard_revert_btn,
                     self._soft_revert_btn, self._delete_branch_btn,
                     self._save_stash_btn, self._clear_stash_btn):
             btn.setEnabled(False)
-        self._merge_combo.setEnabled(False)
 
     def unlock_actions(self):
         self._refresh_goto_btn()
         self._branch_btn.setEnabled(True)
-        self._merge_combo.setEnabled(True)
         self._merge_btn.setEnabled(True)
-        for btn in (self._push_btn, self._pull_btn,
+        for btn in (self._push_btn, self._pull_btn, self._sync_btn,
                     self._hard_revert_btn, self._soft_revert_btn,
                     self._delete_branch_btn):
             if btn.isVisible():
@@ -692,28 +688,45 @@ class DetailPanel(QWidget):
         self._apply_hard_revert_protection()
 
     def set_merge_state(self, show: bool, source_branch: str, all_branches: list,
-                        default_branch: str = "main"):
+                        default_branch: str = "main", branch_colors: dict = None):
         self._merge_source = source_branch
-        self._merge_row.setVisible(show)
-        if show:
-            self._merge_combo.clear()
-            for b in [b for b in all_branches if b != source_branch]:
-                self._merge_combo.addItem(b)
-            idx = self._merge_combo.findText(default_branch)
-            if idx >= 0:
-                self._merge_combo.setCurrentIndex(idx)
+        self._merge_branches = [b for b in all_branches if b != source_branch]
+        self._merge_default = default_branch
+        self._merge_branch_colors = branch_colors or {}
+        self._merge_btn.setVisible(show)
 
     def _on_merge(self):
-        current_branch  = getattr(self, "_merge_source", "")
-        incoming_branch = self._merge_combo.currentText()
-        if current_branch and incoming_branch:
-            self.lock_actions()
-            self.merge_requested.emit(incoming_branch, current_branch)
+        current_branch = getattr(self, "_merge_source", "")
+        branches = getattr(self, "_merge_branches", [])
+        default = getattr(self, "_merge_default", "main")
+        colors = getattr(self, "_merge_branch_colors", {})
+        if not current_branch or not branches:
+            return
+        from ui.dialogs.confirm_dialog import MergeDialog
+        dlg = MergeDialog(self, source_branch=current_branch,
+                          branches=branches, default_branch=default,
+                          branch_colors=colors)
+        if dlg.exec_() == MergeDialog.Accepted:
+            target = dlg.get_target()
+            if target:
+                self.lock_actions()
+                self.merge_requested.emit(target, current_branch)
 
     def set_pull_state(self, can_pull: bool, branch: str):
         self._pull_branch = branch
         self._pull_btn.setVisible(can_pull)
         self._pull_btn.setEnabled(can_pull)
+
+    def set_sync_state(self, is_diverged: bool, branch: str):
+        self._sync_branch = branch
+        self._sync_btn.setVisible(is_diverged)
+        self._sync_btn.setEnabled(is_diverged)
+
+    def _on_sync(self):
+        branch = getattr(self, "_sync_branch", "")
+        if branch:
+            self.lock_actions()
+            self.sync_requested.emit(branch)
 
     def _on_pull(self):
         branch = getattr(self, "_pull_branch", "")
@@ -742,7 +755,8 @@ class DetailPanel(QWidget):
                             is_remote_head: bool = False,
                             is_merge_commit: bool = False,
                             branch_depth: int = 0,
-                            is_remote_branch: bool = False):
+                            is_remote_branch: bool = False,
+                            is_remote_only: bool = False):
         self._last_action_kwargs = dict(
             branch=branch, parent_sha=parent_sha, has_parent=has_parent,
             is_first_of_branch=is_first_of_branch, is_main=is_main,
@@ -754,6 +768,14 @@ class DetailPanel(QWidget):
         self._action_branch          = branch
         self._action_parent_sha      = parent_sha
         self._action_is_merge_commit = is_merge_commit
+
+        if is_remote_only:
+            self._goto_btn.hide()
+            self._branch_btn.hide()
+            self._hard_revert_btn.hide()
+            self._soft_revert_btn.hide()
+            self._delete_branch_btn.hide()
+            return
 
         can_branch = branch_depth < 2
         self._branch_btn.setVisible(can_branch)
@@ -972,7 +994,9 @@ class DetailPanel(QWidget):
         self._stash_label.setText(f"UNSAVED  —  {n} file{'s' if n != 1 else ''}")
         self._view_stash_btn.setVisible(n > 0)
         self._clear_stash_btn.setVisible(n > 0)
+        self._clear_stash_btn.setEnabled(n > 0)
         self._save_stash_btn.setVisible(n > 0)
+        self._save_stash_btn.setEnabled(n > 0)
         self._stash_data = files
 
         for info in files:

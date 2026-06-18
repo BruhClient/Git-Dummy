@@ -55,11 +55,23 @@ def clone_repo(url: str, dest_parent: str) -> tuple[bool, str, str]:
 
 def pull_ff(path: str, branch: str) -> tuple[bool, str]:
     """Fast-forward a local branch to its remote without needing to check it out."""
-    return _run(path, ["git", "fetch", "origin", f"{branch}:{branch}"], timeout=30)
+    old_head = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=path, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=5,
+    ).stdout.strip()
+    ok, err = _run(path, ["git", "fetch", "origin", f"{branch}:{branch}"], timeout=30)
+    if ok and old_head:
+        from .stash_ops import migrate_stash_after_pull
+        migrate_stash_after_pull(path, old_head)
+    return ok, err
 
 
 def pull_stash_apply(path: str, branch: str) -> tuple[bool, str]:
     """Stash changes (including untracked files), fast-forward to remote, re-apply stash."""
+    old_head = subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=path, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=5,
+    ).stdout.strip()
     ok, err = _run(path, ["git", "stash", "--include-untracked"])
     if not ok:
         return False, err
@@ -81,6 +93,9 @@ def pull_stash_apply(path: str, branch: str) -> tuple[bool, str]:
                        cwd=path, capture_output=True, text=True, timeout=10,
                        encoding="utf-8", errors="replace")
         return False, "stash_conflict"
+    if old_head:
+        from .stash_ops import migrate_stash_after_pull
+        migrate_stash_after_pull(path, old_head)
     return True, ""
 
 

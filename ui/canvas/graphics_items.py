@@ -209,11 +209,7 @@ class CommitNode(QGraphicsObject):
 
 
 class EdgeItem(QGraphicsPathItem):
-    """
-    L-shaped (elbow) line for cross-lane connections.
-    dashed=False  → solid   (merge)
-    dashed=True   → dashed  (branch creation / divergence)
-    """
+    """Cross-lane connection line (L-elbow, solid or dashed)."""
 
     def __init__(
         self,
@@ -232,7 +228,7 @@ class EdgeItem(QGraphicsPathItem):
             else:
                 path.lineTo(cx, py)
                 path.lineTo(px, py)
-        else:  # ORIENT_TB / ORIENT_BT
+        else:
             path.lineTo(px, cy)
             path.lineTo(px, py)
         super().__init__(path)

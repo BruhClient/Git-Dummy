@@ -139,6 +139,133 @@ class AlertDialog(QDialog):
         root.addWidget(card)
 
 
+class MergeDialog(QDialog):
+    """Styled merge dialog — source branch, target selector, Merge/Cancel."""
+
+    def __init__(self, parent=None, source_branch: str = "",
+                 branches: list = None, default_branch: str = "main",
+                 branch_colors: dict = None):
+        super().__init__(parent)
+        self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
+        self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setFixedWidth(380)
+        self._target = ""
+        self._branch_colors = branch_colors or {}
+        self._setup_ui(source_branch, branches or [], default_branch)
+
+    def _setup_ui(self, source: str, branches: list, default_branch: str):
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+
+        card = QWidget()
+        card.setStyleSheet(f"background: {COLORS['bg_card']}; border-radius: 12px;")
+        vl = QVBoxLayout(card)
+        vl.setContentsMargins(24, 24, 24, 24)
+        vl.setSpacing(14)
+
+        title_lbl = QLabel("Merge Branch")
+        title_lbl.setStyleSheet(
+            f"font-size: 15px; font-weight: 700; font-family: 'Tilt Warp'; color: {COLORS['text_primary']};"
+            f" background: transparent;"
+        )
+        vl.addWidget(title_lbl)
+
+        body_lbl = QLabel(f"Merge <b>{source}</b> into:")
+        body_lbl.setStyleSheet(
+            f"font-size: 13px; color: {COLORS['text_muted']}; background: transparent;"
+        )
+        vl.addWidget(body_lbl)
+
+        from PyQt5.QtWidgets import QButtonGroup
+        toggle_row = QHBoxLayout()
+        toggle_row.setSpacing(8)
+        self._branch_btns: list[QPushButton] = []
+        self._btn_styles: dict[str, tuple[str, str]] = {}
+        self._btn_group = QButtonGroup(self)
+        self._btn_group.setExclusive(True)
+
+        for b in branches:
+            color = self._branch_colors.get(b, COLORS['accent'])
+            unsel = (
+                f"QPushButton {{ background: transparent; border: 1px solid {color};"
+                f" border-radius: 8px; color: {color};"
+                f" font-size: 13px; font-weight: 600; font-family: monospace; padding: 8px 16px; }}"
+                f"QPushButton:hover {{ background: {color}; color: {COLORS['text_on_accent']}; }}"
+            )
+            sel = (
+                f"QPushButton {{ background: {color}; border: none;"
+                f" border-radius: 8px; color: {COLORS['text_on_accent']};"
+                f" font-size: 13px; font-weight: 700; font-family: monospace; padding: 8px 16px; }}"
+            )
+            self._btn_styles[b] = (unsel, sel)
+            btn = QPushButton(b)
+            btn.setCursor(Qt.PointingHandCursor)
+            btn.setCheckable(True)
+            btn.setStyleSheet(unsel)
+            btn.toggled.connect(self._on_toggle)
+            self._btn_group.addButton(btn)
+            self._branch_btns.append(btn)
+            toggle_row.addWidget(btn)
+        toggle_row.addStretch()
+        vl.addLayout(toggle_row)
+
+        default_btn = next((b for b in self._branch_btns if b.text() == default_branch), None)
+        if default_btn:
+            default_btn.setChecked(True)
+        elif self._branch_btns:
+            self._branch_btns[0].setChecked(True)
+
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(8)
+        btn_row.addStretch()
+
+        cancel_btn = QPushButton("Cancel")
+        cancel_btn.setFixedHeight(38)
+        cancel_btn.setMinimumWidth(80)
+        cancel_btn.setCursor(Qt.PointingHandCursor)
+        cancel_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: transparent; border: 1px solid {COLORS['border']};
+                border-radius: 8px; color: {COLORS['text_secondary']};
+                font-size: 13px; font-weight: 600; font-family: 'Tilt Warp'; padding: 0 16px;
+            }}
+            QPushButton:hover {{ border-color: {COLORS['text_secondary']}; }}
+        """)
+        cancel_btn.clicked.connect(self.reject)
+        btn_row.addWidget(cancel_btn)
+
+        merge_btn = QPushButton("Merge")
+        merge_btn.setFixedHeight(38)
+        merge_btn.setMinimumWidth(80)
+        merge_btn.setCursor(Qt.PointingHandCursor)
+        merge_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: {COLORS['accent']}; border: none;
+                border-radius: 8px; color: {COLORS['text_on_accent']};
+                font-size: 13px; font-weight: 700; font-family: 'Tilt Warp'; padding: 0 16px;
+            }}
+            QPushButton:hover {{ background: {COLORS.get('accent_hover', COLORS['accent'])}; }}
+        """)
+        merge_btn.clicked.connect(self._on_merge)
+        btn_row.addWidget(merge_btn)
+
+        vl.addLayout(btn_row)
+        root.addWidget(card)
+
+    def _on_toggle(self, checked: bool):
+        for btn in self._branch_btns:
+            unsel, sel = self._btn_styles.get(btn.text(), ("", ""))
+            btn.setStyleSheet(sel if btn.isChecked() else unsel)
+
+    def _on_merge(self):
+        checked = self._btn_group.checkedButton()
+        self._target = checked.text() if checked else ""
+        self.accept()
+
+    def get_target(self) -> str:
+        return self._target
+
+
 # ── Convenience functions ──────────────────────────────────────────────────────
 
 def confirm(parent, title: str, body: str,

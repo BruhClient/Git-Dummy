@@ -477,7 +477,7 @@ class CloneDialog(QDialog):
             self.cloned.emit(path)
             self.accept()
         else:
-            self._show_error(err[:160] if err else "Clone failed.")
+            self._show_error("Clone failed — check the URL and your internet connection.")
             self._clone_btn.setEnabled(True)
             self._clone_btn.setText("Clone")
             if self._has_auth:

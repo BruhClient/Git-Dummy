@@ -116,7 +116,7 @@ class _PRMixin:
 
     def _on_pr_conflict_check_err(self, err: str):
         self._panel_op_active = False
-        self._toast.show_message(f"Conflict check failed: {err}", kind="error")
+        self._toast.show_message("Couldn't check for conflicts — try again.", kind="error")
 
     def _on_pr_conflict_check(self, has_conflicts: bool, files: list,
                                content: object, pr: dict):

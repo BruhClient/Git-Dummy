@@ -131,8 +131,8 @@ Key state:
 - `_branch_head_shas` / `_local_tip_shas` / `_local_tip_branch` — computed in `_on_loaded` from local branch refs (`git for-each-ref refs/heads/`, via subprocess — not GitPython, which caches stale tip SHAs after back-to-back merges). **Local tip is authoritative for actions; remote tip is display-only.**
 - `_last_head_sha` — tracks git HEAD; cleared to `""` to force `load_graph` to re-read it fresh.
 
-Background polling:
-- `_poll_timer` (30 s) → `_poll_remote()` → `_FetchWorker` → `_on_fetch_done` → `_start_load()` if the remote changed. `_FetchWorker` only runs `git fetch` (via `GitTracker.fetch_with_author()`) and reports whether any remote ref moved plus a best-guess "who pushed" author — it does **not** merge or fast-forward the local branch. A reload shows the updated `origin/<branch>` tip on the graph, but the local branch stays where it was until the user explicitly pulls/merges.
+Background polling & auto-pull:
+- `_poll_timer` (30 s) → `_poll_remote()` → `_FetchWorker` → `_on_fetch_done`. When remote refs changed, `_on_fetch_done` calls `_try_auto_pull()` which attempts to fast-forward the current branch if the working tree is clean. On success the graph reloads seamlessly. On failure (diverged, network error, dirty tree) an error toast is shown and the graph reloads with dimmed remote-only commits + Pull/Sync buttons available.
 - `_uncommitted_timer` (2 s) → `_poll_uncommitted()` → `_UncommittedRefreshWorker` → `_on_uncommitted_done`.
 - `load_repo()` also calls `_poll_remote()` immediately on entry so a behind-remote branch syncs without waiting for the first 30 s tick.
 
@@ -143,8 +143,9 @@ Signal convention: declare full type signatures, e.g. `pyqtSignal(bool, str)`, s
 `CommitNode`, `BranchLabel`, and `EdgeItem` are `QGraphicsItem` subclasses in `ui/canvas/graphics_items.py`. `boundingRect()` must fully contain everything painted, including the flag pole above start nodes (extends `START_R + 20` px above centre).
 
 Lane algorithm (`_compute_lanes` in `ui/canvas/lane_algorithm.py`): streaming topological-order assignment over commits in `--topo-order` (children before parents).
-- `branch_tip_map`: `{tip_sha: [display_names]}`. When two tips share a name (e.g. local `main` and `origin/main` point to different commits), `primary_tip` selection walks the newest candidate's first-parent chain — if the oldest candidate is reachable, the relationship is linear ("local ahead/behind") and the newest wins; otherwise the branches have diverged and the oldest (established history) stays on lane 0.
-- Lane 0 is reserved for the primary branch (`main`/`master`). Non-main branch tips are pre-seeded into their own lanes before the streaming pass. A second pass walks 2nd-parent (merge) chains to attribute PR commits back to their source branch (`commit_owner`), with a final consolidation pass moving misattributed commits into their owning branch's lane.
+- `branch_tip_map`: `{tip_sha: [display_names]}`. When two tips share a name (e.g. local `main` and `origin/main` point to different commits), `primary_tip` selection walks the newest candidate's first-parent chain — if the oldest candidate is reachable, the relationship is linear ("local ahead/behind") and the newest wins; otherwise the branches have diverged and the **remote tip** gets lane 0 (see diverged branch rules below).
+- Lane 0 is reserved for the primary branch (`main`/`master`). Non-main branch tips are pre-seeded into their own lanes before the streaming pass (remote tips seeded before local tips). A second pass walks 2nd-parent (merge) chains to attribute PR commits back to their source branch (`commit_owner`), with a final consolidation pass moving misattributed commits into their owning branch's lane.
+- **Sibling-depth normalization**: lanes sharing the same `_branch_base` name (e.g. local and remote tips of "feature-branch") are normalized to the same depth so they sort adjacent in the final remap. Remote-tip lanes sort before local-tip lanes at the same depth.
 
 `load_graph()` → `_compute_lanes` → position commits → draw spines → draw cross-lane edges → create `CommitNode`s → draw labels. Four orientations: `ORIENT_TB` / `ORIENT_BT` / `ORIENT_LR` / `ORIENT_RL` (in `ui/canvas/constants.py`, re-exported via `ui/canvas/__init__.py`). `MiniMap` (`ui/canvas/minimap.py`) mirrors the scene viewport.
 
@@ -153,6 +154,38 @@ Lane algorithm (`_compute_lanes` in `ui/canvas/lane_algorithm.py`): streaming to
 `lock_actions()` / `unlock_actions()` disable/enable action buttons during ops. `_save_stash_btn` / `_clear_stash_btn` are excluded from `unlock_actions()` — their visibility is managed only by `update_uncommitted_files()` / `refresh_stash_section()`.
 
 Diff rendering helpers (`_DiffLine`, `_Row`, `_MiniBar`, `_VScrollArea`, fade animations) live in `ui/panels/diff_renderer.py`. The slide-in diff panel is `ChangesPanel` (`ui/panels/changes_panel.py`); the full-screen overlay is `AllChangesPopup` (`ui/panels/all_changes_popup.py`).
+
+### Diverged branch handling
+
+When a branch's local and remote tips point to different commits and neither is an ancestor of the other, the branch is **diverged**. The app handles this with specific visual and action rules.
+
+**Visual rules:**
+- **Remote tip goes straight** — keeps the branch's existing lane (lane 0 for main, branch lane for others). Pre-divergence commits stay on this lane connected by the spine.
+- **Local tip branches off** — gets a new adjacent lane with a dashed creation edge back to the common ancestor. No flag on diverged tips (divergence ≠ new branch).
+- **No dimming** for diverged commits — both sides render at full opacity. Dimming is reserved for the "behind" case only (remote has commits local hasn't pulled).
+- `_draw_branch_creation_edges` in `spatial_canvas.py` identifies `diverged_tip_shas` (tips sharing a `_branch_base` name) and draws dashed edges for them while excluding them from `start_shas` (no flags).
+
+**Action button matrix — Upload / Pull / Sync are mutually exclusive:**
+
+| Scenario | Commit | Buttons |
+|---|---|---|
+| In sync | HEAD | Create branch, Hard/Soft Revert, Merge into |
+| Ahead | HEAD (unpushed) | **Upload**, Create branch, Hard/Soft Revert, Merge into |
+| Behind (auto-pull failed) | HEAD (stale) | **Pull latest**, Create branch, Hard/Soft Revert, Merge into |
+| Diverged | Local tip | **Sync with remote**, Create branch, Hard/Soft Revert, Merge into |
+| Diverged | Remote tip | *(read-only view, no special buttons)* |
+| Behind | Remote-only (dimmed) | **Pull latest** only |
+| Any | Historical commit | Go to snapshot, Create branch |
+| Any | Other branch tip | Go to snapshot, Create branch, Merge into, Delete branch |
+
+**Operation definitions:**
+- **Upload** (`git push`) — sends local commits to remote. Only when ahead.
+- **Pull latest** (`pull_ff` → `git fetch origin branch:branch`) — fast-forwards local to match remote. Only when behind. Undims remote commits, no merge commit.
+- **Sync with remote** (`merge_branch(path, f"origin/{branch}")`) — merges remote into local, creates a merge commit. Only when diverged. Only shown on the local tip, not the remote tip.
+
+**Divergence detection** in `_on_commit_detail_ready` uses first-parent reachability walks (not topo-order comparison) to correctly distinguish behind vs diverged. The `_future_shas` computation in `spatial_canvas.py` also uses reachability to skip diverged branches (no dimming for diverged).
+
+**Stash migration**: both `pull_ff` and `_on_sync_branch` call `migrate_stash_after_pull(path, old_head)` after success, moving any stash from the old tip to the new HEAD.
 
 ### Settings panel (`ui/panels/settings_panel.py`)
 
@@ -175,3 +208,12 @@ The active improvement initiative for this codebase has three aims:
 - **Beginner/non-coder UX** — make the app approachable for people who don't know git: plain-language labels, tooltips explaining git concepts (commit, branch, merge, stash), simplified default views, friendlier error messages.
 
 Agent team members most relevant to this initiative: `ui-ux-polish` (visual/UX), `git-actions-debugger` (bug-hunting from the action catalog backlog), and `code-quality-refactor` (structural cleanup that unblocks polish work).
+
+## Test repository
+
+A dedicated repo for staging git scenarios used during development/testing.
+
+- **Remote:** https://github.com/BruhClient/test
+- **Local path:** `C:/Users/travi/Desktop/Dev/test`
+
+When the user requests a scenario (e.g. "set up a merge conflict", "show a diverged branch"), update this repo's git history/files to reflect that state, then push so the app can load it and demonstrate the scenario.

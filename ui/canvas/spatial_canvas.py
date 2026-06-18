@@ -142,14 +142,18 @@ class SpatialCanvas(QGraphicsView):
         if not commits:
             return
 
-        lane_map, lane_branch = _compute_lanes(commits, branch_tip_map)
-
+        lane_map, lane_branch = _compute_lanes(commits, branch_tip_map,
+                                               local_tip_shas=self._local_tip_shas_c)
         for commit in commits:
             commit.branch = lane_branch.get(lane_map.get(commit.sha, 0), "")
 
         # ── Identify future (remote-only) commits ────────────────────────────
+        # Only dim commits on branches that are truly behind (local tip is an
+        # ancestor of remote tip).  Skip diverged branches — both sides should
+        # render at full opacity.
         _local_tip_set = local_tip_shas or set()
         _commit_order  = {c.sha: i for i, c in enumerate(commits)}
+        _commit_by_sha = {c.sha: c for c in commits}
         _local_tip_for_branch: dict[str, tuple[str, int]] = {}
         for c in commits:
             if c.sha in _local_tip_set:
@@ -159,18 +163,31 @@ class SpatialCanvas(QGraphicsView):
             if sha in _local_tip_set:
                 continue
             for name in names:
-                if name in _local_tip_for_branch:
-                    _, _local_order = _local_tip_for_branch[name]
-                    if _commit_order.get(sha, 10**9) < _local_order:
-                        _behind_branches.add(name)
+                if name not in _local_tip_for_branch:
+                    continue
+                local_sha, _local_order = _local_tip_for_branch[name]
+                if _commit_order.get(sha, 10**9) >= _local_order:
+                    continue
+                # Verify local tip is reachable from remote tip (truly behind,
+                # not diverged).
+                _s, _v = sha, set()
+                _reachable = False
+                while _s and _s in _commit_by_sha and _s not in _v:
+                    _v.add(_s)
+                    if _s == local_sha:
+                        _reachable = True
                         break
+                    _c = _commit_by_sha[_s]
+                    _s = _c.parents[0] if _c.parents else None
+                if _reachable:
+                    _behind_branches.add(name)
+                break
         self._future_shas = {
             c.sha for c in commits
             if c.branch in _behind_branches
             and c.sha not in _local_tip_set
             and _commit_order.get(c.sha, 10**9) < _local_tip_for_branch[c.branch][1]
         }
-
         # ── Filter commits on anonymous lanes (deleted-branch ghosts) ──────
         unnamed_lanes = {lane for lane, name in lane_branch.items() if not name}
         if unnamed_lanes:
@@ -371,6 +388,17 @@ class SpatialCanvas(QGraphicsView):
             cx, cy = positions[tip_sha]
             candidate_info[tip_sha] = (cx, cy, cx, cy, tip_lane, False)
 
+        _base_to_tips: dict[str, list[str]] = {}
+        for tip_sha, names in branch_tip_map.items():
+            for n in names:
+                b = _branch_base(n)
+                if b:
+                    _base_to_tips.setdefault(b, []).append(tip_sha)
+        diverged_tip_shas: set[str] = set()
+        for b, tips in _base_to_tips.items():
+            if len(tips) > 1:
+                diverged_tip_shas.update(tips)
+
         def _branch_key(sha: str) -> str:
             tip_names = branch_tip_map.get(sha)
             if tip_names:
@@ -389,11 +417,15 @@ class SpatialCanvas(QGraphicsView):
             start_shas.add(oldest)
 
         for sha, (cx, cy, px, py, lane, draw_edge) in candidate_info.items():
-            if sha not in start_shas:
+            is_start = sha in start_shas
+            is_diverged = sha in diverged_tip_shas
+            if not is_start and not is_diverged:
                 continue
             if draw_edge:
                 self._scene.addItem(EdgeItem(cx, cy, px, py, _lane_color(lane),
                                              dashed=True, orientation=orientation))
+
+        start_shas -= diverged_tip_shas
         return start_shas
 
     def _draw_nodes(self, commits, positions, lane_map, lane_branch, branch_tip_map,
@@ -403,6 +435,7 @@ class SpatialCanvas(QGraphicsView):
             bname = lane_branch[ln]
             if bname and bname not in branch_name_color:
                 branch_name_color[bname] = _lane_color(ln)
+        self._branch_colors = branch_name_color
 
         for commit in commits:
             cx, cy      = positions[commit.sha]
