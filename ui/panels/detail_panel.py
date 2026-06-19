@@ -486,7 +486,6 @@ class DetailPanel(QWidget):
 
 
         self._save_stash_btn = QPushButton("Save Changes")
-        self._save_stash_btn.setIcon(qta.icon("fa5s.save", color=COLORS['accent']))
         self._save_stash_btn.setCursor(Qt.PointingHandCursor)
         self._save_stash_btn.setStyleSheet(_action_style(COLORS["accent"]))
         self._save_stash_btn.clicked.connect(self._on_save_stash)
@@ -494,7 +493,6 @@ class DetailPanel(QWidget):
         content_layout.addWidget(self._save_stash_btn)
 
         self._clear_stash_btn = QPushButton("Clear Changes")
-        self._clear_stash_btn.setIcon(qta.icon("fa5s.trash", color=COLORS['danger']))
         self._clear_stash_btn.setCursor(Qt.PointingHandCursor)
         self._clear_stash_btn.setStyleSheet(_action_style(COLORS["danger"]))
         self._clear_stash_btn.clicked.connect(self._on_clear_stash)
@@ -502,7 +500,6 @@ class DetailPanel(QWidget):
         content_layout.addWidget(self._clear_stash_btn)
 
         self._hard_revert_btn = QPushButton("Hard Revert")
-        self._hard_revert_btn.setIcon(qta.icon("fa5s.undo", color=COLORS['warning']))
         self._hard_revert_btn.setCursor(Qt.PointingHandCursor)
         self._hard_revert_btn.setStyleSheet(_action_style(COLORS["warning"]))
         self._hard_revert_btn.clicked.connect(self._on_hard_revert)
@@ -510,7 +507,6 @@ class DetailPanel(QWidget):
         content_layout.addWidget(self._hard_revert_btn)
 
         self._soft_revert_btn = QPushButton("Soft Revert")
-        self._soft_revert_btn.setIcon(qta.icon("fa5s.undo", color=COLORS['text_secondary']))
         self._soft_revert_btn.setCursor(Qt.PointingHandCursor)
         self._soft_revert_btn.setStyleSheet(_action_style(COLORS["text_secondary"]))
         self._soft_revert_btn.clicked.connect(self._on_soft_revert)
@@ -518,7 +514,6 @@ class DetailPanel(QWidget):
         content_layout.addWidget(self._soft_revert_btn)
 
         self._merge_btn = QPushButton("Merge into…")
-        self._merge_btn.setIcon(qta.icon("fa5s.code-branch", color=COLORS['text_secondary']))
         self._merge_btn.setCursor(Qt.PointingHandCursor)
         self._merge_btn.setStyleSheet(f"""
             QPushButton {{
@@ -534,7 +529,6 @@ class DetailPanel(QWidget):
         content_layout.addWidget(self._merge_btn)
 
         self._delete_branch_btn = QPushButton("Delete Branch")
-        self._delete_branch_btn.setIcon(qta.icon("fa5s.trash", color=COLORS['danger']))
         self._delete_branch_btn.setCursor(Qt.PointingHandCursor)
         self._delete_branch_btn.setStyleSheet(_action_style(COLORS["danger"]))
         self._delete_branch_btn.clicked.connect(self._on_delete_branch)

@@ -114,12 +114,10 @@ class _AccountPopup(QFrame):
         self._layout.addWidget(self._make_separator())
 
         add_btn = self._make_action_row("Add another account", COLORS["accent"])
-        add_btn.setIcon(qta.icon("fa5s.plus", color=COLORS["accent"]))
         add_btn.clicked.connect(self.add_account_clicked.emit)
         self._layout.addWidget(add_btn)
 
         signout_btn = self._make_action_row("Sign out", COLORS["text_muted"])
-        signout_btn.setIcon(qta.icon("fa5s.sign-out-alt", color=COLORS["text_muted"]))
         signout_btn.clicked.connect(self.signout_clicked.emit)
         self._layout.addWidget(signout_btn)
 
