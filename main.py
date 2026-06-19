@@ -126,6 +126,7 @@ class App(QStackedWidget):
         self._main_window.show_page(MainWindow.PAGE_COMMITS, repo_name)
 
     def _on_access_denied(self, repo_path: str):
+        self._commit_page._stop_all_threads()
         self._main_window.show_page(MainWindow.PAGE_REPOS)
         if repo_path:
             self._repo_page.remove_repo(repo_path)

@@ -59,7 +59,14 @@ def pull_ff(path: str, branch: str) -> tuple[bool, str]:
         ["git", "rev-parse", "HEAD"],
         cwd=path, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=5,
     ).stdout.strip()
-    ok, err = _run(path, ["git", "fetch", "origin", f"{branch}:{branch}"], timeout=30)
+    current = subprocess.run(
+        ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+        cwd=path, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=5,
+    ).stdout.strip()
+    if current == branch:
+        ok, err = _run(path, ["git", "pull", "--ff-only", "origin", branch], timeout=30)
+    else:
+        ok, err = _run(path, ["git", "fetch", "origin", f"{branch}:{branch}"], timeout=30)
     if ok and old_head:
         from .stash_ops import migrate_stash_after_pull
         migrate_stash_after_pull(path, old_head)

@@ -465,6 +465,9 @@ class MainWindow(QMainWindow):
         self._current_repo_name = name
 
     def _on_back(self):
+        cp = self._pages.get(self.PAGE_COMMITS)
+        if cp and hasattr(cp, "_stop_all_threads"):
+            cp._stop_all_threads()
         self.show_page(self.PAGE_REPOS)
 
     def _on_logout(self):

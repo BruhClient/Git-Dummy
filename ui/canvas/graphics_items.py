@@ -218,16 +218,18 @@ class EdgeItem(QGraphicsPathItem):
         color: str,
         dashed: bool = False,
         orientation: str = ORIENT_LR,
+        diagonal: bool = False,
     ):
         path = QPainterPath()
         path.moveTo(cx, cy)
-        if orientation in (ORIENT_LR, ORIENT_RL):
-            if dashed:
-                path.lineTo(px, cy)
-                path.lineTo(px, py)
-            else:
-                path.lineTo(cx, py)
-                path.lineTo(px, py)
+        if diagonal:
+            path.lineTo(px, py)
+        elif dashed and orientation in (ORIENT_LR, ORIENT_RL):
+            path.lineTo(px, cy)
+            path.lineTo(px, py)
+        elif orientation in (ORIENT_LR, ORIENT_RL):
+            path.lineTo(cx, py)
+            path.lineTo(px, py)
         else:
             path.lineTo(px, cy)
             path.lineTo(px, py)

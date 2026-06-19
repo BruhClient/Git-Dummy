@@ -169,6 +169,13 @@ def save_stash_as_commit(path: str, stash_ref: str = "", message: str = "",
             cwd=path, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30,
         )
         if r.returncode != 0:
+            conflict_files = get_conflict_files(path)
+            if conflict_files:
+                content = {f: get_conflict_content(path, f) for f in conflict_files}
+                subprocess.run(["git", "reset", "HEAD"], cwd=path, capture_output=True, timeout=10)
+                subprocess.run(["git", "checkout", "--", "."], cwd=path, capture_output=True, timeout=10)
+                subprocess.run(["git", "clean", "-fd"], cwd=path, capture_output=True, timeout=10)
+                return False, "save_conflict", conflict_files, content
             return False, (r.stderr.strip() or r.stdout.strip() or
                            "Could not apply saved changes."), [], {}
 
@@ -292,3 +299,31 @@ def save_stash_as_commit(path: str, stash_ref: str = "", message: str = "",
         subprocess.run(["git", "stash", "drop", stash_ref],
                        cwd=path, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=10)
     return True, "", [], {}
+
+
+def save_stash_with_decisions(path: str, stash_ref: str, message: str,
+                              decisions: dict) -> tuple[bool, str]:
+    """Re-apply a conflicting stash, resolve per-file, commit."""
+    subprocess.run(
+        ["git", "stash", "apply", stash_ref],
+        cwd=path, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30,
+    )
+    for filepath, choice in decisions.items():
+        if choice == "ours":
+            _run(path, ["git", "checkout", "--ours", filepath])
+        else:
+            _run(path, ["git", "checkout", "--theirs", filepath])
+        _run(path, ["git", "add", filepath])
+    subprocess.run(["git", "add", "-A"], cwd=path, capture_output=True, timeout=10)
+    ok, err = _run(path, ["git", "commit", "-m", message or "saved changes"])
+    if not ok:
+        subprocess.run(["git", "merge", "--abort"], cwd=path, capture_output=True, timeout=10,
+                       encoding="utf-8", errors="replace")
+        subprocess.run(["git", "reset", "HEAD"], cwd=path, capture_output=True, timeout=10)
+        subprocess.run(["git", "checkout", "--", "."], cwd=path, capture_output=True, timeout=10)
+        subprocess.run(["git", "clean", "-fd"], cwd=path, capture_output=True, timeout=10)
+        return False, err
+    if stash_ref:
+        subprocess.run(["git", "stash", "drop", stash_ref],
+                       cwd=path, capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=10)
+    return True, ""

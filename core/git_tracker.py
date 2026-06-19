@@ -147,7 +147,7 @@ class GitTracker:
         Remote (origin) is always the source of truth.  Falls back to local
         branches only if the repo has no remotes configured.
 
-        Uses git's --topo-order across ALL refs at once so commits arrive in
+        Uses git's --date-order across ALL refs at once so commits arrive in
         true topological order (children before parents), which the streaming
         lane algorithm in ui/canvas/lane_algorithm.py requires.
         """
@@ -241,11 +241,11 @@ class GitTracker:
 
         # ── Single topological traversal across all refs ──────────────────
         # Passing a list of ref names to iter_commits issues:
-        #   git rev-list ref1 ref2 ... --topo-order
+        #   git rev-list ref1 ref2 ... --date-order
         # giving TRUE topological order (children always before parents).
         iter_refs = [r[0] for r in ref_list]
         try:
-            raw = list(self._repo.iter_commits(iter_refs, topo_order=True, max_count=max_count))
+            raw = list(self._repo.iter_commits(iter_refs, date_order=True, max_count=max_count))
         except Exception:
             raw = []
 
@@ -400,7 +400,7 @@ class GitTracker:
 
         iter_refs = [r[0] for r in ref_list]
         try:
-            raw = list(self._repo.iter_commits(iter_refs, topo_order=True, max_count=max_count))
+            raw = list(self._repo.iter_commits(iter_refs, date_order=True, max_count=max_count))
         except Exception:
             raw = []
 

@@ -4,12 +4,12 @@ from __future__ import annotations
 import os
 
 import qtawesome as qta
-from PyQt5.QtCore import Qt, pyqtSignal, QThread
+from PyQt5.QtCore import Qt, QSize, pyqtSignal, QThread
 from PyQt5.QtGui import QPalette, QColor
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QFileDialog, QScrollArea, QSizePolicy,
-    QLineEdit, QWidget, QFrame,
+    QLineEdit, QWidget, QFrame, QStackedWidget,
 )
 from styles.theme import COLORS, scrollbar_style
 from core import settings_store
@@ -123,6 +123,7 @@ class CloneDialog(QDialog):
     plus a URL input fallback."""
 
     cloned = pyqtSignal(str)   # emits the cloned (or already-tracked) repo path
+    _init_done_sig = pyqtSignal(bool, str, str)  # ok, err, folder
 
     def __init__(self, parent=None, user: dict | None = None,
                  existing_repos: list | None = None):
@@ -140,6 +141,8 @@ class CloneDialog(QDialog):
         # Two independent thread pairs
         self._fetch_thread = self._fetch_worker = None
         self._clone_thread = self._clone_worker = None
+        self._init_folder = ""
+        self._init_done_sig.connect(self._on_init_done)
         self._setup_ui()
         if self._has_auth:
             self._start_fetch()
@@ -158,6 +161,12 @@ class CloneDialog(QDialog):
                 border: 1px solid {COLORS['border']};
                 border-radius: 12px;
             }}
+            #cloneCard QWidget {{
+                background: transparent;
+            }}
+            #cloneCard QLineEdit {{
+                background: {COLORS['bg_primary']};
+            }}
         """)
         vl = QVBoxLayout(card)
         vl.setContentsMargins(24, 20, 24, 24)
@@ -166,7 +175,7 @@ class CloneDialog(QDialog):
         # ── Title row with close button ────────────────────────────────────
         title_row = QHBoxLayout()
         title_row.setContentsMargins(0, 0, 0, 0)
-        title = QLabel("Clone repository")
+        title = QLabel("Track a Project")
         title.setStyleSheet(
             f"font-size: 15px; font-weight: 700; font-family: 'Tilt Warp'; "
             f"color: {COLORS['text_primary']};"
@@ -185,6 +194,149 @@ class CloneDialog(QDialog):
         close_btn.clicked.connect(self.reject)
         title_row.addWidget(close_btn)
         vl.addLayout(title_row)
+
+        # ── Tab bar ────────────────────────────────────────────────────────
+        tab_row = QHBoxLayout()
+        tab_row.setSpacing(0)
+        tab_row.setContentsMargins(0, 0, 0, 0)
+        self._tab_browse = QPushButton("Browse folder")
+        self._tab_clone  = QPushButton("Clone repository")
+        _tab_active = (
+            f"QPushButton {{ background: transparent; border: none; border-bottom: 2px solid {COLORS['accent']};"
+            f" color: {COLORS['text_primary']}; font-size: 13px; font-weight: 600;"
+            f" font-family: 'Tilt Warp'; padding: 6px 16px; }}"
+        )
+        _tab_inactive = (
+            f"QPushButton {{ background: transparent; border: none; border-bottom: 2px solid transparent;"
+            f" color: {COLORS['text_muted']}; font-size: 13px; font-weight: 600;"
+            f" font-family: 'Tilt Warp'; padding: 6px 16px; }}"
+            f"QPushButton:hover {{ color: {COLORS['text_secondary']}; }}"
+        )
+        self._tab_active_style = _tab_active
+        self._tab_inactive_style = _tab_inactive
+        for btn in (self._tab_browse, self._tab_clone):
+            btn.setCursor(Qt.PointingHandCursor)
+            btn.setFixedHeight(34)
+        self._tab_browse.setStyleSheet(_tab_active)
+        self._tab_clone.setStyleSheet(_tab_inactive)
+        tab_row.addWidget(self._tab_browse)
+        tab_row.addWidget(self._tab_clone)
+        tab_row.addStretch()
+        vl.addLayout(tab_row)
+
+        self._stack = QStackedWidget()
+
+        # ── Browse tab (with inline init flow) ─────────────────────────────
+        self._browse_stack = QStackedWidget()
+        self._browse_stack.setStyleSheet("")
+
+        # Page 0: drop zone + choose folder
+        drop_page = QWidget()
+        drop_page.setAcceptDrops(True)
+        drop_page.dragEnterEvent = self._drop_drag_enter
+        drop_page.dropEvent = self._drop_drop
+        bp_vl = QVBoxLayout(drop_page)
+        bp_vl.setContentsMargins(0, 8, 0, 0)
+        bp_vl.setSpacing(14)
+
+        drop_box = QWidget()
+        drop_box.setObjectName("dropBox")
+        drop_box.setMinimumHeight(120)
+        drop_box.setCursor(Qt.PointingHandCursor)
+        drop_box.setStyleSheet(f"""
+            #dropBox {{
+                background: transparent;
+                border: 2px dashed {COLORS['border']};
+                border-radius: 10px;
+            }}
+            #dropBox:hover {{
+                border-color: {COLORS['accent']};
+            }}
+        """)
+        dl = QVBoxLayout(drop_box)
+        dl.setAlignment(Qt.AlignCenter)
+        dl.setSpacing(8)
+        di = QLabel()
+        di.setPixmap(qta.icon("fa5s.upload", color=COLORS["text_muted"]).pixmap(28, 28))
+        di.setAlignment(Qt.AlignCenter)
+        di.setStyleSheet("border: none;")
+        dl.addWidget(di)
+        dt = QLabel("Drop a project folder here")
+        dt.setAlignment(Qt.AlignCenter)
+        dt.setStyleSheet(
+            f"border: none; font-size: 13px; font-weight: 600;"
+            f" font-family: 'Tilt Warp'; color: {COLORS['text_secondary']};"
+        )
+        dl.addWidget(dt)
+        drop_box.mousePressEvent = lambda _: self._browse_folder()
+        bp_vl.addWidget(drop_box)
+        drop_page.setStyleSheet("")
+        self._browse_stack.addWidget(drop_page)
+
+        # Page 1: init confirmation
+        init_page = QWidget()
+        init_page.setStyleSheet("")
+        ip_vl = QVBoxLayout(init_page)
+        ip_vl.setContentsMargins(0, 8, 0, 0)
+        ip_vl.setSpacing(12)
+        self._init_title = QLabel()
+        self._init_title.setStyleSheet(
+            f"font-size: 14px; font-weight: 700; font-family: 'Tilt Warp'; color: {COLORS['text_primary']};"
+        )
+        ip_vl.addWidget(self._init_title)
+        self._init_desc = QLabel()
+        self._init_desc.setWordWrap(True)
+        self._init_desc.setStyleSheet(f"font-size: 12px; color: {COLORS['text_muted']};")
+        ip_vl.addWidget(self._init_desc)
+        ip_vl.addStretch()
+        self._init_status = QLabel("")
+        self._init_status.setStyleSheet(f"font-size: 12px; color: {COLORS['text_muted']};")
+        self._init_status.hide()
+        ip_vl.addWidget(self._init_status)
+        init_row = QHBoxLayout()
+        init_row.setSpacing(8)
+        back_btn = QPushButton("Back")
+        back_btn.setFixedHeight(36)
+        back_btn.setCursor(Qt.PointingHandCursor)
+        back_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: transparent; border: 1px solid {COLORS['border']};
+                border-radius: 8px; color: {COLORS['text_secondary']};
+                font-size: 13px; font-weight: 600; padding: 0 20px;
+            }}
+            QPushButton:hover {{ border-color: {COLORS['text_secondary']}; }}
+        """)
+        back_btn.clicked.connect(lambda: self._browse_stack.setCurrentIndex(0))
+        init_row.addWidget(back_btn)
+        self._init_btn = QPushButton("Start Tracking")
+        self._init_btn.setFixedHeight(36)
+        self._init_btn.setCursor(Qt.PointingHandCursor)
+        self._init_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: {COLORS['accent']}; border: none;
+                border-radius: 8px; color: {COLORS['text_on_accent']};
+                font-size: 13px; font-weight: 700; padding: 0 20px;
+            }}
+            QPushButton:hover {{ background: {COLORS.get('accent_hover', COLORS['accent'])}; }}
+        """)
+        self._init_btn.clicked.connect(self._do_init)
+        init_row.addWidget(self._init_btn)
+        ip_vl.addLayout(init_row)
+        self._browse_stack.addWidget(init_page)
+
+        self._stack.addWidget(self._browse_stack)
+
+        # ── Clone tab ──────────────────────────────────────────────────────
+        clone_page = QWidget()
+        clone_vl = QVBoxLayout(clone_page)
+        clone_vl.setContentsMargins(0, 8, 0, 0)
+        clone_vl.setSpacing(14)
+        self._clone_vl = clone_vl
+        self._stack.addWidget(clone_page)
+
+        self._tab_browse.clicked.connect(lambda: self._switch_tab(0))
+        self._tab_clone.clicked.connect(lambda: self._switch_tab(1))
+        vl.addWidget(self._stack)
 
         # ── Repo list section (authenticated only) ─────────────────────────
         self._repo_section = QWidget()
@@ -245,7 +397,7 @@ class CloneDialog(QDialog):
         self._list_widget.hide()
         rs_vl.addWidget(scroll)
 
-        vl.addWidget(self._repo_section)
+        clone_vl.addWidget(self._repo_section)
 
         # ── Separator ─────────────────────────────────────────────────────
         self._sep_widget = QWidget()
@@ -266,7 +418,7 @@ class CloneDialog(QDialog):
         sep_right.setFrameShape(QFrame.HLine)
         sep_right.setStyleSheet(_sep_line_style)
         sep_hl.addWidget(sep_right)
-        vl.addWidget(self._sep_widget)
+        clone_vl.addWidget(self._sep_widget)
 
         # ── URL input ──────────────────────────────────────────────────────
         self._url_input = QLineEdit()
@@ -280,14 +432,14 @@ class CloneDialog(QDialog):
             QLineEdit:focus {{ border-color: {COLORS['accent']}; }}
         """)
         self._url_input.textChanged.connect(self._on_url_changed)
-        vl.addWidget(self._url_input)
+        clone_vl.addWidget(self._url_input)
 
         # ── Destination folder ──────────────────────────────────────────────
         dest_label = QLabel("Clone to")
         dest_label.setStyleSheet(
             f"font-size: 12px; color: {COLORS['text_muted']};"
         )
-        vl.addWidget(dest_label)
+        clone_vl.addWidget(dest_label)
 
         dest_row = QHBoxLayout()
         dest_row.setSpacing(8)
@@ -315,7 +467,7 @@ class CloneDialog(QDialog):
         """)
         browse_btn.clicked.connect(self._pick_dest)
         dest_row.addWidget(browse_btn)
-        vl.addLayout(dest_row)
+        clone_vl.addLayout(dest_row)
 
         # ── Error label ────────────────────────────────────────────────────
         self._error_label = QLabel("")
@@ -324,7 +476,7 @@ class CloneDialog(QDialog):
         )
         self._error_label.setWordWrap(True)
         self._error_label.hide()
-        vl.addWidget(self._error_label)
+        clone_vl.addWidget(self._error_label)
 
         # ── Buttons ────────────────────────────────────────────────────────
         btn_row = QHBoxLayout()
@@ -359,14 +511,73 @@ class CloneDialog(QDialog):
         """)
         self._clone_btn.clicked.connect(self._start_clone)
         btn_row.addWidget(self._clone_btn)
-        vl.addLayout(btn_row)
+        clone_vl.addLayout(btn_row)
 
         root.addWidget(card)
 
-        # Hide authenticated-only widgets if not logged in
         if not self._has_auth:
             self._repo_section.hide()
             self._sep_widget.hide()
+
+    def _switch_tab(self, idx: int):
+        self._stack.setCurrentIndex(idx)
+        self._tab_browse.setStyleSheet(self._tab_active_style if idx == 0 else self._tab_inactive_style)
+        self._tab_clone.setStyleSheet(self._tab_active_style if idx == 1 else self._tab_inactive_style)
+        self.adjustSize()
+
+    def _browse_folder(self):
+        folder = QFileDialog.getExistingDirectory(self, "Select a git repository", os.path.expanduser("~"))
+        if folder:
+            self._handle_folder(folder)
+
+    def _handle_folder(self, folder: str):
+        if os.path.isdir(os.path.join(folder, ".git")):
+            self.cloned.emit(folder)
+            self.accept()
+        else:
+            self._init_folder = folder
+            self._init_title.setText(f"'{os.path.basename(folder)}' isn't a git repo yet")
+            self._init_desc.setText(f"Would you like to start tracking changes?\n{folder}")
+            self._init_status.hide()
+            self._init_btn.setEnabled(True)
+            self._browse_stack.setCurrentIndex(1)
+
+    def _do_init(self):
+        self._init_btn.setEnabled(False)
+        self._init_status.setText("Setting up...")
+        self._init_status.show()
+        import threading
+        folder = self._init_folder
+        u = self._user
+        def _run():
+            from core import ops as git_ops
+            name = (u.get("name") or u.get("login", "")) if u else ""
+            email = u.get("email", "") if u else ""
+            ok, err = git_ops.init_repo(folder, name, email)
+            self._init_done_sig.emit(ok, err, folder)
+        threading.Thread(target=_run, daemon=True).start()
+
+    def _on_init_done(self, ok: bool, err: str, folder: str):
+        if ok:
+            self.cloned.emit(folder)
+            self.accept()
+        else:
+            self._init_status.setText(f"Failed: {err}")
+            self._init_status.setStyleSheet(f"font-size: 12px; color: {COLORS['danger']};")
+            self._init_btn.setEnabled(True)
+
+    def _drop_drag_enter(self, event):
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def _drop_drop(self, event):
+        for url in event.mimeData().urls():
+            path = url.toLocalFile()
+            if path and os.path.isdir(path):
+                self._handle_folder(path)
+                return
 
     # ── Fetch GitHub repos ─────────────────────────────────────────────────────
 

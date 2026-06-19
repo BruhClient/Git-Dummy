@@ -171,7 +171,7 @@ def _compute_lanes(
     _local = local_tip_shas or set()
     for tip_sha in sorted(
         (s for s in branch_tip_map if s != primary_tip and s in commit_sha_set),
-        key=lambda s: (1 if s in _local else 0, commit_index.get(s, 10**9)),
+        key=lambda s: (1 if s in _local else 0, min(branch_tip_map.get(s, ['']))),
     ):
         if not any(s == tip_sha for s in lanes):
             free = next((i for i, s in enumerate(lanes) if s is None), None)
@@ -403,7 +403,7 @@ def _compute_lanes(
     _local_lanes = {assignment.get(s) for s in (local_tip_shas or set()) if s in assignment}
     non_main = sorted(
         {l for l in assignment.values() if l != 0},
-        key=lambda l: (lane_depth.get(l, 0), 1 if l in _local_lanes else 0, l),
+        key=lambda l: (lane_depth.get(l, 0), _branch_base(lane_branch.get(l, '')), 1 if l in _local_lanes else 0, lane_branch.get(l, '')),
     )
     lane_remap: dict[int, int] = {0: 0}
     for new_idx, old_idx in enumerate(non_main, start=1):

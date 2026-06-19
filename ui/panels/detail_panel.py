@@ -773,6 +773,7 @@ class DetailPanel(QWidget):
         self._action_branch          = branch
         self._action_parent_sha      = parent_sha
         self._action_is_merge_commit = is_merge_commit
+        self._is_remote_head         = is_remote_head
 
         if is_remote_only:
             self._goto_btn.hide()
@@ -998,10 +999,11 @@ class DetailPanel(QWidget):
         n = len(files)
         self._stash_label.setText(f"UNSAVED  —  {n} file{'s' if n != 1 else ''}")
         self._view_stash_btn.setVisible(n > 0)
-        self._clear_stash_btn.setVisible(n > 0)
-        self._clear_stash_btn.setEnabled(n > 0)
-        self._save_stash_btn.setVisible(n > 0)
-        self._save_stash_btn.setEnabled(n > 0)
+        if not getattr(self, "_is_remote_head", False):
+            self._clear_stash_btn.setVisible(n > 0)
+            self._clear_stash_btn.setEnabled(n > 0)
+            self._save_stash_btn.setVisible(n > 0)
+            self._save_stash_btn.setEnabled(n > 0)
         self._stash_data = files
 
         for info in files:
@@ -1056,10 +1058,11 @@ class DetailPanel(QWidget):
         n = len(files)
         self._stash_label.setText(f"UNSAVED  —  {n} file{'s' if n != 1 else ''}")
         self._view_stash_btn.setVisible(n > 0)
-        self._clear_stash_btn.setVisible(n > 0)
-        self._clear_stash_btn.setEnabled(n > 0)
-        self._save_stash_btn.setVisible(n > 0)
-        self._save_stash_btn.setEnabled(n > 0)
+        if not getattr(self, "_is_remote_head", False):
+            self._clear_stash_btn.setVisible(n > 0)
+            self._clear_stash_btn.setEnabled(n > 0)
+            self._save_stash_btn.setVisible(n > 0)
+            self._save_stash_btn.setEnabled(n > 0)
         if files:
             self._stash_section.show()
         else:

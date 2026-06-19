@@ -418,6 +418,8 @@ class _CreateRemoteDialog(QWidget):
         """)
         inner.addWidget(self._name_edit)
 
+        self._is_private = True
+
         toggle_row = QHBoxLayout()
         toggle_row.setSpacing(8)
 

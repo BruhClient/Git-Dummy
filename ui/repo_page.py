@@ -3,6 +3,7 @@ from __future__ import annotations
 import configparser
 import os
 import re
+import subprocess
 import threading
 
 import qtawesome as qta
@@ -11,7 +12,7 @@ from PyQt5.QtCore import Qt, QSize, pyqtSignal
 from PyQt5.QtGui import QPainter, QColor, QPen, QBrush
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
-    QFileDialog, QScrollArea, QFrame, QSizePolicy,
+    QFileDialog, QScrollArea, QFrame, QSizePolicy, QGridLayout,
 )
 from styles.theme import COLORS
 from core import repo_store
@@ -189,66 +190,161 @@ class DropZone(QWidget):
 class RepoCard(QWidget):
     open_requested   = pyqtSignal(str)
     remove_requested = pyqtSignal(str)
+    _stats_ready     = pyqtSignal(int, int, int, int)
 
     def __init__(self, repo_path: str, user: dict = None, parent=None):
         super().__init__(parent)
         self._path = repo_path
+        self.setObjectName("repoCard")
         self.setAttribute(Qt.WA_StyledBackground, True)
         self.setCursor(Qt.PointingHandCursor)
-        self.setFixedHeight(56)
+        self.setFixedHeight(120)
+        self._hovered = False
         self._apply_style(False)
 
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(16, 0, 12, 0)
-        layout.setSpacing(12)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(16, 14, 16, 14)
+        layout.setSpacing(0)
 
-        info = QVBoxLayout()
-        info.setSpacing(2)
-        info.setAlignment(Qt.AlignVCenter)
-
+        top_row = QHBoxLayout()
+        top_row.setSpacing(0)
+        top_row.setContentsMargins(0, 0, 0, 0)
         name_label = QLabel(os.path.basename(self._path))
         name_label.setStyleSheet(
-            f"background: transparent; font-size: 14px; font-weight: 600; font-family: 'Tilt Warp'; color: {COLORS['text_primary']};"
+            f"font-size: 15px; font-weight: 700;"
+            f" font-family: 'Tilt Warp'; color: {COLORS['text_primary']};"
         )
         name_label.setAttribute(Qt.WA_TransparentForMouseEvents, True)
-        info.addWidget(name_label)
-        layout.addLayout(info)
-        layout.addStretch()
+        top_row.addWidget(name_label)
+        top_row.addStretch()
 
-        self._role_badge = _RoleBadge()
-        self._role_badge.hide()
-        layout.addWidget(self._role_badge)
+        self._rm_btn = QPushButton()
+        self._rm_btn.setIcon(qta.icon("fa5s.times", color=COLORS["text_muted"]))
+        self._rm_btn.setIconSize(QSize(10, 10))
+        self._rm_btn.setFixedSize(24, 24)
+        self._rm_btn.setCursor(Qt.PointingHandCursor)
+        self._rm_btn.setStyleSheet(
+            f"QPushButton {{ background: transparent; border: none; }}"
+            f"QPushButton:hover {{ background: {COLORS['bg_hover']}; border-radius: 4px; }}"
+        )
+        self._rm_btn.clicked.connect(lambda: self.remove_requested.emit(self._path))
+        self._rm_btn.hide()
+        top_row.addWidget(self._rm_btn)
+        layout.addLayout(top_row)
 
         owner = _remote_owner(repo_path)
         repo  = _remote_repo(repo_path)
+        owner_label = QLabel(f"owned by {owner}" if owner else "local project")
+        owner_label.setStyleSheet(
+            f"font-size: 11px; color: {COLORS['text_muted']};"
+        )
+        owner_label.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        layout.addWidget(owner_label)
+
+        layout.addStretch()
+
+        self._stats_row = QHBoxLayout()
+        self._stats_row.setSpacing(12)
+        self._stats_row.setContentsMargins(0, 0, 0, 0)
+        self._stats_row.addStretch()
+        layout.addLayout(self._stats_row)
+
+        layout.addSpacing(6)
+
+        bottom_row = QHBoxLayout()
+        bottom_row.setSpacing(0)
+        bottom_row.setContentsMargins(0, 0, 0, 0)
+        bottom_row.addStretch()
+        self._role_badge = _RoleBadge()
+        self._role_badge.hide()
+        bottom_row.addWidget(self._role_badge)
+        layout.addLayout(bottom_row)
+
         if owner and repo:
             token = (user or {}).get("access_token", "")
             login = (user or {}).get("login", "")
             self._role_badge.start(owner, repo, login, token)
 
-        self._rm_btn = QPushButton()
-        self._rm_btn.setIcon(qta.icon("fa5s.times", color=COLORS["text_muted"]))
-        self._rm_btn.setIconSize(QSize(12, 12))
-        self._rm_btn.setFixedSize(28, 28)
-        self._rm_btn.setCursor(Qt.PointingHandCursor)
-        self._rm_btn.setStyleSheet(f"""
-            QPushButton {{
-                background: transparent; border: none;
-                color: {COLORS['text_muted']}; font-size: 12px;
-            }}
-            QPushButton:hover {{ color: {COLORS['danger']}; }}
-        """)
-        self._rm_btn.clicked.connect(lambda: self.remove_requested.emit(self._path))
-        layout.addWidget(self._rm_btn)
+        self._stats_ready.connect(self._on_stats)
+        threading.Thread(target=self._fetch_stats,
+                         args=(repo_path, owner, repo, (user or {}).get("access_token", "")),
+                         daemon=True).start()
+
+    def _fetch_stats(self, path: str, owner: str, repo: str, token: str):
+        commits = 0
+        try:
+            r = subprocess.run(["git", "rev-list", "--count", "HEAD"],
+                               cwd=path, capture_output=True, text=True, timeout=5)
+            if r.returncode == 0:
+                commits = int(r.stdout.strip())
+        except Exception:
+            pass
+        stars = watchers = forks = -1
+        if owner and repo and token:
+            try:
+                import requests
+                r = requests.get(f"https://api.github.com/repos/{owner}/{repo}",
+                                 headers={"Authorization": f"Bearer {token}",
+                                          "Accept": "application/vnd.github+json"},
+                                 timeout=8)
+                if r.status_code == 200:
+                    d = r.json()
+                    stars = d.get("stargazers_count", 0)
+                    watchers = d.get("subscribers_count", 0)
+                    forks = d.get("forks_count", 0)
+            except Exception:
+                pass
+        try:
+            self._stats_ready.emit(stars, watchers, forks, commits)
+        except RuntimeError:
+            pass
+
+    def _on_stats(self, stars: int, watchers: int, forks: int, commits: int):
+        while self._stats_row.count() > 1:
+            item = self._stats_row.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+        items = []
+        if stars >= 0:
+            items.append(("fa5s.star", str(stars)))
+        if watchers >= 0:
+            items.append(("fa5s.eye", str(watchers)))
+        if forks >= 0:
+            items.append(("fa5s.code-branch", str(forks)))
+        items.append(("fa5s.history", f"{commits}"))
+        pos = 0
+        for icon_name, text in items:
+            w = QWidget()
+            w.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+            h = QHBoxLayout(w)
+            h.setContentsMargins(0, 0, 0, 0)
+            h.setSpacing(4)
+            ic = QLabel()
+            ic.setPixmap(qta.icon(icon_name, color=COLORS["text_muted"]).pixmap(12, 12))
+            ic.setFixedSize(12, 12)
+            h.addWidget(ic)
+            lbl = QLabel(text)
+            lbl.setStyleSheet(f"font-size: 11px; color: {COLORS['text_muted']};")
+            h.addWidget(lbl)
+            self._stats_row.insertWidget(pos, w)
+            pos += 1
 
     def _apply_style(self, hovered: bool):
-        bg = COLORS['bg_hover'] if hovered else "transparent"
-        self.setStyleSheet(f"background: {bg}; border-radius: 8px;")
+        border = COLORS['accent'] if hovered else COLORS['border']
+        bg = COLORS['bg_hover'] if hovered else COLORS['bg_card']
+        self.setStyleSheet(
+            f"#repoCard {{ background: {bg}; border: 1px solid {border}; border-radius: 12px; }}"
+            f"#repoCard * {{ background: transparent; border: none; }}"
+        )
 
     def enterEvent(self, _):
+        self._hovered = True
+        self._rm_btn.show()
         self._apply_style(True)
 
     def leaveEvent(self, _):
+        self._hovered = False
+        self._rm_btn.hide()
         self._apply_style(False)
 
     def mousePressEvent(self, event):
@@ -368,7 +464,7 @@ class RepoPage(QWidget):
     def _setup_ui(self):
         self.setStyleSheet(f"background: {COLORS['bg_primary']};")
         root = QVBoxLayout(self)
-        root.setContentsMargins(40, 32, 40, 32)
+        root.setContentsMargins(24, 20, 24, 20)
         root.setSpacing(0)
 
         header_row = QHBoxLayout()
@@ -381,10 +477,12 @@ class RepoPage(QWidget):
         header_row.addWidget(title)
         header_row.addStretch()
 
-        clone_btn = QPushButton("⇩  Connect to repo")
-        clone_btn.setFixedHeight(36)
-        clone_btn.setCursor(Qt.PointingHandCursor)
-        clone_btn.setStyleSheet(f"""
+        track_btn = QPushButton("  Track a Project")
+        track_btn.setIcon(qta.icon("mdi.connection", color=COLORS["text_secondary"]))
+        track_btn.setIconSize(QSize(12, 12))
+        track_btn.setFixedHeight(36)
+        track_btn.setCursor(Qt.PointingHandCursor)
+        track_btn.setStyleSheet(f"""
             QPushButton {{
                 background: transparent; border: 1px solid {COLORS['border']};
                 border-radius: 8px; color: {COLORS['text_secondary']};
@@ -392,28 +490,14 @@ class RepoPage(QWidget):
             }}
             QPushButton:hover {{ border-color: {COLORS['accent']}; color: {COLORS['accent']}; }}
         """)
-        clone_btn.clicked.connect(self._open_clone_dialog)
-        header_row.addWidget(clone_btn)
+        track_btn.clicked.connect(self._open_clone_dialog)
+        header_row.addWidget(track_btn)
         root.addLayout(header_row)
-        root.addSpacing(4)
+        root.addSpacing(12)
 
-        sub = QLabel("Drop a project folder below, or browse to add it.")
-        sub.setStyleSheet(f"background: transparent; font-size: 13px; color: {COLORS['text_muted']};")
-        root.addWidget(sub)
-        root.addSpacing(20)
-
-        self._drop_zone = DropZone()
-        self._drop_zone.browse_clicked.connect(self._pick_folder)
-        root.addWidget(self._drop_zone)
-        root.addSpacing(28)
-
-        self._section_label = QLabel("ADDED PROJECTS")
-        self._section_label.setStyleSheet(
-            f"background: transparent; font-size: 10px; font-weight: 600; font-family: 'Tilt Warp'; color: {COLORS['text_muted']}; letter-spacing: 0.08em;"
-        )
+        self._section_label = QLabel(self)
+        self._section_label.setFixedSize(0, 0)
         self._section_label.hide()
-        root.addWidget(self._section_label)
-        root.addSpacing(10)
 
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
@@ -423,10 +507,11 @@ class RepoPage(QWidget):
 
         self._cards_container = QWidget()
         self._cards_container.setStyleSheet("background: transparent;")
-        self._cards_layout = QVBoxLayout(self._cards_container)
+        self._cards_layout = QGridLayout(self._cards_container)
         self._cards_layout.setContentsMargins(0, 0, 0, 0)
-        self._cards_layout.setSpacing(2)
-        self._cards_layout.addStretch()
+        self._cards_layout.setHorizontalSpacing(8)
+        self._cards_layout.setVerticalSpacing(8)
+        self._cards_layout.setAlignment(Qt.AlignTop | Qt.AlignLeft)
 
         scroll.setWidget(self._cards_container)
         scroll.viewport().setStyleSheet("background: transparent;")
@@ -479,7 +564,6 @@ class RepoPage(QWidget):
     def dragEnterEvent(self, event):
         if event.mimeData().hasUrls():
             event.acceptProposedAction()
-            self._drop_zone.set_active(True)
         else:
             event.ignore()
 
@@ -488,10 +572,9 @@ class RepoPage(QWidget):
             event.acceptProposedAction()
 
     def dragLeaveEvent(self, _):
-        self._drop_zone.set_active(False)
+        pass
 
     def dropEvent(self, event):
-        self._drop_zone.set_active(False)
         for url in event.mimeData().urls():
             path = url.toLocalFile()
             if path:
@@ -582,8 +665,7 @@ class RepoPage(QWidget):
         self.repo_selected.emit(folder)
 
     def _refresh_cards(self):
-        # Clear all card widgets (keep trailing stretch)
-        while self._cards_layout.count() > 1:
+        while self._cards_layout.count():
             item = self._cards_layout.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()
@@ -591,20 +673,19 @@ class RepoPage(QWidget):
         total = len(self._repos) + len(self._missing)
         self._section_label.setVisible(total > 0)
 
-        insert_pos = 0
+        cols = 3
+        idx = 0
 
-        # Missing cards first (they need attention)
         for path in self._missing:
             card = MissingRepoCard(path)
             card.locate_requested.connect(self._locate_missing)
             card.remove_requested.connect(self.remove_repo)
-            self._cards_layout.insertWidget(insert_pos, card)
-            insert_pos += 1
+            self._cards_layout.addWidget(card, idx // cols, idx % cols)
+            idx += 1
 
-        # Valid cards
         for path in self._repos:
             card = RepoCard(path, user=self._user)
             card.open_requested.connect(self.repo_selected.emit)
             card.remove_requested.connect(self.remove_repo)
-            self._cards_layout.insertWidget(insert_pos, card)
-            insert_pos += 1
+            self._cards_layout.addWidget(card, idx // cols, idx % cols)
+            idx += 1

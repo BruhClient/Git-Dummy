@@ -143,6 +143,7 @@ class _GitHubConnectDialog(QWidget):
 
     def show_near(self, repo_path: str):
         """Show the dialog centred over the parent."""
+        self._anim.stop()
         self._name_input.setText(os.path.basename(repo_path))
         self._set_private(True)
         self._card.adjustSize()
@@ -165,6 +166,11 @@ class _GitHubConnectDialog(QWidget):
             cx = (self.width()  - self._card.width())  // 2
             cy = (self.height() - self._card.height()) // 2
             self._card.move(cx, cy)
+
+    def hide(self):
+        if hasattr(self, "_anim"):
+            self._anim.stop()
+        super().hide()
 
     def mousePressEvent(self, event):
         if not self._card.geometry().contains(event.pos()):

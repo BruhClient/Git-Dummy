@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import subprocess
 
-from .base_ops import _run
+from .base_ops import _run, has_uncommitted_changes
 
 
 def discard_all_changes(path: str) -> tuple[bool, str]:
@@ -38,6 +38,9 @@ def hard_revert_to(path: str, branch: str, target_sha: str, force_push: bool = T
     if not pre_reset_sha:
         return False, "Could not determine current branch tip — aborting to avoid leaving the repo in a broken state."
 
+    if has_uncommitted_changes(path):
+        return False, "You have uncommitted changes. Please commit or discard them first."
+
     ok, err = _run(path, ["git", "reset", "--hard", target_sha])
     if not ok:
         return False, err
@@ -53,15 +56,17 @@ def hard_revert_to(path: str, branch: str, target_sha: str, force_push: bool = T
             encoding="utf-8", errors="replace", timeout=30,
         )
         if r.returncode != 0:
-            if pre_reset_sha:
-                _run(path, ["git", "reset", "--hard", pre_reset_sha])
             combined = r.stderr.strip() or r.stdout.strip()
+            if pre_reset_sha:
+                roll_ok, _ = _run(path, ["git", "reset", "--hard", pre_reset_sha])
+                if not roll_ok:
+                    return False, f"Push failed and rollback failed — manual recovery needed: {combined}"
             if "GH006" in combined or "protected branch" in combined.lower():
                 return False, (
                     f"'{branch}' is protected on GitHub — force-push rejected. "
                     f"Remove branch protection in GitHub → Settings → Branches to hard revert."
                 )
-            return False, f"Remote push failed — nothing was changed: {combined}"
+            return False, f"Remote push failed — local branch was rolled back: {combined}"
     return True, ""
 
 

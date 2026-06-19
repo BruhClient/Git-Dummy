@@ -98,7 +98,7 @@ class CommitViewPage(_PRMixin, QWidget):
     _merge_done_sig         = pyqtSignal(bool, str, list, str, str, object)  # ok, err, files, source, target, content
     _merge_resolve_done_sig = pyqtSignal(bool, str, str)             # ok, err, success_msg
     _pull_done_sig      = pyqtSignal(bool, str, str, list)  # ok, err, success_msg, conflict_files
-    _auto_pull_done_sig = pyqtSignal(bool, str)              # ok, err
+    _auto_pull_done_sig = pyqtSignal(bool, str, str, str)    # ok, err, pulled, failed
     _create_done_sig= pyqtSignal(bool, str, str)             # ok, err, branch_name
     _stash_done_sig = pyqtSignal(bool, str, list, object)   # ok, msg, conflict_files, conflict_content
     # PR wizard signals (thread → main)
@@ -377,7 +377,9 @@ class CommitViewPage(_PRMixin, QWidget):
     def _stop_all_threads(self):
         # 1. Disconnect all worker signals FIRST so no callbacks fire after this point
         for attr in ("_worker", "_collab_worker", "_fetch_worker",
-                     "_detail_worker", "_vis_worker"):
+                     "_detail_worker", "_vis_worker",
+                     "_create_worker", "_first_commit_worker",
+                     "_uncommitted_worker", "_navigate_worker"):
             w = getattr(self, attr, None)
             if w is not None:
                 try:
@@ -388,13 +390,15 @@ class CommitViewPage(_PRMixin, QWidget):
         # 2. Quit all threads and move them to _inflight so Python GC
         #    cannot delete the objects while the C++ thread is still running.
         for t_attr, w_attr in (
-            ("_thread",          "_worker"),
-            ("_collab_thread",   "_collab_worker"),
-            ("_fetch_thread",    "_fetch_worker"),
-            ("_detail_thread",   "_detail_worker"),
-            ("_vis_thread",      "_vis_worker"),
+            ("_thread",             "_worker"),
+            ("_collab_thread",      "_collab_worker"),
+            ("_fetch_thread",       "_fetch_worker"),
+            ("_detail_thread",      "_detail_worker"),
+            ("_vis_thread",         "_vis_worker"),
             ("_navigate_thread",    "_navigate_worker"),
             ("_uncommitted_thread", "_uncommitted_worker"),
+            ("_create_thread",      "_create_worker"),
+            ("_first_commit_thread","_first_commit_worker"),
         ):
             t = getattr(self, t_attr, None)
             w = getattr(self, w_attr, None)
@@ -491,6 +495,7 @@ class CommitViewPage(_PRMixin, QWidget):
         self._poll_timer.stop()
         if has_remote:
             self._poll_timer.start()
+            self._poll_remote()
         self._last_dirty    = False
         self._last_stash_id = ""
         self._uncommitted_timer.start()
@@ -577,32 +582,94 @@ class CommitViewPage(_PRMixin, QWidget):
         self._last_remote_pusher = last_pusher
         if changed:
             self._reload_from_remote = True
-            if self._tracker and not self._panel_op_active:
-                self._try_auto_pull()
-            else:
-                self._start_load()
+        if self._tracker and not self._panel_op_active:
+            self._try_auto_pull()
+        else:
+            self._start_load()
 
     def _try_auto_pull(self):
         path = self._tracker._path
         def _run():
             try:
+                import subprocess as _sp
                 from core.ops import has_uncommitted_changes, pull_ff, current_branch
-                branch = current_branch(path)
-                if branch == "HEAD" or has_uncommitted_changes(path):
-                    self._auto_pull_done_sig.emit(True, "")
+                cur = current_branch(path)
+                if cur == "HEAD":
+                    self._auto_pull_done_sig.emit(True, "", "", "")
                     return
-                ok, err = pull_ff(path, branch)
-                self._auto_pull_done_sig.emit(ok, err)
+                dirty = has_uncommitted_changes(path)
+                # Collect local branches that are behind their remote
+                r = _sp.run(
+                    ["git", "for-each-ref", "refs/heads/", "--format=%(refname:short) %(upstream:short) %(upstream:trackshort)"],
+                    cwd=path, capture_output=True, text=True, timeout=5,
+                    encoding="utf-8", errors="replace",
+                )
+                behind_branches = []
+                all_local = []
+                for line in (r.stdout or "").strip().splitlines():
+                    parts = line.strip().split()
+                    if not parts:
+                        continue
+                    all_local.append(parts[0])
+                    if len(parts) >= 3 and parts[2] == "<":
+                        behind_branches.append(parts[0])
+                # Also check branches without tracking that have a matching origin/<name>
+                for branch in all_local:
+                    if branch in behind_branches:
+                        continue
+                    cnt = _sp.run(
+                        ["git", "rev-list", "--count", f"{branch}..origin/{branch}"],
+                        cwd=path, capture_output=True, text=True, timeout=5,
+                        encoding="utf-8", errors="replace",
+                    )
+                    if cnt.returncode == 0 and cnt.stdout.strip() not in ("", "0"):
+                        cnt2 = _sp.run(
+                            ["git", "rev-list", "--count", f"origin/{branch}..{branch}"],
+                            cwd=path, capture_output=True, text=True, timeout=5,
+                            encoding="utf-8", errors="replace",
+                        )
+                        if cnt2.returncode != 0 or cnt2.stdout.strip() in ("", "0"):
+                            behind_branches.append(branch)
+                if not behind_branches:
+                    self._auto_pull_done_sig.emit(True, "", "", "")
+                    return
+                pulled = []
+                failed = []
+                for branch in behind_branches:
+                    if branch == cur and dirty:
+                        continue
+                    old_tip = _sp.run(
+                        ["git", "rev-parse", branch],
+                        cwd=path, capture_output=True, text=True, timeout=5,
+                        encoding="utf-8", errors="replace",
+                    ).stdout.strip()
+                    ok, err = pull_ff(path, branch)
+                    if ok:
+                        pulled.append(branch)
+                        if old_tip:
+                            from core.ops import migrate_stash_after_pull
+                            migrate_stash_after_pull(path, old_tip)
+                    else:
+                        failed.append((branch, err))
+                first_err = failed[0][1] if failed else ""
+                self._auto_pull_done_sig.emit(not failed, first_err,
+                    ", ".join(pulled) if pulled else "",
+                    ", ".join(b for b, _ in failed) if failed else "")
             except Exception:
-                self._auto_pull_done_sig.emit(False, "")
+                self._auto_pull_done_sig.emit(False, "", "", "")
         import threading as _threading
         _threading.Thread(target=_run, daemon=True).start()
 
-    def _on_auto_pull_done(self, ok: bool, err: str):
+    def _on_auto_pull_done(self, ok: bool, err: str, pulled: str = "", failed: str = ""):
+        if pulled:
+            self._toast.show_message(f"Synced: {pulled}", kind="success", duration_ms=4000)
         if not ok and err:
             if "non-fast-forward" in err or "rejected" in err or "diverge" in err.lower():
                 self._toast.show_message(
                     "Branch has diverged from remote — use Sync to merge.", kind="error", duration_ms=6000)
+            elif failed:
+                self._toast.show_message(
+                    f"Couldn't sync: {failed}", kind="error", duration_ms=5000)
             else:
                 self._toast.show_message(
                     "Auto-pull failed — pull manually to update.", kind="error", duration_ms=5000)
@@ -1144,14 +1211,11 @@ class CommitViewPage(_PRMixin, QWidget):
             self._panel.refresh_stash_section()
             self._start_load()
         elif msg == "save_conflict":
-            # panel_op_active stays True until _on_conflict_done releases it.
-            # Do NOT call unlock_actions() here — the conflict dialog is about to open.
             branch = getattr(self._panel, "_action_branch", "")
-            self._conflict_dialog.show_for_branch(
-                branch, "SAVE CONFLICT",
-                conflict_files, arrow="→",
+            self._save_conflict_stash_ref = getattr(self._panel, "_stash_ref", "")
+            self._merge_conflict_dialog.show_for_conflict(
+                "stash", branch, conflict_files,
                 prefetched_content=conflict_content or {})
-            # Reload canvas so the panel reflects the restored working tree.
             self._start_load()
         else:
             self._panel_op_active = False
@@ -1258,11 +1322,29 @@ class CommitViewPage(_PRMixin, QWidget):
             self._panel.unlock_actions()
             return
         # decisions is a dict {filepath: "ours"|"theirs"}
+        if source == "stash":
+            stash_ref = getattr(self, "_save_conflict_stash_ref", "")
+            def _run():
+                try:
+                    from core.ops import save_stash_with_decisions
+                    ok, err = save_stash_with_decisions(path, stash_ref, "saved changes", decisions)
+                except Exception as exc:
+                    ok, err = False, str(exc)
+                self._merge_resolve_done_sig.emit(ok, err, "Changes saved as commit.")
+            import threading as _threading
+            _threading.Thread(target=_run, daemon=True).start()
+            return
         def _run():
             try:
                 from core.ops import merge_with_decisions
-                git_source = source if source in self._local_branch_tip else f"origin/{source}"
+                git_source = source if source.startswith("origin/") or source in self._local_branch_tip else f"origin/{source}"
                 ok, err = merge_with_decisions(path, git_source, decisions)
+                if ok and source.startswith("origin/"):
+                    from core.ops import _run as git_run
+                    push_branch = source.removeprefix("origin/")
+                    push_ok, push_err = git_run(path, ["git", "push", "origin", push_branch], timeout=30)
+                    if not push_ok:
+                        ok, err = False, push_err
             except Exception as exc:
                 ok, err = False, str(exc)
             msg = f"Merged '{source}' into '{target}'."
@@ -1306,29 +1388,37 @@ class CommitViewPage(_PRMixin, QWidget):
         path = self._tracker._path
         def _run():
             try:
-                from core.ops import _run as git_run, merge_branch
+                from core.ops import _run as git_run, merge_branch, checkout_branch
                 import subprocess
+                cur = subprocess.run(
+                    ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+                    cwd=path, capture_output=True, text=True,
+                    encoding="utf-8", errors="replace", timeout=5,
+                ).stdout.strip()
+                switched = False
+                if cur != branch:
+                    ok_co, err_co = checkout_branch(path, branch)
+                    if not ok_co:
+                        self._merge_done_sig.emit(False, err_co, [], f"origin/{branch}", branch, {})
+                        return
+                    switched = True
                 old_head = subprocess.run(
                     ["git", "rev-parse", "HEAD"],
                     cwd=path, capture_output=True, text=True,
                     encoding="utf-8", errors="replace", timeout=5,
                 ).stdout.strip()
-                print(f"[sync] branch={branch} path={path} old_head={old_head}")
                 fetch_ok, fetch_err = git_run(path, ["git", "fetch", "origin"], timeout=30)
-                print(f"[sync] fetch ok={fetch_ok} err={fetch_err[:200] if fetch_err else ''}")
-                print(f"[sync] merging origin/{branch}")
                 ok, err, files, content = merge_branch(path, f"origin/{branch}")
-                print(f"[sync] merge ok={ok} err={err[:200] if err else ''} files={files}")
                 if ok:
                     push_ok, push_err = git_run(path, ["git", "push", "origin", branch], timeout=30)
-                    print(f"[sync] push ok={push_ok} err={push_err[:200] if push_err else ''}")
                     if not push_ok:
                         ok, err = False, push_err
                 if ok and old_head:
                     from core.ops import migrate_stash_after_pull
                     migrate_stash_after_pull(path, old_head)
+                if switched:
+                    checkout_branch(path, cur)
             except Exception as exc:
-                print(f"[sync] EXCEPTION: {exc}")
                 ok, err, files, content = False, str(exc), [], {}
             self._merge_done_sig.emit(ok, err, files, f"origin/{branch}", branch, content)
         import threading as _threading
@@ -1542,6 +1632,7 @@ class CommitViewPage(_PRMixin, QWidget):
         if not self._tracker or self._panel_op_active:
             return
         self._panel_op_active = True
+        self._navigating = True
         # Suppress watcher reloads while the op runs — intermediate git
         # checkout/add steps would otherwise trigger a mid-op canvas rebuild.
         self._reload_debounce.stop()
@@ -1558,6 +1649,7 @@ class CommitViewPage(_PRMixin, QWidget):
     def _on_branch_op_done(self, ok: bool, err: str, success_msg: str,
                            fail_prefix: str, close_panel: bool):
         self._panel_op_active = False
+        self._navigating = False
         if ok:
             self._toast.show_message(success_msg, kind="success", duration_ms=5000)
             if close_panel:
@@ -1830,7 +1922,7 @@ class CommitViewPage(_PRMixin, QWidget):
             is_current_head = commit.sha == self._last_head_sha
             self._panel.set_push_state(False, commit.branch)
             self._panel.set_pull_state(False, commit.branch)
-            self._panel.set_sync_state(is_local_tip and is_current_head, commit.branch)
+            self._panel.set_sync_state(is_local_tip, commit.branch)
         elif is_behind:
             self._panel.set_push_state(False, commit.branch)
             self._panel.set_pull_state(True, commit.branch)

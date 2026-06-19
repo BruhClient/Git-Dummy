@@ -269,6 +269,12 @@ class SpatialCanvas(QGraphicsView):
     # ── Graph drawing helpers ────────────────────────────────────────────────
 
     def _draw_lane_spines(self, commits, positions, lane_map, lane_branch, orientation):
+        base_color: dict[str, str] = {}
+        for ln in sorted(lane_branch):
+            b = _branch_base(lane_branch[ln])
+            if b and b not in base_color:
+                base_color[b] = _lane_color(ln)
+
         lane_points: dict[int, list[tuple[float, float]]] = {}
         for commit in commits:
             lane = lane_map.get(commit.sha, 0)
@@ -285,9 +291,8 @@ class SpatialCanvas(QGraphicsView):
             for x, y in pts[1:]:
                 path.lineTo(x, y)
             spine = QGraphicsPathItem(path)
-            branch_name = lane_branch.get(lane, "")
-            is_local    = branch_name in self._local_only_branches
-            raw_color   = _lane_color(lane) if is_local else "#6b7280"
+            bname = _branch_base(lane_branch.get(lane, ""))
+            raw_color   = base_color.get(bname, _lane_color(lane))
             lane_color  = QColor(raw_color)
             lane_color.setAlpha(160)
             spine.setPen(QPen(lane_color, 2, Qt.SolidLine, Qt.RoundCap, Qt.RoundJoin))
@@ -352,7 +357,7 @@ class SpatialCanvas(QGraphicsView):
                     px, py = H_PAD, cy - ROW_H
                 else:
                     px, py = H_PAD, cy + ROW_H
-                candidate_info[commit.sha] = (cx, cy, px, py, lane, False)
+                candidate_info[commit.sha] = (cx, cy, px, py, lane, False, -1)
                 continue
             p_sha = commit.parents[0]
             parent_lane = lane_map.get(p_sha, 0)
@@ -370,7 +375,7 @@ class SpatialCanvas(QGraphicsView):
                     px, py = H_PAD, cy - ROW_H
                 else:
                     px, py = H_PAD, cy + ROW_H
-            candidate_info[commit.sha] = (cx, cy, px, py, lane, True)
+            candidate_info[commit.sha] = (cx, cy, px, py, lane, True, parent_lane)
 
         sha_set = {c.sha: c for c in commits}
         for tip_sha in branch_tip_map:
@@ -386,7 +391,7 @@ class SpatialCanvas(QGraphicsView):
             if first_parent and first_parent in positions:
                 continue
             cx, cy = positions[tip_sha]
-            candidate_info[tip_sha] = (cx, cy, cx, cy, tip_lane, False)
+            candidate_info[tip_sha] = (cx, cy, cx, cy, tip_lane, False, -1)
 
         _base_to_tips: dict[str, list[str]] = {}
         for tip_sha, names in branch_tip_map.items():
@@ -398,6 +403,13 @@ class SpatialCanvas(QGraphicsView):
         for b, tips in _base_to_tips.items():
             if len(tips) > 1:
                 diverged_tip_shas.update(tips)
+
+        _diverged_local_lanes: set[int] = set()
+        for sha in diverged_tip_shas:
+            if sha in self._local_tip_shas_c:
+                dl = lane_map.get(sha)
+                if dl is not None:
+                    _diverged_local_lanes.add(dl)
 
         def _branch_key(sha: str) -> str:
             tip_names = branch_tip_map.get(sha)
@@ -416,14 +428,18 @@ class SpatialCanvas(QGraphicsView):
             oldest = max(shas, key=lambda s: commit_idx_map.get(s, 0))
             start_shas.add(oldest)
 
-        for sha, (cx, cy, px, py, lane, draw_edge) in candidate_info.items():
+        for sha, (cx, cy, px, py, lane, draw_edge, p_lane) in candidate_info.items():
             is_start = sha in start_shas
             is_diverged = sha in diverged_tip_shas
-            if not is_start and not is_diverged:
+            if not is_start and not is_diverged and lane not in _diverged_local_lanes:
                 continue
             if draw_edge:
+                # Diagonal only for same-branch diverged tips (local tip → remote tip)
+                same_branch = _branch_base(lane_branch.get(lane, "")) == _branch_base(lane_branch.get(p_lane, ""))
+                _diagonal = same_branch and ((is_diverged and sha in self._local_tip_shas_c) or lane in _diverged_local_lanes)
                 self._scene.addItem(EdgeItem(cx, cy, px, py, _lane_color(lane),
-                                             dashed=True, orientation=orientation))
+                                             dashed=True, orientation=orientation,
+                                             diagonal=_diagonal))
 
         start_shas -= diverged_tip_shas
         return start_shas
@@ -432,7 +448,7 @@ class SpatialCanvas(QGraphicsView):
                     start_shas, head_sha):
         branch_name_color: dict[str, str] = {}
         for ln in sorted(lane_branch):
-            bname = lane_branch[ln]
+            bname = _branch_base(lane_branch[ln])
             if bname and bname not in branch_name_color:
                 branch_name_color[bname] = _lane_color(ln)
         self._branch_colors = branch_name_color
@@ -444,7 +460,7 @@ class SpatialCanvas(QGraphicsView):
             is_local    = (branch_name in self._local_only_branches
                            or commit.sha in self._unpushed_shas)
             tip_names   = branch_tip_map.get(commit.sha, [])
-            branch_key  = tip_names[0] if tip_names else branch_name
+            branch_key  = _branch_base(tip_names[0]) if tip_names else _branch_base(branch_name)
             color       = branch_name_color.get(branch_key, _lane_color(lane))
             self._node_colors[commit.sha] = color
             # Only show remote-tip dot when the commit's lane matches one of its
