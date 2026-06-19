@@ -1,6 +1,8 @@
 """Zoom control bar that wraps a SpatialCanvas."""
 from __future__ import annotations
 
+import qtawesome as qta
+
 from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import QWidget, QHBoxLayout, QPushButton
 
@@ -44,7 +46,8 @@ class ZoomBar(QWidget):
         layout.setSpacing(0)
         layout.setAlignment(Qt.AlignVCenter)
 
-        self._minus = QPushButton("−")
+        self._minus = QPushButton()
+        self._minus.setIcon(qta.icon("fa5s.minus", color=COLORS['text_secondary']))
         self._minus.setStyleSheet(self._BTN)
         self._minus.setFixedSize(34, 34)
         self._minus.setCursor(Qt.PointingHandCursor)
@@ -60,7 +63,8 @@ class ZoomBar(QWidget):
         self._pct.clicked.connect(canvas.reset_zoom)
         layout.addWidget(self._pct)
 
-        self._plus = QPushButton("+")
+        self._plus = QPushButton()
+        self._plus.setIcon(qta.icon("fa5s.plus", color=COLORS['text_secondary']))
         self._plus.setStyleSheet(self._BTN)
         self._plus.setFixedSize(34, 34)
         self._plus.setCursor(Qt.PointingHandCursor)

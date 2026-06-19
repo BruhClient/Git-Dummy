@@ -4,7 +4,7 @@ from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame,
     QGraphicsOpacityEffect, QPlainTextEdit,
 )
-from styles.theme import COLORS
+from styles.theme import COLORS, scrollbar_style
 
 
 def _numbered(lines: list, start: int = 1) -> str:
@@ -126,11 +126,7 @@ class _ConflictDialog(QWidget):
                 border-radius: 6px; color: {COLORS['text_secondary']};
                 font-family: monospace; font-size: 11px; padding: 6px;
             }}
-            QScrollBar:vertical {{ width: 4px; background: transparent; }}
-            QScrollBar::handle:vertical {{ background: {COLORS['border']}; border-radius: 2px; }}
-            QScrollBar:horizontal {{ height: 4px; background: transparent; }}
-            QScrollBar::handle:horizontal {{ background: {COLORS['border']}; border-radius: 2px; }}
-        """
+        """ + scrollbar_style()
         cols_code = QHBoxLayout()
         cols_code.setSpacing(8)
         cols_code.setContentsMargins(0, 0, 0, 0)
@@ -635,11 +631,7 @@ class _MergeConflictDialog(QWidget):
                 border-radius: 6px; color: {COLORS['text_secondary']};
                 font-family: monospace; font-size: 11px; padding: 6px;
             }}
-            QScrollBar:vertical {{ width: 4px; background: transparent; }}
-            QScrollBar::handle:vertical {{ background: {COLORS['border']}; border-radius: 2px; }}
-            QScrollBar:horizontal {{ height: 4px; background: transparent; }}
-            QScrollBar::handle:horizontal {{ background: {COLORS['border']}; border-radius: 2px; }}
-        """
+        """ + scrollbar_style()
         code_row = QHBoxLayout()
         code_row.setSpacing(8); code_row.setContentsMargins(0, 0, 0, 0)
         self._orig_te2 = QPlainTextEdit(); self._orig_te2.setReadOnly(True)

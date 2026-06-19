@@ -14,7 +14,7 @@ from PyQt5.QtWidgets import (
     QFrame, QSizePolicy, QGraphicsOpacityEffect,
 )
 
-from styles.theme import COLORS
+from styles.theme import COLORS, scrollbar_style
 
 # ── Panel size constants ──────────────────────────────────────────────────────
 PANEL_W         = 320
@@ -66,29 +66,9 @@ def _trunc(text: str, n: int) -> str:
 
 # ── Style helpers ─────────────────────────────────────────────────────────────
 
-def _scrollbar_style(colors) -> str:
-    b, m = colors["border"], colors["text_muted"]
-    return f"""
-        QScrollArea {{ background: transparent; border: none; }}
-        QScrollBar:vertical {{
-            background: transparent; width: 8px; margin: 0;
-        }}
-        QScrollBar::handle:vertical {{
-            background: {b}; border-radius: 4px; min-height: 32px;
-        }}
-        QScrollBar::handle:vertical:hover {{ background: {m}; }}
-        QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
-        QScrollBar::add-page:vertical,  QScrollBar::sub-page:vertical  {{ background: transparent; }}
-        QScrollBar:horizontal {{
-            background: transparent; height: 8px; margin: 0;
-        }}
-        QScrollBar::handle:horizontal {{
-            background: {b}; border-radius: 4px; min-width: 32px;
-        }}
-        QScrollBar::handle:horizontal:hover {{ background: {m}; }}
-        QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{ width: 0; }}
-        QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {{ background: transparent; }}
-    """
+def _scrollbar_style(_colors=None) -> str:
+    """Thin wrapper kept for backward compatibility — delegates to theme.scrollbar_style()."""
+    return "QScrollArea { background: transparent; border: none; }\n" + scrollbar_style()
 
 
 def _close_btn_style(colors) -> str:

@@ -75,6 +75,9 @@ class App(QStackedWidget):
         self._repo_page.repo_selected.connect(self._on_repo_selected)
         self._commit_page.access_denied.connect(self._on_access_denied)
         self._main_window.logout_requested.connect(self._on_logout)
+        self._main_window.add_account_requested.connect(self._on_add_account)
+        self._main_window.switch_account_requested.connect(self._on_switch_account)
+        self._auth_page.account_selected.connect(self._on_switch_account)
 
         self._auth_page.show_sign_in()
         self.setCurrentWidget(self._auth_page)
@@ -100,8 +103,17 @@ class App(QStackedWidget):
     def _on_logout(self):
         self._commit_page.reset()
         self._main_window.show_page(MainWindow.PAGE_REPOS)
-        self._auth_page.reset()  # calls show_sign_in() — saved session was cleared by logout
+        self._auth_page.reset()
         self.setCurrentWidget(self._auth_page)
+
+    def _on_add_account(self):
+        from ui.dialogs.add_account_dialog import AddAccountDialog
+        dlg = AddAccountDialog(self._auth, parent=self._main_window)
+        dlg.account_selected.connect(self._on_switch_account)
+        dlg.exec_()
+
+    def _on_switch_account(self, login: str):
+        self._auth.switch_account(login)
 
     def _on_repo_selected(self, repo_path: str):
         import os

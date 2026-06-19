@@ -3,13 +3,15 @@ from __future__ import annotations
 
 import os
 
+import qtawesome as qta
 from PyQt5.QtCore import Qt, pyqtSignal, QThread
+from PyQt5.QtGui import QPalette, QColor
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QFileDialog, QScrollArea, QSizePolicy,
-    QLineEdit, QWidget,
+    QLineEdit, QWidget, QFrame,
 )
-from styles.theme import COLORS
+from styles.theme import COLORS, scrollbar_style
 from core import settings_store
 from ui.workers.repo_workers import _FetchReposWorker, _CloneWorker
 
@@ -44,7 +46,7 @@ def _remote_url(repo_path: str) -> str:
 
 
 class _RepoRow(QWidget):
-    """Compact clickable row for one GitHub repo in the clone dialog list."""
+    """Minimal clickable row for one GitHub repo."""
     clicked = pyqtSignal(dict)
 
     def __init__(self, repo: dict, parent=None):
@@ -53,40 +55,36 @@ class _RepoRow(QWidget):
         self._selected = False
         self.setAttribute(Qt.WA_StyledBackground, True)
         self.setCursor(Qt.PointingHandCursor)
-        self.setFixedHeight(44)
+        self.setFixedHeight(36)
         self._apply_style(False)
 
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(10, 0, 12, 0)
-        layout.setSpacing(8)
+        layout.setContentsMargins(10, 0, 10, 0)
+        layout.setSpacing(0)
 
         name_lbl = QLabel(repo.get("name", ""))
         name_lbl.setStyleSheet(
-            f"background: transparent; font-size: 13px; font-weight: 600; font-family: 'Tilt Warp'; color: {COLORS['text_primary']};"
+            f"font-size: 13px; font-weight: 500; color: {COLORS['text_primary']};"
         )
         name_lbl.setAttribute(Qt.WA_TransparentForMouseEvents, True)
         layout.addWidget(name_lbl)
 
-        is_private = repo.get("private", False)
-        badge = QLabel(" private " if is_private else " public ")
-        if is_private:
-            badge.setStyleSheet(
-                f"background: {COLORS['accent_dim']}; color: {COLORS['accent']};"
-                f" font-size: 10px; font-weight: 600; font-family: 'Tilt Warp'; border-radius: 4px; padding: 1px 0;"
-            )
-        else:
-            badge.setStyleSheet(
-                f"background: {COLORS['bg_hover']}; color: {COLORS['text_muted']};"
-                f" font-size: 10px; font-weight: 600; font-family: 'Tilt Warp'; border-radius: 4px; padding: 1px 0;"
-            )
-        badge.setAttribute(Qt.WA_TransparentForMouseEvents, True)
-        layout.addWidget(badge)
-
         layout.addStretch()
+
+        is_private = repo.get("private", False)
+        if is_private:
+            lock_lbl = QLabel()
+            lock_lbl.setPixmap(
+                qta.icon("fa5s.lock", color=COLORS["text_muted"]).pixmap(10, 10)
+            )
+            lock_lbl.setFixedSize(14, 14)
+            lock_lbl.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+            layout.addWidget(lock_lbl)
+            layout.addSpacing(8)
 
         date_lbl = QLabel(_rel_time(repo.get("updated_at", "")))
         date_lbl.setStyleSheet(
-            f"background: transparent; font-size: 11px; color: {COLORS['text_muted']};"
+            f"font-size: 11px; color: {COLORS['text_muted']};"
         )
         date_lbl.setAttribute(Qt.WA_TransparentForMouseEvents, True)
         layout.addWidget(date_lbl)
@@ -96,13 +94,16 @@ class _RepoRow(QWidget):
         self._apply_style(selected)
 
     def _apply_style(self, selected: bool):
-        bg = COLORS["accent_dim"] if selected else "transparent"
-        border = COLORS["accent"] if selected else "transparent"
-        self.setStyleSheet(f"background: {bg}; border-left: 2px solid {border};")
+        if selected:
+            self.setStyleSheet(
+                f"background: {COLORS['accent_dim']}; border-radius: 6px;"
+            )
+        else:
+            self.setStyleSheet("background: transparent; border-radius: 6px;")
 
     def enterEvent(self, _):
         if not self._selected:
-            self.setStyleSheet(f"background: {COLORS['bg_hover']}; border-left: 2px solid transparent;")
+            self.setStyleSheet(f"background: {COLORS['bg_hover']}; border-radius: 6px;")
 
     def leaveEvent(self, _):
         self._apply_style(self._selected)
@@ -128,7 +129,7 @@ class CloneDialog(QDialog):
         super().__init__(parent)
         self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
         self.setAttribute(Qt.WA_TranslucentBackground)
-        self.setFixedWidth(500)
+        self.setFixedWidth(480)
         self._user           = user or {}
         self._token          = self._user.get("access_token", "")
         self._has_auth       = bool(self._token)
@@ -150,36 +151,49 @@ class CloneDialog(QDialog):
         root.setContentsMargins(0, 0, 0, 0)
 
         card = QWidget()
+        card.setObjectName("cloneCard")
         card.setStyleSheet(f"""
-            background: {COLORS['bg_card']};
-            border-radius: 12px;
+            #cloneCard {{
+                background: {COLORS['bg_card']};
+                border: 1px solid {COLORS['border']};
+                border-radius: 12px;
+            }}
         """)
         vl = QVBoxLayout(card)
-        vl.setContentsMargins(24, 24, 24, 24)
+        vl.setContentsMargins(24, 20, 24, 24)
         vl.setSpacing(14)
 
-        # Title
-        title = QLabel("Connect to a repo")
+        # ── Title row with close button ────────────────────────────────────
+        title_row = QHBoxLayout()
+        title_row.setContentsMargins(0, 0, 0, 0)
+        title = QLabel("Clone repository")
         title.setStyleSheet(
-            f"font-size: 16px; font-weight: 700; font-family: 'Tilt Warp'; color: {COLORS['text_primary']}; background: transparent;"
+            f"font-size: 15px; font-weight: 700; font-family: 'Tilt Warp'; "
+            f"color: {COLORS['text_primary']};"
         )
-        vl.addWidget(title)
+        title_row.addWidget(title)
+        title_row.addStretch()
+
+        close_btn = QPushButton()
+        close_btn.setFixedSize(28, 28)
+        close_btn.setCursor(Qt.PointingHandCursor)
+        close_btn.setIcon(qta.icon("fa5s.times", color=COLORS["text_muted"]))
+        close_btn.setStyleSheet(
+            f"QPushButton {{ background: transparent; border: none; border-radius: 14px; }}"
+            f"QPushButton:hover {{ background: {COLORS['bg_hover']}; }}"
+        )
+        close_btn.clicked.connect(self.reject)
+        title_row.addWidget(close_btn)
+        vl.addLayout(title_row)
 
         # ── Repo list section (authenticated only) ─────────────────────────
         self._repo_section = QWidget()
-        self._repo_section.setStyleSheet("background: transparent;")
         rs_vl = QVBoxLayout(self._repo_section)
         rs_vl.setContentsMargins(0, 0, 0, 0)
         rs_vl.setSpacing(8)
 
-        rs_header = QLabel("Your repositories")
-        rs_header.setStyleSheet(
-            f"font-size: 12px; color: {COLORS['text_muted']}; background: transparent;"
-        )
-        rs_vl.addWidget(rs_header)
-
         self._search_input = QLineEdit()
-        self._search_input.setPlaceholderText("Search repositories…")
+        self._search_input.setPlaceholderText("Search your repositories…")
         self._search_input.setStyleSheet(f"""
             QLineEdit {{
                 background: {COLORS['bg_primary']}; border: 1px solid {COLORS['border']};
@@ -193,13 +207,13 @@ class CloneDialog(QDialog):
 
         self._loading_label = QLabel("Loading repositories…")
         self._loading_label.setStyleSheet(
-            f"font-size: 12px; color: {COLORS['text_muted']}; background: transparent;"
+            f"font-size: 12px; color: {COLORS['text_muted']};"
         )
         rs_vl.addWidget(self._loading_label)
 
         self._empty_label = QLabel("No repositories found.")
         self._empty_label.setStyleSheet(
-            f"font-size: 12px; color: {COLORS['text_muted']}; background: transparent;"
+            f"font-size: 12px; color: {COLORS['text_muted']};"
         )
         self._empty_label.setWordWrap(True)
         self._empty_label.hide()
@@ -207,55 +221,54 @@ class CloneDialog(QDialog):
 
         # Scroll area for repo rows
         scroll = QScrollArea()
-        scroll.setFixedHeight(220)
+        scroll.setFixedHeight(200)
         scroll.setWidgetResizable(True)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        scroll.setStyleSheet(f"""
-            QScrollArea {{
-                border: 1px solid {COLORS['border']}; border-radius: 8px;
-                background: {COLORS['bg_primary']};
-            }}
-            QScrollBar:vertical {{
-                background: {COLORS['bg_primary']}; width: 6px; border: none;
-            }}
-            QScrollBar::handle:vertical {{
-                background: {COLORS['border']}; border-radius: 3px; min-height: 20px;
-            }}
-            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
-        """)
+        scroll.setFrameShape(QFrame.NoFrame)
+        pal = scroll.palette()
+        pal.setColor(QPalette.Window, QColor(COLORS['bg_card']))
+        scroll.setPalette(pal)
+        scroll.viewport().setPalette(pal)
+        scroll.viewport().setAutoFillBackground(True)
+        scroll.setStyleSheet(scrollbar_style())
 
         self._list_widget = QWidget()
-        self._list_widget.setStyleSheet(f"background: {COLORS['bg_primary']};")
         self._list_layout = QVBoxLayout(self._list_widget)
-        self._list_layout.setContentsMargins(0, 4, 0, 4)
-        self._list_layout.setSpacing(0)
+        self._list_layout.setContentsMargins(2, 2, 2, 2)
+        self._list_layout.setSpacing(1)
         self._list_layout.setAlignment(Qt.AlignTop)
+        lp = self._list_widget.palette()
+        lp.setColor(QPalette.Window, QColor(COLORS['bg_card']))
+        self._list_widget.setPalette(lp)
+        self._list_widget.setAutoFillBackground(True)
         scroll.setWidget(self._list_widget)
         self._list_widget.hide()
         rs_vl.addWidget(scroll)
 
         vl.addWidget(self._repo_section)
 
-        # ── "or enter a URL" separator (authenticated only) ────────────────
+        # ── Separator ─────────────────────────────────────────────────────
         self._sep_widget = QWidget()
-        self._sep_widget.setStyleSheet("background: transparent;")
         sep_hl = QHBoxLayout(self._sep_widget)
-        sep_hl.setContentsMargins(0, 0, 0, 0)
+        sep_hl.setContentsMargins(0, 2, 0, 2)
+        sep_hl.setSpacing(12)
+        _sep_line_style = f"background: {COLORS['border']}; max-height: 1px; border: none;"
+        sep_left = QFrame()
+        sep_left.setFrameShape(QFrame.HLine)
+        sep_left.setStyleSheet(_sep_line_style)
+        sep_hl.addWidget(sep_left)
         sep_lbl = QLabel("or enter a URL")
-        sep_lbl.setAlignment(Qt.AlignCenter)
         sep_lbl.setStyleSheet(
-            f"font-size: 11px; color: {COLORS['text_muted']}; background: transparent;"
+            f"font-size: 11px; color: {COLORS['text_muted']};"
         )
         sep_hl.addWidget(sep_lbl)
+        sep_right = QFrame()
+        sep_right.setFrameShape(QFrame.HLine)
+        sep_right.setStyleSheet(_sep_line_style)
+        sep_hl.addWidget(sep_right)
         vl.addWidget(self._sep_widget)
 
         # ── URL input ──────────────────────────────────────────────────────
-        url_label = QLabel("Repository URL")
-        url_label.setStyleSheet(
-            f"font-size: 12px; color: {COLORS['text_muted']}; background: transparent;"
-        )
-        vl.addWidget(url_label)
-
         self._url_input = QLineEdit()
         self._url_input.setPlaceholderText("https://github.com/user/repo.git")
         self._url_input.setStyleSheet(f"""
@@ -270,9 +283,9 @@ class CloneDialog(QDialog):
         vl.addWidget(self._url_input)
 
         # ── Destination folder ──────────────────────────────────────────────
-        dest_label = QLabel("Save to folder")
+        dest_label = QLabel("Clone to")
         dest_label.setStyleSheet(
-            f"font-size: 12px; color: {COLORS['text_muted']}; background: transparent;"
+            f"font-size: 12px; color: {COLORS['text_muted']};"
         )
         vl.addWidget(dest_label)
 
@@ -289,13 +302,14 @@ class CloneDialog(QDialog):
         dest_row.addWidget(self._dest_label)
 
         browse_btn = QPushButton("Browse")
+        browse_btn.setIcon(qta.icon("fa5s.folder-open", color=COLORS['text_secondary']))
         browse_btn.setFixedSize(72, 36)
         browse_btn.setCursor(Qt.PointingHandCursor)
         browse_btn.setStyleSheet(f"""
             QPushButton {{
                 background: {COLORS['bg_primary']}; border: 1px solid {COLORS['border']};
                 border-radius: 8px; color: {COLORS['text_secondary']};
-                font-size: 12px; font-weight: 600; font-family: 'Tilt Warp';
+                font-size: 12px; font-weight: 600;
             }}
             QPushButton:hover {{ border-color: {COLORS['accent']}; color: {COLORS['accent']}; }}
         """)
@@ -306,7 +320,7 @@ class CloneDialog(QDialog):
         # ── Error label ────────────────────────────────────────────────────
         self._error_label = QLabel("")
         self._error_label.setStyleSheet(
-            f"font-size: 12px; color: {COLORS['danger']}; background: transparent;"
+            f"font-size: 12px; color: {COLORS['danger']};"
         )
         self._error_label.setWordWrap(True)
         self._error_label.hide()
@@ -317,13 +331,13 @@ class CloneDialog(QDialog):
         btn_row.setSpacing(8)
 
         cancel_btn = QPushButton("Cancel")
-        cancel_btn.setFixedHeight(40)
+        cancel_btn.setFixedHeight(36)
         cancel_btn.setCursor(Qt.PointingHandCursor)
         cancel_btn.setStyleSheet(f"""
             QPushButton {{
                 background: transparent; border: 1px solid {COLORS['border']};
                 border-radius: 8px; color: {COLORS['text_secondary']};
-                font-size: 13px; font-weight: 600; font-family: 'Tilt Warp';
+                font-size: 13px; font-weight: 600; padding: 0 20px;
             }}
             QPushButton:hover {{ border-color: {COLORS['text_secondary']}; }}
         """)
@@ -331,13 +345,14 @@ class CloneDialog(QDialog):
         btn_row.addWidget(cancel_btn)
 
         self._clone_btn = QPushButton("Clone")
-        self._clone_btn.setFixedHeight(40)
+        self._clone_btn.setIcon(qta.icon("fa5s.download", color=COLORS['text_on_accent']))
+        self._clone_btn.setFixedHeight(36)
         self._clone_btn.setCursor(Qt.PointingHandCursor)
         self._clone_btn.setStyleSheet(f"""
             QPushButton {{
                 background: {COLORS['accent']}; border: none;
                 border-radius: 8px; color: {COLORS['text_on_accent']};
-                font-size: 13px; font-weight: 700; font-family: 'Tilt Warp';
+                font-size: 13px; font-weight: 700; padding: 0 20px;
             }}
             QPushButton:hover {{ background: {COLORS.get('accent_hover', COLORS['accent'])}; }}
             QPushButton:disabled {{ background: {COLORS['border']}; color: {COLORS['text_muted']}; }}

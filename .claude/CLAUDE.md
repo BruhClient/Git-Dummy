@@ -34,13 +34,7 @@ There is no test suite or lint config in this repo.
 
 ## Environment setup
 
-`.env` (gitignored) holds GitHub OAuth app credentials:
-```
-GITHUB_CLIENT_ID=...
-GITHUB_CLIENT_SECRET=...
-```
-
-OAuth callback listens on `http://localhost:9876/callback`.
+No `.env` file is required. Authentication uses GitHub Personal Access Tokens (see Auth section below).
 
 ---
 
@@ -49,13 +43,32 @@ OAuth callback listens on `http://localhost:9876/callback`.
 ### Entry point
 `main.py` builds a `QStackedWidget` (`App`) holding `AuthPage` and `MainWindow`. `MainWindow` itself holds a `RepoPage` and `CommitViewPage` in its own `QStackedWidget`. `main.py` also applies a Windows-specific workaround: it resolves the Qt plugins path to an 8.3 short path via `GetShortPathNameW` before setting `QT_QPA_PLATFORM_PLUGIN_PATH`, because the project directory contains characters Qt can't encode through the ANSI codepage.
 
+### Auth (`auth/github_auth.py`)
+
+Authentication uses GitHub **Personal Access Tokens** (PATs) — no OAuth server, no browser redirect, no client_id/secret.
+
+**Sign-in flow:**
+1. User opens app → if saved token exists, validate it against `GET /api.github.com/user` → auto-login
+2. If no saved token → show sign-in page with token input field
+3. "Create a token on GitHub" link opens `https://github.com/settings/tokens/new?scopes=repo,read:user&description=Evo%20Git` with pre-selected scopes
+4. User pastes token → `add_account(token)` validates on a background thread:
+   - Calls `GET /user`, reads `X-OAuth-Scopes` response header
+   - Checks `REQUIRED_SCOPES = {"repo", "read:user"}` — rejects tokens missing either scope
+   - On success: saves account, emits `auth_success(user_dict)`
+
+**Multi-account:** Storage supports multiple accounts in `~/.evogit_accounts.json`. TopNav popup lists all accounts with switch/add/sign-out actions. `switch_account(login)` re-validates the token and emits `auth_success`. `get_accounts()` returns the list (without tokens) for the UI.
+
+**Token expiration:** `token_expired(str)` signal emitted when a saved token fails validation. Any 401 from the GitHub API during normal use surfaces as an error toast.
+
+**Signals:** `auth_success(dict)`, `auth_failed(str)`, `token_expired(str)` — downstream code receives the same user dict as before (`access_token`, `login`, `name`, `avatar_url`).
+
 ### Layer separation
 
 | Layer | Location | Responsibility |
 |---|---|---|
 | Git data | `core/ops/` (8 domain files) | All `subprocess` git commands. Returns `(bool, str)` or `(bool, str, list, dict)`. Never touches Qt. |
 | Git state tracking | `core/git_tracker.py` | `GitTracker` wraps GitPython. `graph_commits()` returns `(commits, branch_tip_map, local_only)`. `CommitInfo` dataclass lives here. |
-| Auth | `auth/github_auth.py` | GitHub OAuth flow via a local HTTP server on port 9876. Single-account model — `auth_success`/`auth_failed` signals; `logout()` clears the saved session. |
+| Auth | `auth/github_auth.py` | GitHub PAT-based auth with multi-account support. `auth_success`/`auth_failed`/`token_expired` signals. |
 | Persistence | `core/storage/repo_store.py`, `core/storage/settings_store.py` | JSON files under `~`. |
 | Collab cache | `core/storage/collab_cache.py` | TTL-based (1 h) cache for collaborator lists, `~/.evogit_collab_cache.json`. `get(url)` returns `(data | None, is_stale)`. |
 | Theme | `styles/theme.py` | Single `COLORS` dict + `make_global_style()`. All UI files import from here. |
@@ -88,13 +101,13 @@ ui/
   auth_page.py           # AuthPage
 
 auth/
-  github_auth.py    # single-account OAuth flow
+  github_auth.py    # PAT-based auth, multi-account
 styles/
   theme.py          # COLORS, make_global_style(), named style constants
 ```
 
 ### Persisted files (under `~`)
-- `.evogit_accounts.json` — saved OAuth session (legacy single-token file: `.evogit_token.json`)
+- `.evogit_accounts.json` — saved PAT accounts (multi-account: `{"active": "login", "accounts": {...}}`)
 - `.evogit_repos.json` — saved repo list
 - `.evogit_settings.json` — per-repo settings (e.g. `repo_orientations`, `default_branch`)
 - `.evogit_collab_cache.json` — collaborator TTL cache

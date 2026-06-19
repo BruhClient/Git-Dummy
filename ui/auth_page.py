@@ -1,4 +1,5 @@
 import os
+import webbrowser
 
 import qtawesome as qta
 
@@ -6,34 +7,12 @@ from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QPixmap, QPainter, QColor, QPen, QBrush, QPainterPath
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QSizePolicy,
-    QFrame, QSpacerItem, QScrollArea,
+    QFrame, QSpacerItem, QScrollArea, QLineEdit,
 )
 from styles.theme import (
     COLORS, BTN_PRIMARY, BTN_SECONDARY, GLOBAL_STYLE,
 )
-
-
-class GitHubIcon(QWidget):
-    """Simple GitHub Octocat SVG-like icon drawn with QPainter."""
-
-    def __init__(self, size=24, color=None, parent=None):
-        super().__init__(parent)
-        self._size = size
-        self._color = color or COLORS["text_on_accent"]
-        self.setFixedSize(size, size)
-
-    def paintEvent(self, _event):
-        painter = QPainter(self)
-        painter.setRenderHint(QPainter.Antialiasing)
-        c = QColor(self._color)
-        painter.setBrush(QBrush(c))
-        painter.setPen(Qt.NoPen)
-        s = self._size
-        painter.drawEllipse(1, 1, s - 2, s - 2)
-        painter.setBrush(QBrush(QColor(self._color if self._color != COLORS["text_on_accent"] else "#3ecf8e")))
-        painter.setPen(Qt.NoPen)
-        painter.drawEllipse(s // 4, s // 5, s // 2, s // 2)
-        painter.end()
+from auth.github_auth import PAT_CREATE_URL
 
 
 class LogoMark(QLabel):
@@ -57,7 +36,9 @@ class LogoMark(QLabel):
 
 
 class AuthPage(QWidget):
-    """Full-screen sign-in page."""
+    """Full-screen sign-in page — Personal Access Token entry."""
+
+    account_selected = pyqtSignal(str)
 
     def __init__(self, github_auth, parent=None):
         super().__init__(parent)
@@ -145,7 +126,7 @@ class AuthPage(QWidget):
 
         card = QWidget()
         card.setObjectName("loginCard")
-        card.setFixedWidth(360)
+        card.setFixedWidth(380)
         card.setStyleSheet(f"""
             #loginCard {{
                 background-color: {COLORS['bg_card']};
@@ -163,34 +144,124 @@ class AuthPage(QWidget):
         self._signin_block.setStyleSheet("background: transparent;")
         sb_layout = QVBoxLayout(self._signin_block)
         sb_layout.setContentsMargins(0, 0, 0, 0)
-        sb_layout.setSpacing(16)
+        sb_layout.setSpacing(14)
 
         title = QLabel("Sign in")
         title.setStyleSheet(f"background: transparent; font-size: 22px; font-weight: 700; font-family: 'Tilt Warp'; color: {COLORS['text_primary']};")
         sb_layout.addWidget(title)
 
-        desc = QLabel("Connect your GitHub account to explore\nyour projects and their full history.")
+        desc = QLabel("Paste a GitHub Personal Access Token\nto get started.")
         desc.setStyleSheet(f"background: transparent; font-size: 13px; color: {COLORS['text_secondary']}; line-height: 1.5;")
         sb_layout.addWidget(desc)
+
+        # "Create a token" link
+        link_row = QHBoxLayout()
+        link_row.setContentsMargins(0, 0, 0, 0)
+        link_row.setSpacing(4)
+        link_btn = QPushButton("Create a token on GitHub")
+        link_btn.setCursor(Qt.PointingHandCursor)
+        link_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: transparent; border: none; color: {COLORS['accent']};
+                font-size: 12px; font-weight: 600; text-decoration: underline;
+                padding: 0; text-align: left;
+            }}
+            QPushButton:hover {{ color: {COLORS.get('accent_hover', COLORS['accent'])}; }}
+        """)
+        link_btn.clicked.connect(lambda: webbrowser.open(PAT_CREATE_URL))
+        link_row.addWidget(link_btn)
+        ext_icon = QLabel()
+        ext_icon.setPixmap(qta.icon("fa5s.external-link-alt", color=COLORS["accent"]).pixmap(10, 10))
+        ext_icon.setStyleSheet("background: transparent;")
+        link_row.addWidget(ext_icon)
+        link_row.addStretch()
+        sb_layout.addLayout(link_row)
 
         divider = QFrame()
         divider.setFrameShape(QFrame.HLine)
         divider.setStyleSheet(f"background-color: {COLORS['border']}; max-height: 1px;")
         sb_layout.addWidget(divider)
 
-        self._github_btn = QPushButton("  Continue with GitHub")
-        self._github_btn.setStyleSheet(BTN_PRIMARY)
-        self._github_btn.setFixedHeight(44)
-        self._github_btn.setCursor(Qt.PointingHandCursor)
-        self._github_btn.clicked.connect(self._on_github_click)
-        sb_layout.addWidget(self._github_btn)
+        # Existing accounts section (shown when adding another account)
+        self._accounts_section = QWidget()
+        self._accounts_section.setStyleSheet("background: transparent;")
+        acc_layout = QVBoxLayout(self._accounts_section)
+        acc_layout.setContentsMargins(0, 0, 0, 0)
+        acc_layout.setSpacing(6)
 
+        acc_label = QLabel("Your accounts")
+        acc_label.setStyleSheet(f"background: transparent; font-size: 12px; font-weight: 600; color: {COLORS['text_secondary']};")
+        acc_layout.addWidget(acc_label)
+
+        self._accounts_list = QVBoxLayout()
+        self._accounts_list.setContentsMargins(0, 0, 0, 0)
+        self._accounts_list.setSpacing(4)
+        acc_layout.addLayout(self._accounts_list)
+
+        acc_divider = QFrame()
+        acc_divider.setFrameShape(QFrame.HLine)
+        acc_divider.setStyleSheet(f"background-color: {COLORS['border']}; max-height: 1px;")
+        acc_layout.addWidget(acc_divider)
+
+        self._accounts_section.hide()
+        sb_layout.addWidget(self._accounts_section)
+
+        # Token input
+        token_label = QLabel("Personal Access Token")
+        token_label.setStyleSheet(f"background: transparent; font-size: 12px; font-weight: 600; color: {COLORS['text_secondary']};")
+        sb_layout.addWidget(token_label)
+
+        input_row = QHBoxLayout()
+        input_row.setContentsMargins(0, 0, 0, 0)
+        input_row.setSpacing(0)
+
+        self._token_input = QLineEdit()
+        self._token_input.setPlaceholderText("ghp_xxxxxxxxxxxxxxxxxxxx")
+        self._token_input.setEchoMode(QLineEdit.Password)
+        self._token_input.setStyleSheet(f"""
+            QLineEdit {{
+                background: {COLORS['bg_secondary']}; border: 1px solid {COLORS['border']};
+                border-radius: 8px; color: {COLORS['text_primary']};
+                font-size: 13px; font-family: 'Consolas', 'Courier New', monospace;
+                padding: 10px 40px 10px 12px;
+            }}
+            QLineEdit:focus {{ border-color: {COLORS['accent']}; }}
+        """)
+        self._token_input.setFixedHeight(42)
+        self._token_input.textChanged.connect(self._on_text_changed)
+        self._token_input.returnPressed.connect(self._on_submit)
+        sb_layout.addWidget(self._token_input)
+
+        # Eye toggle (overlaid on the input)
+        self._eye_btn = QPushButton(self._token_input)
+        self._eye_btn.setFixedSize(28, 28)
+        self._eye_btn.setCursor(Qt.PointingHandCursor)
+        self._eye_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: transparent; border: none; padding: 0;
+            }}
+        """)
+        self._eye_visible = False
+        self._update_eye_icon()
+        self._eye_btn.clicked.connect(self._toggle_visibility)
+
+        # Continue button
+        self._continue_btn = QPushButton("Continue")
+        self._continue_btn.setStyleSheet(BTN_PRIMARY)
+        self._continue_btn.setFixedHeight(44)
+        self._continue_btn.setCursor(Qt.PointingHandCursor)
+        self._continue_btn.setEnabled(False)
+        self._continue_btn.clicked.connect(self._on_submit)
+        sb_layout.addWidget(self._continue_btn)
+
+        # Status
         self._status = QLabel("")
         self._status.setStyleSheet(f"background: transparent; font-size: 12px; color: {COLORS['text_muted']}; text-align: center;")
         self._status.setAlignment(Qt.AlignCenter)
         self._status.setWordWrap(True)
         sb_layout.addWidget(self._status)
 
+        # Error
         self._error = QLabel("")
         self._error.setStyleSheet(
             f"font-size: 12px; color: {COLORS['danger']}; "
@@ -200,13 +271,11 @@ class AuthPage(QWidget):
         self._error.hide()
         sb_layout.addWidget(self._error)
 
-        sb_layout.addSpacerItem(QSpacerItem(0, 8, QSizePolicy.Minimum, QSizePolicy.Fixed))
+        sb_layout.addSpacerItem(QSpacerItem(0, 4, QSizePolicy.Minimum, QSizePolicy.Fixed))
 
         note = QLabel(
-            "By continuing, you agree to our Terms of Service.\n"
-            "Evo Git uses your GitHub access to show your project history\n"
-            "and to carry out the actions you choose — like committing,\n"
-            "merging, or pushing."
+            "Your token is stored locally and only used to\n"
+            "communicate with GitHub on your behalf."
         )
         note.setStyleSheet(f"background: transparent; font-size: 11px; color: {COLORS['text_muted']}; line-height: 1.5;")
         note.setWordWrap(True)
@@ -218,36 +287,105 @@ class AuthPage(QWidget):
         right_layout.addWidget(card)
         root.addWidget(right)
 
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._position_eye_btn()
+
+    def _position_eye_btn(self):
+        inp = self._token_input
+        self._eye_btn.move(inp.width() - 36, (inp.height() - 28) // 2)
+
+    def _update_eye_icon(self):
+        icon_name = "fa5s.eye" if self._eye_visible else "fa5s.eye-slash"
+        self._eye_btn.setIcon(qta.icon(icon_name, color=COLORS["text_muted"]))
+
+    def _toggle_visibility(self):
+        self._eye_visible = not self._eye_visible
+        self._token_input.setEchoMode(
+            QLineEdit.Normal if self._eye_visible else QLineEdit.Password
+        )
+        self._update_eye_icon()
+
     # ── public ────────────────────────────────────────────────────────────────
 
     def show_sign_in(self):
         self._signin_block.show()
+        self._refresh_accounts_section()
+        self._token_input.setFocus()
+        from PyQt5.QtCore import QTimer
+        QTimer.singleShot(100, self._position_eye_btn)
 
     def show_checking_session(self):
         """Shown briefly on launch while we try to restore a saved sign-in."""
         self._status.setText("Checking your saved session…")
         self._error.hide()
+        self._token_input.setEnabled(False)
+        self._continue_btn.setEnabled(False)
         self.show_sign_in()
 
     def show_error(self, message: str):
-        self._github_btn.setEnabled(True)
-        self._github_btn.setText("  Continue with GitHub")
+        self._token_input.setEnabled(True)
+        self._continue_btn.setEnabled(bool(self._token_input.text().strip()))
+        self._continue_btn.setText("Continue")
         self._status.setText("")
-        self._error.setText(f"Error: {message}")
+        self._error.setText(message)
         self._error.show()
 
     def reset(self):
-        self._github_btn.setEnabled(True)
-        self._github_btn.setText("  Continue with GitHub")
+        self._token_input.setEnabled(True)
+        self._token_input.clear()
+        self._continue_btn.setEnabled(False)
+        self._continue_btn.setText("Continue")
         self._status.setText("")
         self._error.hide()
         self.show_sign_in()
 
     # ── internals ────────────────────────────────────────────────────────────
 
-    def _on_github_click(self):
-        self._github_btn.setEnabled(False)
-        self._github_btn.setText("  Opening browser...")
-        self._status.setText("Waiting for GitHub authorisation in your browser…")
+    def _refresh_accounts_section(self):
+        accounts = self._auth.get_accounts()
+        while self._accounts_list.count():
+            item = self._accounts_list.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        if not accounts:
+            self._accounts_section.hide()
+            return
+
+        for acc in accounts:
+            login = acc.get("login", "")
+            name = acc.get("name", login)
+            btn = QPushButton(f"  {name}  (@{login})")
+            btn.setCursor(Qt.PointingHandCursor)
+            btn.setFixedHeight(38)
+            btn.setStyleSheet(f"""
+                QPushButton {{
+                    background: {COLORS['bg_secondary']}; border: 1px solid {COLORS['border']};
+                    border-radius: 8px; color: {COLORS['text_primary']};
+                    font-size: 12px; text-align: left; padding: 0 12px;
+                }}
+                QPushButton:hover {{ border-color: {COLORS['accent']}; background: {COLORS['bg_hover']}; }}
+            """)
+            btn.clicked.connect(lambda _=False, l=login: self._on_account_click(l))
+            self._accounts_list.addWidget(btn)
+
+        self._accounts_section.show()
+
+    def _on_account_click(self, login: str):
+        self.account_selected.emit(login)
+
+    def _on_text_changed(self, text: str):
+        self._continue_btn.setEnabled(bool(text.strip()))
         self._error.hide()
-        self._auth.start_oauth_flow()
+
+    def _on_submit(self):
+        token = self._token_input.text().strip()
+        if not token:
+            return
+        self._token_input.setEnabled(False)
+        self._continue_btn.setEnabled(False)
+        self._continue_btn.setText("Validating…")
+        self._status.setText("Checking your token with GitHub…")
+        self._error.hide()
+        self._auth.add_account(token)

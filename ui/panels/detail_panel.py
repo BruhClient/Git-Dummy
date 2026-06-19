@@ -13,11 +13,11 @@ from PyQt5.QtWidgets import (
     QFrame, QLineEdit,
 )
 
-from styles.theme import COLORS
+from styles.theme import COLORS, scrollbar_style
 from ui.dialogs import confirm
 from ui.dialogs.message_dialog import _CommitMessageDialog
 from .diff_renderer import (
-    _VScrollArea, _trunc, _scrollbar_style, _close_btn_style,
+    _VScrollArea, _trunc, _close_btn_style,
     _STATUS_COLOR, _MiniBar, _fade_in, _fade_out_and_remove, _divider, _Row,
     PANEL_W, CHANGES_W, SWIPE_THRESHOLD,
 )
@@ -349,7 +349,7 @@ class DetailPanel(QWidget):
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        scroll.setStyleSheet(_scrollbar_style(COLORS))
+        scroll.setStyleSheet("QScrollArea { background: transparent; border: none; }\n" + scrollbar_style())
 
         content = QWidget()
         content.setStyleSheet("background: transparent;")
@@ -383,7 +383,8 @@ class DetailPanel(QWidget):
 
         content_layout.addWidget(_divider())
 
-        self._goto_btn = QPushButton("Go to this snapshot →")
+        self._goto_btn = QPushButton("Go to this snapshot")
+        self._goto_btn.setIcon(qta.icon("fa5s.arrow-right", color=COLORS['text_on_accent']))
         self._goto_btn.setCursor(Qt.PointingHandCursor)
         self._goto_btn.setStyleSheet(f"""
             QPushButton {{
@@ -395,7 +396,8 @@ class DetailPanel(QWidget):
         self._goto_btn.clicked.connect(self._on_goto)
         content_layout.addWidget(self._goto_btn)
 
-        self._branch_btn = QPushButton("＋  Create new branch")
+        self._branch_btn = QPushButton("Create new branch")
+        self._branch_btn.setIcon(qta.icon("fa5s.code-branch", color=COLORS['text_secondary']))
         self._branch_btn.setCursor(Qt.PointingHandCursor)
         self._branch_btn.setStyleSheet(f"""
             QPushButton {{
@@ -413,7 +415,8 @@ class DetailPanel(QWidget):
         self._branch_btn.clicked.connect(self._on_create_branch)
         content_layout.addWidget(self._branch_btn)
 
-        self._push_btn = QPushButton("↑  Open Pull Request")
+        self._push_btn = QPushButton("Upload")
+        self._push_btn.setIcon(qta.icon("fa5s.cloud-upload-alt", color=COLORS['text_secondary']))
         self._push_btn.setCursor(Qt.PointingHandCursor)
         self._push_btn.setStyleSheet(f"""
             QPushButton {{
@@ -432,7 +435,8 @@ class DetailPanel(QWidget):
         self._push_btn.hide()
         content_layout.addWidget(self._push_btn)
 
-        self._pull_btn = QPushButton("↓  Pull latest")
+        self._pull_btn = QPushButton("Pull latest")
+        self._pull_btn.setIcon(qta.icon("fa5s.cloud-download-alt", color=COLORS['text_secondary']))
         self._pull_btn.setCursor(Qt.PointingHandCursor)
         self._pull_btn.setStyleSheet(f"""
             QPushButton {{
@@ -451,7 +455,8 @@ class DetailPanel(QWidget):
         self._pull_btn.hide()
         content_layout.addWidget(self._pull_btn)
 
-        self._sync_btn = QPushButton("↕  Sync with remote")
+        self._sync_btn = QPushButton("Sync with remote")
+        self._sync_btn.setIcon(qta.icon("fa5s.sync", color=COLORS['text_secondary']))
         self._sync_btn.setCursor(Qt.PointingHandCursor)
         self._sync_btn.setStyleSheet(f"""
             QPushButton {{
@@ -481,6 +486,7 @@ class DetailPanel(QWidget):
 
 
         self._save_stash_btn = QPushButton("Save Changes")
+        self._save_stash_btn.setIcon(qta.icon("fa5s.save", color=COLORS['accent']))
         self._save_stash_btn.setCursor(Qt.PointingHandCursor)
         self._save_stash_btn.setStyleSheet(_action_style(COLORS["accent"]))
         self._save_stash_btn.clicked.connect(self._on_save_stash)
@@ -488,27 +494,31 @@ class DetailPanel(QWidget):
         content_layout.addWidget(self._save_stash_btn)
 
         self._clear_stash_btn = QPushButton("Clear Changes")
+        self._clear_stash_btn.setIcon(qta.icon("fa5s.trash", color=COLORS['danger']))
         self._clear_stash_btn.setCursor(Qt.PointingHandCursor)
         self._clear_stash_btn.setStyleSheet(_action_style(COLORS["danger"]))
         self._clear_stash_btn.clicked.connect(self._on_clear_stash)
         self._clear_stash_btn.hide()
         content_layout.addWidget(self._clear_stash_btn)
 
-        self._hard_revert_btn = QPushButton("↩  Hard Revert")
+        self._hard_revert_btn = QPushButton("Hard Revert")
+        self._hard_revert_btn.setIcon(qta.icon("fa5s.undo", color=COLORS['warning']))
         self._hard_revert_btn.setCursor(Qt.PointingHandCursor)
         self._hard_revert_btn.setStyleSheet(_action_style(COLORS["warning"]))
         self._hard_revert_btn.clicked.connect(self._on_hard_revert)
         self._hard_revert_btn.hide()
         content_layout.addWidget(self._hard_revert_btn)
 
-        self._soft_revert_btn = QPushButton("↩  Soft Revert")
+        self._soft_revert_btn = QPushButton("Soft Revert")
+        self._soft_revert_btn.setIcon(qta.icon("fa5s.undo", color=COLORS['text_secondary']))
         self._soft_revert_btn.setCursor(Qt.PointingHandCursor)
         self._soft_revert_btn.setStyleSheet(_action_style(COLORS["text_secondary"]))
         self._soft_revert_btn.clicked.connect(self._on_soft_revert)
         self._soft_revert_btn.hide()
         content_layout.addWidget(self._soft_revert_btn)
 
-        self._merge_btn = QPushButton("⇢  Merge into…")
+        self._merge_btn = QPushButton("Merge into…")
+        self._merge_btn.setIcon(qta.icon("fa5s.code-branch", color=COLORS['text_secondary']))
         self._merge_btn.setCursor(Qt.PointingHandCursor)
         self._merge_btn.setStyleSheet(f"""
             QPushButton {{
@@ -524,6 +534,7 @@ class DetailPanel(QWidget):
         content_layout.addWidget(self._merge_btn)
 
         self._delete_branch_btn = QPushButton("Delete Branch")
+        self._delete_branch_btn.setIcon(qta.icon("fa5s.trash", color=COLORS['danger']))
         self._delete_branch_btn.setCursor(Qt.PointingHandCursor)
         self._delete_branch_btn.setStyleSheet(_action_style(COLORS["danger"]))
         self._delete_branch_btn.clicked.connect(self._on_delete_branch)
@@ -832,7 +843,7 @@ class DetailPanel(QWidget):
     def _refresh_push_btn_label(self):
         branch = getattr(self, "_push_branch", "")
         protected = bool(self._protected_branch_name) and branch == self._protected_branch_name
-        self._push_btn.setText("↑  Open Pull Request" if protected else "↑  Upload")
+        self._push_btn.setText("Open Pull Request" if protected else "Upload")
 
     def _apply_hard_revert_protection(self):
         protected = (
@@ -916,7 +927,7 @@ class DetailPanel(QWidget):
             getattr(self, "_current_sha", None) and
             self._current_sha == getattr(self, "_head_sha", "")
         )
-        self._goto_btn.setText("You are here" if is_current else "Go to this snapshot →")
+        self._goto_btn.setText("You are here" if is_current else "Go to this snapshot")
         self._goto_btn.setEnabled(not is_current)
         self._goto_btn.setStyleSheet(f"""
             QPushButton {{

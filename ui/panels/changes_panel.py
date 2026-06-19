@@ -9,9 +9,9 @@ from PyQt5.QtWidgets import (
     QFrame,
 )
 
-from styles.theme import COLORS
+from styles.theme import COLORS, scrollbar_style
 from .diff_renderer import (
-    _VScrollArea, _trunc, _scrollbar_style, _close_btn_style,
+    _VScrollArea, _trunc, _close_btn_style,
     _STATUS_COLOR, _STATUS_LABEL,
     _compute_hunks, _chunk_lines, _filter_unchanged, _DiffLine,
     PANEL_W, CHANGES_W, SWIPE_THRESHOLD,
@@ -103,7 +103,7 @@ class ChangesPanel(QWidget):
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        scroll.setStyleSheet(_scrollbar_style(COLORS))
+        scroll.setStyleSheet("QScrollArea { background: transparent; border: none; }\n" + scrollbar_style())
 
         self._content = QWidget()
         self._content.setStyleSheet("background: transparent;")

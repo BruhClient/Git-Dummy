@@ -1,6 +1,8 @@
 import os
 import threading
 
+import qtawesome as qta
+
 from PyQt5.QtCore import Qt, pyqtSignal, QPoint
 from PyQt5.QtGui import QFont, QPainter, QColor, QBrush, QPen, QPixmap, QPainterPath
 from PyQt5.QtWidgets import (
@@ -81,13 +83,17 @@ class _AvatarCircle(QWidget):
 
 
 class _AccountPopup(QFrame):
-    """Floating popup showing the signed-in user with a Sign out action."""
+    """Floating popup showing saved accounts with switch / add / sign-out."""
 
     signout_clicked = pyqtSignal()
+    switch_account = pyqtSignal(str)
+    add_account_clicked = pyqtSignal()
 
-    def __init__(self, parent=None):
+    def __init__(self, auth, parent=None):
         super().__init__(parent, Qt.Popup | Qt.FramelessWindowHint)
+        self._auth = auth
         self.setObjectName("accountPopup")
+        self.setFixedWidth(240)
         self.setStyleSheet(f"""
             #accountPopup {{
                 background: {COLORS['bg_secondary']};
@@ -99,51 +105,100 @@ class _AccountPopup(QFrame):
         self._layout.setContentsMargins(6, 6, 6, 6)
         self._layout.setSpacing(2)
 
-        user_row = QWidget()
-        h = QHBoxLayout(user_row)
-        h.setContentsMargins(8, 8, 8, 8)
-        h.setSpacing(10)
+        self._accounts_container = QWidget()
+        self._accounts_layout = QVBoxLayout(self._accounts_container)
+        self._accounts_layout.setContentsMargins(0, 0, 0, 0)
+        self._accounts_layout.setSpacing(2)
+        self._layout.addWidget(self._accounts_container)
 
-        self._avatar = _AvatarCircle(32)
-        h.addWidget(self._avatar)
+        self._layout.addWidget(self._make_separator())
 
-        text_col = QVBoxLayout()
-        text_col.setSpacing(0)
-
-        self._name_lbl = QLabel("")
-        self._name_lbl.setStyleSheet(
-            f"font-size: 13px; font-weight: 600; font-family: 'Tilt Warp'; color: {COLORS['text_primary']}; background: transparent;"
-        )
-        text_col.addWidget(self._name_lbl)
-
-        self._login_lbl = QLabel("")
-        self._login_lbl.setStyleSheet(
-            f"font-size: 11px; color: {COLORS['text_muted']}; background: transparent;"
-        )
-        text_col.addWidget(self._login_lbl)
-        h.addLayout(text_col)
-        h.addStretch()
-        self._layout.addWidget(user_row)
-
-        sep = self._make_separator()
-        self._layout.addWidget(sep)
+        add_btn = self._make_action_row("Add another account", COLORS["accent"])
+        add_btn.setIcon(qta.icon("fa5s.plus", color=COLORS["accent"]))
+        add_btn.clicked.connect(self.add_account_clicked.emit)
+        self._layout.addWidget(add_btn)
 
         signout_btn = self._make_action_row("Sign out", COLORS["text_muted"])
+        signout_btn.setIcon(qta.icon("fa5s.sign-out-alt", color=COLORS["text_muted"]))
         signout_btn.clicked.connect(self.signout_clicked.emit)
         self._layout.addWidget(signout_btn)
 
     def set_user(self, user: dict):
-        name = user.get("name") or user.get("login", "")
-        login = user.get("login", "")
-        avatar_url = user.get("avatar_url", "")
-        self._name_lbl.setText(name)
-        self._login_lbl.setText(f"@{login}")
-        self._avatar.set_initials(name[:2].upper() if name else "EG")
+        self._rebuild_accounts()
+
+    def _rebuild_accounts(self):
+        while self._accounts_layout.count():
+            item = self._accounts_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        accounts = self._auth.get_accounts()
+        for acc in accounts:
+            row = self._make_account_row(acc)
+            self._accounts_layout.addWidget(row)
+        self.adjustSize()
+
+    def _make_account_row(self, acc: dict) -> QWidget:
+        login = acc.get("login", "")
+        name = acc.get("name", login)
+        is_active = acc.get("is_active", False)
+
+        row = QPushButton()
+        row.setFlat(True)
+        row.setCursor(Qt.PointingHandCursor)
+        row.setFixedHeight(44)
+        row.setStyleSheet(f"""
+            QPushButton {{
+                background: {"" + COLORS['bg_hover'] if is_active else "transparent"};
+                border: none; border-radius: 6px;
+                text-align: left; padding: 0 10px;
+            }}
+            QPushButton:hover {{ background: {COLORS['bg_hover']}; }}
+        """)
+
+        h = QHBoxLayout(row)
+        h.setContentsMargins(0, 0, 0, 0)
+        h.setSpacing(8)
+
+        avatar = _AvatarCircle(26)
+        avatar.set_initials(name[:2].upper() if name else "EG")
+        avatar_url = acc.get("avatar_url", "")
         if avatar_url:
             threading.Thread(
-                target=_download_avatar_async, args=(avatar_url, self._avatar), daemon=True
+                target=_download_avatar_async, args=(avatar_url, avatar), daemon=True
             ).start()
-        self.adjustSize()
+        h.addWidget(avatar)
+
+        text_col = QVBoxLayout()
+        text_col.setSpacing(0)
+        name_lbl = QLabel(name)
+        name_lbl.setStyleSheet(
+            f"font-size: 12px; font-weight: 600; color: {COLORS['text_primary']}; background: transparent;"
+        )
+        text_col.addWidget(name_lbl)
+        login_lbl = QLabel(f"@{login}")
+        login_lbl.setStyleSheet(
+            f"font-size: 10px; color: {COLORS['text_muted']}; background: transparent;"
+        )
+        text_col.addWidget(login_lbl)
+        h.addLayout(text_col)
+        h.addStretch()
+
+        if is_active:
+            import qtawesome as qta
+            check = QLabel()
+            check.setPixmap(qta.icon("fa5s.check", color=COLORS["accent"]).pixmap(12, 12))
+            check.setStyleSheet("background: transparent;")
+            h.addWidget(check)
+
+        if not is_active:
+            row.clicked.connect(lambda _=False, l=login: self._on_switch(l))
+
+        return row
+
+    def _on_switch(self, login: str):
+        self.hide()
+        self.switch_account.emit(login)
 
     def _make_separator(self) -> QFrame:
         sep = QFrame()
@@ -192,9 +247,12 @@ class TopNav(QWidget):
 
     back_clicked = pyqtSignal()
     logout_clicked = pyqtSignal()
+    add_account_clicked = pyqtSignal()
+    switch_account = pyqtSignal(str)
 
-    def __init__(self, parent=None):
+    def __init__(self, auth=None, parent=None):
         super().__init__(parent)
+        self._auth = auth
         self.setObjectName("topNav")
         self.setFixedHeight(52)
         self.setStyleSheet(f"""
@@ -221,7 +279,8 @@ class TopNav(QWidget):
         layout.addSpacing(16)
 
         # Back button (hidden on repos page)
-        self._back_btn = QPushButton("← Projects")
+        self._back_btn = QPushButton("Projects")
+        self._back_btn.setIcon(qta.icon("fa5s.arrow-left", color=COLORS['text_muted']))
         self._back_btn.setCursor(Qt.PointingHandCursor)
         self._back_btn.setStyleSheet(f"""
             QPushButton {{
@@ -311,8 +370,10 @@ class TopNav(QWidget):
         # Find the top-level window to parent the popup
         top = self.window()
         if not self._popup:
-            self._popup = _AccountPopup(top)
+            self._popup = _AccountPopup(self._auth, top)
             self._popup.signout_clicked.connect(self._on_signout)
+            self._popup.switch_account.connect(self.switch_account.emit)
+            self._popup.add_account_clicked.connect(self._on_add_account)
 
         self._popup.set_user(self._user)
 
@@ -328,6 +389,11 @@ class TopNav(QWidget):
         if self._popup:
             self._popup.hide()
         self.logout_clicked.emit()
+
+    def _on_add_account(self):
+        if self._popup:
+            self._popup.hide()
+        self.add_account_clicked.emit()
 
     def show_repos_state(self):
         self._back_btn.hide()
@@ -347,6 +413,8 @@ class MainWindow(QMainWindow):
     PAGE_REPOS = "repos"
     PAGE_COMMITS = "commits"
     logout_requested = pyqtSignal()
+    add_account_requested = pyqtSignal()
+    switch_account_requested = pyqtSignal(str)
 
     def __init__(self, github_auth, parent=None):
         super().__init__(parent)
@@ -364,9 +432,11 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        self.topnav = TopNav()
+        self.topnav = TopNav(auth=github_auth)
         self.topnav.back_clicked.connect(self._on_back)
         self.topnav.logout_clicked.connect(self._on_logout)
+        self.topnav.add_account_clicked.connect(self.add_account_requested.emit)
+        self.topnav.switch_account.connect(self.switch_account_requested.emit)
         layout.addWidget(self.topnav)
 
         self._stack = QStackedWidget()

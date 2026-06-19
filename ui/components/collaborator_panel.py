@@ -13,7 +13,7 @@ from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame,
 )
 
-from styles.theme import COLORS
+from styles.theme import COLORS, scrollbar_style
 from ui.components.avatar import _load_avatar, _save_avatar
 from ui.panels.diff_renderer import _VScrollArea
 
@@ -266,20 +266,7 @@ class CollaboratorPanel(QWidget):
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        scroll.setStyleSheet(f"""
-            QScrollArea {{ background: transparent; border: none; }}
-            QScrollBar:vertical {{
-                background: transparent; width: 4px; margin: 0;
-            }}
-            QScrollBar::handle:vertical {{
-                background: {COLORS['border']}; border-radius: 2px; min-height: 20px;
-            }}
-            QScrollBar::handle:vertical:hover {{
-                background: {COLORS['text_muted']};
-            }}
-            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
-            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{ background: transparent; }}
-        """)
+        scroll.setStyleSheet("QScrollArea { background: transparent; border: none; }\n" + scrollbar_style())
         scroll.setMaximumHeight(480)
 
         self._container = QWidget()

@@ -29,6 +29,30 @@ COLORS: dict[str, str] = {
 }
 
 
+def scrollbar_style() -> str:
+    """Unified scrollbar stylesheet fragment — apply to any QScrollArea."""
+    return f"""
+        QScrollBar:vertical {{
+            background: transparent; width: 6px; margin: 0; border: none;
+        }}
+        QScrollBar::handle:vertical {{
+            background: {COLORS['border']}; border-radius: 3px; min-height: 24px;
+        }}
+        QScrollBar::handle:vertical:hover {{ background: {COLORS['text_muted']}; }}
+        QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
+        QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{ background: transparent; }}
+        QScrollBar:horizontal {{
+            background: transparent; height: 6px; margin: 0; border: none;
+        }}
+        QScrollBar::handle:horizontal {{
+            background: {COLORS['border']}; border-radius: 3px; min-width: 24px;
+        }}
+        QScrollBar::handle:horizontal:hover {{ background: {COLORS['text_muted']}; }}
+        QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{ width: 0; }}
+        QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {{ background: transparent; }}
+    """
+
+
 def make_global_style() -> str:
     return f"""
 * {{
@@ -53,16 +77,16 @@ QFrame {{
 }}
 
 QScrollBar:vertical {{
-    background: {COLORS['bg_secondary']};
-    width: 8px;
-    border-radius: 4px;
+    background: transparent;
+    width: 6px;
+    border-radius: 3px;
     margin: 0;
 }}
 
 QScrollBar::handle:vertical {{
     background: {COLORS['border']};
-    border-radius: 4px;
-    min-height: 30px;
+    border-radius: 3px;
+    min-height: 24px;
 }}
 
 QScrollBar::handle:vertical:hover {{
@@ -73,16 +97,20 @@ QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
     height: 0;
 }}
 
+QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{
+    background: transparent;
+}}
+
 QScrollBar:horizontal {{
-    background: {COLORS['bg_secondary']};
-    height: 8px;
-    border-radius: 4px;
+    background: transparent;
+    height: 6px;
+    border-radius: 3px;
 }}
 
 QScrollBar::handle:horizontal {{
     background: {COLORS['border']};
-    border-radius: 4px;
-    min-width: 30px;
+    border-radius: 3px;
+    min-width: 24px;
 }}
 
 QScrollBar::handle:horizontal:hover {{
@@ -91,6 +119,10 @@ QScrollBar::handle:horizontal:hover {{
 
 QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{
     width: 0;
+}}
+
+QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {{
+    background: transparent;
 }}
 
 QToolTip {{

@@ -1,86 +1,38 @@
+from __future__ import annotations
+
 import json
 import os
-import secrets
 import threading
-import webbrowser
-from http.server import BaseHTTPRequestHandler, HTTPServer
-from urllib.parse import parse_qs, urlparse
 from pathlib import Path
 
 import requests
-from dotenv import load_dotenv
 from PyQt5.QtCore import QObject, pyqtSignal
-
-# Load .env from the project root (two levels up from this file)
-load_dotenv(Path(__file__).resolve().parent.parent / ".env")
-
-# ── GitHub OAuth app credentials ─────────────────────────────────────────────
-CLIENT_ID = os.environ.get("GITHUB_CLIENT_ID", "")
-CLIENT_SECRET = os.environ.get("GITHUB_CLIENT_SECRET", "")
-REDIRECT_URI = "http://localhost:9876/callback"
-SCOPES = "read:user repo"
 
 ACCOUNTS_FILE = os.path.join(os.path.expanduser("~"), ".evogit_accounts.json")
 _LEGACY_TOKEN_FILE = os.path.join(os.path.expanduser("~"), ".evogit_token.json")
 
+REQUIRED_SCOPES = {"repo", "read:user"}
 
-class _CallbackHandler(BaseHTTPRequestHandler):
-    """Handles the single OAuth redirect from GitHub."""
-
-    def do_GET(self):
-        parsed = urlparse(self.path)
-        if parsed.path != "/callback":
-            self._respond(404, "Not found")
-            return
-
-        params = parse_qs(parsed.query)
-        code = params.get("code", [None])[0]
-        state = params.get("state", [None])[0]
-
-        if code and state == self.server.expected_state:
-            self.server.auth_code = code
-            self._respond(200, _SUCCESS_HTML)
-        else:
-            self._respond(400, "Bad request — state mismatch or missing code.")
-
-    def _respond(self, status, body):
-        body_bytes = body.encode()
-        self.send_response(status)
-        self.send_header("Content-Type", "text/html")
-        self.send_header("Content-Length", len(body_bytes))
-        self.end_headers()
-        self.wfile.write(body_bytes)
-
-    def log_message(self, *_):
-        pass  # suppress default stderr logging
-
-
-_SUCCESS_HTML = """
-<!DOCTYPE html><html><head><meta charset="utf-8">
-<style>
-  body { background:#0f0f0f; color:#ededed; font-family:system-ui;
-         display:flex; flex-direction:column; align-items:center;
-         justify-content:center; height:100vh; margin:0; }
-  h1   { color:#e05535; font-size:2rem; margin-bottom:.5rem; }
-  p    { color:#a1a1a1; }
-</style></head><body>
-<h1>Authenticated!</h1>
-<p>You can close this tab and return to Evo Git.</p>
-</body></html>
-"""
+PAT_CREATE_URL = (
+    "https://github.com/settings/tokens/new"
+    "?scopes=repo,read:user"
+    "&description=Evo%20Git"
+)
 
 
 class GitHubAuth(QObject):
     """
-    Manages GitHub OAuth web flow for a single signed-in account.
+    Manages GitHub authentication via Personal Access Tokens.
 
     Signals:
         auth_success(dict)   — emitted with user profile on login / session restore
         auth_failed(str)     — emitted with error message on failure
+        token_expired(str)   — emitted with login when a saved token is no longer valid
     """
 
     auth_success = pyqtSignal(dict)
     auth_failed = pyqtSignal(str)
+    token_expired = pyqtSignal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -91,7 +43,7 @@ class GitHubAuth(QObject):
 
     def has_saved_token(self) -> bool:
         data = self._load_accounts_file()
-        return bool(data.get("accounts"))
+        return bool(data.get("accounts")) and bool(data.get("active"))
 
     def load_saved_token(self):
         """Try to restore the active saved session; emits auth_success or auth_failed."""
@@ -101,49 +53,109 @@ class GitHubAuth(QObject):
         if not accounts:
             self.auth_failed.emit("No saved accounts.")
             return
-        # Fall back to first account if active key is missing
         if active not in accounts:
             active = next(iter(accounts))
         account = accounts[active]
         token = account.get("access_token", "")
-        user = self._fetch_user(token)
+        user, scopes = self._validate_token(token)
         if user:
             user["access_token"] = token
             self._user = user
-            self._save_account(user, token)  # refresh cached profile
+            self._save_account(user, token)
             self.auth_success.emit(user)
         else:
-            self.logout()
-            self.auth_failed.emit("Saved token expired.")
+            self.auth_failed.emit("Saved token expired or invalid. Please sign in again.")
 
-    def start_oauth_flow(self):
-        """Open browser and spin up local callback server on a background thread."""
-        if not CLIENT_ID:
-            self.auth_failed.emit(
-                "GITHUB_CLIENT_ID is not set.\n"
-                "Create a GitHub OAuth App and set the env vars:\n"
-                "  GITHUB_CLIENT_ID\n  GITHUB_CLIENT_SECRET"
-            )
+    def add_account(self, token: str):
+        """Validate a PAT and add it as an account. Runs validation on a background thread."""
+        token = token.strip()
+        if not token:
+            self.auth_failed.emit("Token cannot be empty.")
             return
-        state = secrets.token_urlsafe(16)
-        try:
-            server = self._make_server(state)   # bind port BEFORE opening browser
-        except OSError:
-            self.auth_failed.emit(
-                "Couldn't start the sign-in process — it looks like one is "
-                "already running. Finish or close that browser tab, wait a "
-                "few seconds, and try again."
-            )
+
+        def _validate():
+            user, scopes = self._validate_token(token)
+            if not user:
+                self.auth_failed.emit(
+                    "Invalid token — check that you copied the full token, "
+                    "or the token may have expired."
+                )
+                return
+            missing = REQUIRED_SCOPES - scopes
+            if missing:
+                names = ", ".join(sorted(missing))
+                self.auth_failed.emit(
+                    f"Your token is missing required permissions: {names}.\n"
+                    f"Create a new token with repo and read:user scopes."
+                )
+                return
+            user["access_token"] = token
+            self._save_account(user, token)
+            self._user = user
+            self.auth_success.emit(user)
+
+        threading.Thread(target=_validate, daemon=True).start()
+
+    def switch_account(self, login: str):
+        """Switch to a different saved account."""
+        data = self._load_accounts_file()
+        accounts = data.get("accounts", {})
+        if login not in accounts:
+            self.auth_failed.emit(f"Account '{login}' not found.")
             return
-        webbrowser.open(self._build_auth_url(state))
-        threading.Thread(
-            target=self._wait_for_callback, args=(server,), daemon=True
-        ).start()
+        data["active"] = login
+        self._write_accounts_file(data)
+        account = accounts[login]
+        token = account.get("access_token", "")
+        user, _ = self._validate_token(token)
+        if user:
+            user["access_token"] = token
+            self._user = user
+            self._save_account(user, token)
+            self.auth_success.emit(user)
+        else:
+            self.remove_account(login)
+            self.token_expired.emit(login)
+            self.auth_failed.emit(f"Token for '{login}' has expired. Please sign in again.")
+
+    def get_accounts(self) -> list[dict]:
+        """Return list of saved accounts (without tokens)."""
+        data = self._load_accounts_file()
+        accounts = data.get("accounts", {})
+        active = data.get("active", "")
+        result = []
+        for login, info in accounts.items():
+            result.append({
+                "login": info.get("login", login),
+                "name": info.get("name", login),
+                "avatar_url": info.get("avatar_url", ""),
+                "is_active": login == active,
+            })
+        return result
+
+    def remove_account(self, login: str):
+        """Remove a specific account from storage."""
+        data = self._load_accounts_file()
+        accounts = data.get("accounts", {})
+        accounts.pop(login, None)
+        if data.get("active") == login:
+            data["active"] = next(iter(accounts), "")
+        data["accounts"] = accounts
+        if accounts:
+            self._write_accounts_file(data)
+        elif os.path.exists(ACCOUNTS_FILE):
+            os.remove(ACCOUNTS_FILE)
 
     def logout(self):
+        """Clear the active session without removing the account from storage."""
+        if self._user:
+            login = self._user.get("login", "")
+            if login:
+                data = self._load_accounts_file()
+                if data.get("active") == login:
+                    data["active"] = ""
+                    self._write_accounts_file(data)
         self._user = None
-        if os.path.exists(ACCOUNTS_FILE):
-            os.remove(ACCOUNTS_FILE)
 
     @property
     def user(self):
@@ -151,64 +163,8 @@ class GitHubAuth(QObject):
 
     # ── internals ────────────────────────────────────────────────────────────
 
-    def _build_auth_url(self, state: str) -> str:
-        return (
-            f"https://github.com/login/oauth/authorize"
-            f"?client_id={CLIENT_ID}"
-            f"&redirect_uri={REDIRECT_URI}"
-            f"&scope={SCOPES}"
-            f"&state={state}"
-        )
-
-    def _make_server(self, state: str) -> HTTPServer:
-        server = HTTPServer(("localhost", 9876), _CallbackHandler)
-        server.expected_state = state
-        server.auth_code = None
-        server.timeout = 1
-        return server
-
-    def _wait_for_callback(self, server: HTTPServer):
-        for _ in range(300):
-            server.handle_request()
-            if server.auth_code:
-                break
-        else:
-            self.auth_failed.emit("OAuth timed out — no response from GitHub.")
-            return
-
-        token = self._exchange_code(server.auth_code)
-        if not token:
-            self.auth_failed.emit("Failed to exchange code for token.")
-            return
-
-        user = self._fetch_user(token)
-        if not user:
-            self.auth_failed.emit("Failed to fetch GitHub user profile.")
-            return
-
-        user["access_token"] = token
-        self._save_account(user, token)
-        self._user = user
-        self.auth_success.emit(user)
-
-    def _exchange_code(self, code: str) -> str | None:
-        try:
-            resp = requests.post(
-                "https://github.com/login/oauth/access_token",
-                data={
-                    "client_id": CLIENT_ID,
-                    "client_secret": CLIENT_SECRET,
-                    "code": code,
-                    "redirect_uri": REDIRECT_URI,
-                },
-                headers={"Accept": "application/json"},
-                timeout=10,
-            )
-            return resp.json().get("access_token")
-        except Exception:
-            return None
-
-    def _fetch_user(self, token: str) -> dict | None:
+    def _validate_token(self, token: str) -> tuple[dict | None, set[str]]:
+        """Validate a token against the GitHub API. Returns (user_dict, scopes) or (None, set())."""
         try:
             resp = requests.get(
                 "https://api.github.com/user",
@@ -219,26 +175,30 @@ class GitHubAuth(QObject):
                 timeout=10,
             )
             if resp.status_code == 200:
-                return resp.json()
+                scopes_header = resp.headers.get("X-OAuth-Scopes", "")
+                scopes = {s.strip() for s in scopes_header.split(",") if s.strip()}
+                return resp.json(), scopes
+        except requests.exceptions.ConnectionError:
+            self.auth_failed.emit("Couldn't reach GitHub — check your internet connection.")
+            return None, set()
         except Exception:
             pass
-        return None
+        return None, set()
 
     def _save_account(self, user: dict, token: str):
         login = user.get("login", "")
         if not login:
             return
-        data = {
-            "active": login,
-            "accounts": {
-                login: {
-                    "access_token": token,
-                    "login": login,
-                    "name": user.get("name") or login,
-                    "avatar_url": user.get("avatar_url", ""),
-                }
-            },
+        data = self._load_accounts_file()
+        accounts = data.get("accounts", {})
+        accounts[login] = {
+            "access_token": token,
+            "login": login,
+            "name": user.get("name") or login,
+            "avatar_url": user.get("avatar_url", ""),
         }
+        data["active"] = login
+        data["accounts"] = accounts
         self._write_accounts_file(data)
 
     def _load_accounts_file(self) -> dict:
@@ -264,7 +224,7 @@ class GitHubAuth(QObject):
                 old = json.load(f)
             token = old.get("access_token", "")
             if token:
-                user = self._fetch_user(token)
+                user, _ = self._validate_token(token)
                 if user:
                     user["access_token"] = token
                     self._save_account(user, token)

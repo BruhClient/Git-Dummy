@@ -7,7 +7,6 @@ from ui.panels.diff_renderer import (  # noqa: F401
     SWIPE_THRESHOLD,
     _VScrollArea,
     _trunc,
-    _scrollbar_style,
     _close_btn_style,
     _STATUS_COLOR,
     _STATUS_LABEL,

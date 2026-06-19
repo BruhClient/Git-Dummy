@@ -15,7 +15,7 @@ from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QScrollArea, QFrame, QSizePolicy,
 )
-from styles.theme import COLORS
+from styles.theme import COLORS, scrollbar_style
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -352,17 +352,7 @@ class PullRequestsPanel(QWidget):
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        scroll.setStyleSheet(f"""
-            QScrollArea {{ background: transparent; border: none; }}
-            QScrollBar:vertical {{
-                background: transparent; width: 4px; margin: 0;
-            }}
-            QScrollBar::handle:vertical {{
-                background: {COLORS['border']}; border-radius: 2px; min-height: 20px;
-            }}
-            QScrollBar::handle:vertical:hover {{ background: {COLORS['text_muted']}; }}
-            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
-        """)
+        scroll.setStyleSheet("QScrollArea { background: transparent; border: none; }\n" + scrollbar_style())
         self._list_container = QWidget()
         self._list_container.setStyleSheet("background: transparent;")
         self._list_layout = QVBoxLayout(self._list_container)

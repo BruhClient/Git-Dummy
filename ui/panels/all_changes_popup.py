@@ -9,9 +9,9 @@ from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame,
 )
 
-from styles.theme import COLORS
+from styles.theme import COLORS, scrollbar_style
 from .diff_renderer import (
-    _VScrollArea, _trunc, _scrollbar_style, _close_btn_style,
+    _VScrollArea, _trunc, _close_btn_style,
     _STATUS_COLOR, _MiniBar, _DiffLine,
     _compute_hunks, _chunk_lines,
 )
@@ -98,7 +98,7 @@ class AllChangesPopup(QWidget):
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.NoFrame)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        scroll.setStyleSheet(_scrollbar_style(COLORS))
+        scroll.setStyleSheet("QScrollArea { background: transparent; border: none; }\n" + scrollbar_style())
 
         content = QWidget()
         content.setStyleSheet("background: transparent;")

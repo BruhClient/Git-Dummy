@@ -15,7 +15,7 @@ from PyQt5.QtWidgets import (
     QFrame, QLineEdit, QCheckBox, QSizePolicy,
 )
 
-from styles.theme import COLORS
+from styles.theme import COLORS, scrollbar_style
 from ui.canvas import ORIENT_TB, ORIENT_BT, ORIENT_LR, ORIENT_RL
 from ui.panels import _VScrollArea
 
@@ -88,16 +88,7 @@ class _FilterPanel(QWidget):
         hl.addWidget(reset_btn)
         root.addWidget(hdr)
 
-        _scroll_style = f"""
-            QScrollArea {{ background: transparent; border: none; }}
-            QScrollBar:vertical {{
-                background: transparent; width: 4px; margin: 0;
-            }}
-            QScrollBar::handle:vertical {{
-                background: {COLORS['border']}; border-radius: 2px; min-height: 20px;
-            }}
-            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{ height: 0; }}
-        """
+        _scroll_style = "QScrollArea { background: transparent; border: none; }\n" + scrollbar_style()
 
         body = QVBoxLayout()
         body.setContentsMargins(12, 8, 12, 12)
