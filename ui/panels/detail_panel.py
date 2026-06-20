@@ -416,7 +416,7 @@ class DetailPanel(QWidget):
         content_layout.addWidget(self._branch_btn)
 
         self._push_btn = QPushButton("Upload")
-        self._push_btn.setIcon(qta.icon("fa5s.cloud-upload-alt", color=COLORS['text_secondary']))
+        self._push_btn.setIcon(qta.icon("mdi.upload", color=COLORS['text_secondary']))
         self._push_btn.setCursor(Qt.PointingHandCursor)
         self._push_btn.setStyleSheet(f"""
             QPushButton {{
