@@ -14,19 +14,11 @@ from styles.theme import COLORS, make_global_style
 
 def _LogoMark(parent=None):
     lbl = QLabel(parent)
-    lbl.setFixedSize(28, 28)
-    _logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "logo", "optimised_logo1.png")
-    src = QPixmap(_logo_path).scaled(28, 28, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-    rounded = QPixmap(28, 28)
-    rounded.fill(Qt.transparent)
-    p = QPainter(rounded)
-    p.setRenderHint(QPainter.Antialiasing)
-    clip = QPainterPath()
-    clip.addRoundedRect(0, 0, 28, 28, 6, 6)
-    p.setClipPath(clip)
-    p.drawPixmap(0, 0, src)
-    p.end()
-    lbl.setPixmap(rounded)
+    sz = 42
+    lbl.setFixedSize(sz, sz)
+    _logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "logo", "optimised_logo1-removebg.png")
+    src = QPixmap(_logo_path).scaled(sz, sz, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+    lbl.setPixmap(src)
     return lbl
 
 
@@ -270,7 +262,7 @@ class TopNav(QWidget):
 
         self._app_name = QLabel("Evo Git")
         self._app_name.setStyleSheet(
-            f"font-size: 14px; font-weight: 700; font-family: 'Tilt Warp'; color: {COLORS['text_primary']};"
+            f"font-size: 18px; font-weight: 700; font-family: 'Tilt Warp'; color: {COLORS['text_primary']};"
         )
         layout.addWidget(self._app_name)
 

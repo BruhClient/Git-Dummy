@@ -1937,7 +1937,7 @@ class CommitViewPage(_PRMixin, QWidget):
         is_head = commit.sha in self._branch_head_shas and not self._panel_op_active
         # Remote tip: a branch tip that exists on the remote but not locally checked out.
         # Used to gate the Delete button for remote-only / multi-commit branches.
-        is_remote_head = (commit.sha in self._remote_tip_shas) and not self._panel_op_active
+        is_remote_head = (commit.sha in self._remote_tip_shas and commit.sha not in self._branch_head_shas) and not self._panel_op_active
         # Use the real git branch name for this tip, not the lane algo's assignment
         branch     = self._local_tip_branch.get(commit.sha, commit.branch)
 

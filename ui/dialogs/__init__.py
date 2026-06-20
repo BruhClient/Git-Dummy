@@ -21,3 +21,4 @@ from ui.dialogs.clone_dialog import CloneDialog, RepoRow  # noqa: F401
 from ui.dialogs.init_dialog import InitDialog  # noqa: F401
 from ui.dialogs.pr_open_wizard import PROpenWizard  # noqa: F401
 from ui.dialogs.add_account_dialog import AddAccountDialog  # noqa: F401
+from ui.dialogs.instructions_dialog import InstructionsDialog  # noqa: F401

@@ -492,6 +492,22 @@ class RepoPage(QWidget):
         """)
         track_btn.clicked.connect(self._open_clone_dialog)
         header_row.addWidget(track_btn)
+
+        info_btn = QPushButton()
+        info_btn.setIcon(qta.icon("mdi.help-circle-outline", color=COLORS["text_secondary"]))
+        info_btn.setIconSize(QSize(18, 18))
+        info_btn.setFixedSize(36, 36)
+        info_btn.setCursor(Qt.PointingHandCursor)
+        info_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: transparent; border: 1px solid {COLORS['border']};
+                border-radius: 18px;
+            }}
+            QPushButton:hover {{ border-color: {COLORS['accent']}; }}
+        """)
+        info_btn.clicked.connect(self._open_instructions)
+        header_row.addWidget(info_btn)
+
         root.addLayout(header_row)
         root.addSpacing(12)
 
@@ -599,6 +615,10 @@ class RepoPage(QWidget):
         self._refresh_cards()
 
     # ── internals ────────────────────────────────────────────────────────────
+
+    def _open_instructions(self):
+        from ui.dialogs import InstructionsDialog
+        InstructionsDialog(self).exec_()
 
     def _open_clone_dialog(self):
         dlg = CloneDialog(self, user=self._user, existing_repos=self._repos)
