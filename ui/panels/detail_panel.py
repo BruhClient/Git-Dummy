@@ -269,6 +269,7 @@ class DetailPanel(QWidget):
         self._visible = False
         self._protected_branch_name: str | None = None
         self._current_action_branch: str = ""
+        self._viewer_mode: bool = False
         self._setup_ui()
         self._place(visible=False, animate=False)
 
@@ -762,7 +763,8 @@ class DetailPanel(QWidget):
                             branch_depth: int = 0,
                             is_remote_branch: bool = False,
                             is_remote_only: bool = False,
-                            is_protected: bool = False):
+                            is_protected: bool = False,
+                            can_push: bool = True):
         self._last_action_kwargs = dict(
             branch=branch, parent_sha=parent_sha, has_parent=has_parent,
             is_first_of_branch=is_first_of_branch, is_main=is_main,
@@ -776,6 +778,7 @@ class DetailPanel(QWidget):
         self._action_is_merge_commit = is_merge_commit
         self._is_remote_head         = is_remote_head
         self._current_action_branch  = branch
+        self._viewer_mode            = not can_push
         if is_protected:
             self._protected_branch_name = branch
         elif self._protected_branch_name == branch:
@@ -785,6 +788,14 @@ class DetailPanel(QWidget):
             "This branch is protected on GitHub.\n"
             "Direct pushes are blocked — use a Pull Request instead."
             if is_protected else "")
+
+        if not can_push:
+            self._branch_btn.hide()
+            self._hard_revert_btn.hide()
+            self._soft_revert_btn.hide()
+            self._delete_branch_btn.hide()
+            self._merge_btn.hide()
+            return
 
         if is_remote_only:
             self._goto_btn.hide()
@@ -1014,13 +1025,11 @@ class DetailPanel(QWidget):
         print(f"[_populate_stash_files] {n} files, showing buttons (is_remote_head={getattr(self, '_is_remote_head', '?')})")
         self._stash_label.setText(f"UNSAVED  —  {n} file{'s' if n != 1 else ''}")
         self._view_stash_btn.setVisible(n > 0)
-        if not getattr(self, "_is_remote_head", False):
+        if not getattr(self, "_is_remote_head", False) and not getattr(self, "_viewer_mode", False):
             self._clear_stash_btn.setVisible(n > 0)
             self._clear_stash_btn.setEnabled(n > 0)
             self._save_stash_btn.setVisible(n > 0)
             self._save_stash_btn.setEnabled(n > 0)
-        else:
-            print(f"[_populate_stash_files] remote head — hiding save/clear buttons")
         self._stash_data = files
 
         for info in files:
@@ -1075,7 +1084,7 @@ class DetailPanel(QWidget):
         n = len(files)
         self._stash_label.setText(f"UNSAVED  —  {n} file{'s' if n != 1 else ''}")
         self._view_stash_btn.setVisible(n > 0)
-        if not getattr(self, "_is_remote_head", False):
+        if not getattr(self, "_is_remote_head", False) and not getattr(self, "_viewer_mode", False):
             self._clear_stash_btn.setVisible(n > 0)
             self._clear_stash_btn.setEnabled(n > 0)
             self._save_stash_btn.setVisible(n > 0)

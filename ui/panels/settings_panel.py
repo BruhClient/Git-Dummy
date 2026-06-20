@@ -136,12 +136,12 @@ class _Avatar(QWidget):
 # ── Collab row ────────────────────────────────────────────────────────────────
 
 class _SCollabRow(QWidget):
-    # role: "owner" | "admin" | "maintain" | "write"
     _ROLE_LABELS = {
         "owner":    "Owner",
         "admin":    "Admin",
         "maintain": "Admin",
         "write":    "Collaborator",
+        "viewer":   "Viewer",
     }
 
     def __init__(self, login: str, contributions: int, avatar_url: str,
@@ -312,7 +312,7 @@ class _IconStat(QWidget):
 # ── Settings panel ────────────────────────────────────────────────────────────
 
 class SettingsPanel(QWidget):
-    _repo_info_ready    = pyqtSignal(dict)   # thread → main: repo API data
+    _repo_info_ready    = pyqtSignal(dict, int)   # thread → main: (repo API data, generation)
     _rulesets_ready_sig    = pyqtSignal(list, str)  # thread → main: (rulesets, status)
     _branch_protection_sig = pyqtSignal(str, bool)  # thread → main: (branch_name, is_protected)
     protected_branches_ready = pyqtSignal(set)       # emitted with set of protected branch names
@@ -328,6 +328,7 @@ class SettingsPanel(QWidget):
         self._default_branch: str = "main"
         self._branch_protected_state: tuple | None = None  # (branch, protected)
         self._all_branches: list[dict] = []  # [{"name": str, "protected": bool}, ...]
+        self._gen: int = 0
 
         self._repo_info_ready.connect(self._apply_repo_info)
         self._rulesets_ready_sig.connect(lambda rs, st: self._on_rulesets_ready(rs, st))
@@ -380,6 +381,13 @@ class SettingsPanel(QWidget):
             f" padding: 0 8px;"
         )
         name_row.addWidget(self._vis_badge)
+
+        self._role_badge = QLabel("")
+        self._role_badge.setFixedHeight(18)
+        self._role_badge.setAlignment(Qt.AlignCenter)
+        self._role_badge.hide()
+        name_row.addWidget(self._role_badge)
+
         name_row.addStretch()
         rc_layout.addLayout(name_row)
 
@@ -456,7 +464,7 @@ class SettingsPanel(QWidget):
             f" font-size: 10px; font-weight: 600; font-family: 'Tilt Warp'; color: {COLORS['text_muted']};"
             f" padding: 0 8px;"
         )
-        self._collab_count.hide()
+        self._collab_count.setText("")
         ch_layout.addWidget(self._collab_count)
         ch_layout.addStretch()
         self._collab_toggle = QPushButton("▾")
@@ -570,6 +578,7 @@ class SettingsPanel(QWidget):
     # ── Public ────────────────────────────────────────────────────────────────
 
     def setup(self, tracker, user: dict, token: str):
+        self._gen += 1
         self._tracker   = tracker
         self._user      = user
         self._token     = token
@@ -580,6 +589,8 @@ class SettingsPanel(QWidget):
         self._repo_desc.hide()
         self._vis_badge.setText("")
         self._vis_badge.hide()
+        self._role_badge.setText("")
+        self._role_badge.hide()
         self._stats_row_w.hide()
         self._repo_loading_lbl.show()
         self._repo_name_lbl.setText(tracker.repo_name if tracker else "Loading…")
@@ -589,7 +600,7 @@ class SettingsPanel(QWidget):
             item = self._collab_list.takeAt(0)
             if item.widget():
                 item.widget().setParent(None)
-        self._collab_count.hide()
+        self._collab_count.setText("")
         for _ in range(3):
             self._collab_list.addWidget(_Skeleton())
 
@@ -613,7 +624,23 @@ class SettingsPanel(QWidget):
             self._default_branch = "main"
 
         if tracker and token:
-            threading.Thread(target=self._fetch_repo_info, daemon=True).start()
+            gen = self._gen
+            threading.Thread(target=self._fetch_repo_info, args=(gen,), daemon=True).start()
+
+    def set_role(self, role: str):
+        _ROLE_STYLES = {
+            "Viewer": (COLORS.get("warning", "#f59e0b"), COLORS.get("warning", "#f59e0b")),
+            "Owner": (COLORS["accent"], COLORS["accent"]),
+            "Collaborator": (COLORS["accent"], COLORS["accent"]),
+        }
+        color, border = _ROLE_STYLES.get(role, (COLORS["text_muted"], COLORS["border"]))
+        self._role_badge.setText(role)
+        self._role_badge.setStyleSheet(
+            f"background: transparent; border: 1px solid {border};"
+            f" border-radius: 9px; font-size: 10px; color: {color};"
+            f" padding: 0 8px;"
+        )
+        self._role_badge.show()
 
     def load_collaborators(self, collabs: list[dict], current_login: str = ""):
         while self._collab_list.count():
@@ -623,11 +650,7 @@ class SettingsPanel(QWidget):
                 w.setParent(None)
 
         n = len(collabs)
-        if n:
-            self._collab_count.setText(str(n))
-            self._collab_count.show()
-        else:
-            self._collab_count.hide()
+        self._collab_count.setText(str(n) if n else "")
 
         if not collabs:
             empty = QLabel("No contributors yet")
@@ -639,9 +662,18 @@ class SettingsPanel(QWidget):
             self._collab_list.addWidget(empty)
             return
 
-        for c in collabs:
+        from PyQt5.QtCore import QTimer
+        self._collab_queue = list(collabs)
+        self._collab_login = current_login
+        self._drain_collab_queue()
+
+    def _drain_collab_queue(self):
+        BATCH = 3
+        for _ in range(BATCH):
+            if not self._collab_queue:
+                return
+            c = self._collab_queue.pop(0)
             login = c.get("login", "?")
-            # Determine role: owner flag takes priority over whatever role field says
             role = "owner" if c.get("is_owner") else c.get("role", "write")
             row = _SCollabRow(
                 login=login,
@@ -650,9 +682,12 @@ class SettingsPanel(QWidget):
                 display_name=c.get("display_name") or c.get("gh_name"),
                 is_owner=c.get("is_owner", False),
                 role=role,
-                is_me=(login == current_login and bool(current_login)),
+                is_me=(login == self._collab_login and bool(self._collab_login)),
             )
             self._collab_list.addWidget(row)
+        if self._collab_queue:
+            from PyQt5.QtCore import QTimer
+            QTimer.singleShot(0, self._drain_collab_queue)
 
     # ── Internal ──────────────────────────────────────────────────────────────
 
@@ -664,7 +699,7 @@ class SettingsPanel(QWidget):
         self._scroll.widget().adjustSize()
         self._scroll.updateGeometry()
 
-    def _fetch_repo_info(self):
+    def _fetch_repo_info(self, gen: int):
         try:
             url = self._tracker.remote_url()
             m = re.search(r'github\.com[:/]([^/]+)/([^/]+?)(?:\.git)?$', url)
@@ -679,7 +714,7 @@ class SettingsPanel(QWidget):
             )
             if r.status_code == 200:
                 data = r.json()
-                self._repo_info_ready.emit(data)
+                self._repo_info_ready.emit(data, gen)
                 default_branch = data.get("default_branch", "main")
                 try:
                     br = requests.get(
@@ -724,10 +759,8 @@ class SettingsPanel(QWidget):
         except Exception:
             self._rulesets_ready_sig.emit([], "error")
 
-    def _apply_repo_info(self, data: dict):
-        repo_name = data.get("name", "")
-        current = self._tracker.repo_name if self._tracker else ""
-        if repo_name and current and repo_name.lower() != current.lower():
+    def _apply_repo_info(self, data: dict, gen: int):
+        if gen != self._gen:
             return
         self._repo_loading_lbl.hide()
         self._vis_badge.show()
@@ -742,7 +775,8 @@ class SettingsPanel(QWidget):
             self._repo_desc.setText(desc)
             self._repo_desc.show()
         else:
-            self._repo_desc.hide()
+            self._repo_desc.setText("No description")
+            self._repo_desc.show()
         self._stars_stat.set_count(data.get("stargazers_count", 0))
         self._forks_stat.set_count(data.get("forks_count", 0))
         self._watch_stat.set_count(data.get("subscribers_count", 0))

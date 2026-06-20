@@ -12,7 +12,7 @@ H_PAD      = 80
 V_PAD      = 60
 CANVAS_PAD = 800      # pan boundary — how far past the content edge the user can scroll
 
-ZOOM_MIN  = 0.5
+ZOOM_MIN  = 0.2
 ZOOM_MAX  = 1.5
 ZOOM_STEP = 1.10
 

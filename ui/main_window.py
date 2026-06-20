@@ -1,5 +1,6 @@
 import os
 import threading
+from datetime import datetime
 
 import qtawesome as qta
 
@@ -132,11 +133,15 @@ class _AccountPopup(QFrame):
         login = acc.get("login", "")
         name = acc.get("name", login)
         is_active = acc.get("is_active", False)
+        token_expires = acc.get("token_expires", "")
+
+        # Parse expiry
+        expiry_text, expiry_color = self._format_token_expiry(token_expires)
 
         row = QPushButton()
         row.setFlat(True)
         row.setCursor(Qt.PointingHandCursor)
-        row.setFixedHeight(44)
+        row.setFixedHeight(58)
         row.setStyleSheet(f"""
             QPushButton {{
                 background: {"" + COLORS['bg_hover'] if is_active else "transparent"};
@@ -160,7 +165,7 @@ class _AccountPopup(QFrame):
         h.addWidget(avatar)
 
         text_col = QVBoxLayout()
-        text_col.setSpacing(0)
+        text_col.setSpacing(1)
         name_lbl = QLabel(name)
         name_lbl.setStyleSheet(
             f"font-size: 12px; font-weight: 600; color: {COLORS['text_primary']}; background: transparent;"
@@ -171,6 +176,11 @@ class _AccountPopup(QFrame):
             f"font-size: 10px; color: {COLORS['text_muted']}; background: transparent;"
         )
         text_col.addWidget(login_lbl)
+        token_lbl = QLabel(expiry_text)
+        token_lbl.setStyleSheet(
+            f"font-size: 9px; color: {expiry_color}; background: transparent;"
+        )
+        text_col.addWidget(token_lbl)
         h.addLayout(text_col)
         h.addStretch()
 
@@ -185,6 +195,24 @@ class _AccountPopup(QFrame):
             row.clicked.connect(lambda _=False, l=login: self._on_switch(l))
 
         return row
+
+    @staticmethod
+    def _format_token_expiry(token_expires: str) -> tuple[str, str]:
+        if not token_expires:
+            return "Token · No expiration", COLORS["text_muted"]
+        try:
+            exp = datetime.strptime(token_expires, "%Y-%m-%d %H:%M:%S %Z")
+            now = datetime.utcnow()
+            if exp < now:
+                return "Token · Expired", COLORS.get("danger", "#ef4444")
+            days = (exp - now).days
+            if days <= 7:
+                return f"Token · Expires in {days}d", COLORS.get("warning", "#f59e0b")
+            if days <= 30:
+                return f"Token · Expires in {days}d", COLORS.get("warning", "#f59e0b")
+            return f"Token · Expires {exp.strftime('%b %d, %Y')}", COLORS["text_muted"]
+        except (ValueError, TypeError):
+            return "Token · Active", COLORS["text_muted"]
 
     def _on_switch(self, login: str):
         self.hide()

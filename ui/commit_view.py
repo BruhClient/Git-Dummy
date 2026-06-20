@@ -7,6 +7,8 @@ import os
 import re
 import threading
 
+import qtawesome as qta
+
 from PyQt5.QtCore import Qt, QThread, QObject, QTimer, QFileSystemWatcher, pyqtSlot, pyqtSignal
 from PyQt5.QtGui import QPainter, QColor, QBrush, QPen, QPixmap, QPainterPath, QFont
 from PyQt5.QtWidgets import (
@@ -106,9 +108,11 @@ class CommitViewPage(_PRMixin, QWidget):
     _wizard_pr_done_sig     = pyqtSignal(bool, str)          # ok, err
     # PR merge conflict check (thread → main)
     _pr_conflict_check_sig      = pyqtSignal(bool, list, object, object)  # has_conflicts, files, content, pr
+    _fork_done_sig              = pyqtSignal(bool, str)                  # ok, result
     _pr_conflict_check_err_sig  = pyqtSignal(str)                         # err
     # Emitted when repo access is denied (private / inaccessible) — carries repo path
     access_denied           = pyqtSignal(str)
+    repo_forked             = pyqtSignal()        # emitted after fork so projects page can refresh
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -241,6 +245,7 @@ class CommitViewPage(_PRMixin, QWidget):
         self._wizard_pr_done_sig.connect(self._on_wizard_pr_done)
         self._pr_conflict_check_sig.connect(self._on_pr_conflict_check)
         self._pr_conflict_check_err_sig.connect(self._on_pr_conflict_check_err)
+        self._fork_done_sig.connect(self._on_fork_done)
         self._pending_merge_pr: dict = {}
 
         self._orientation: str = ORIENT_LR
@@ -282,6 +287,7 @@ class CommitViewPage(_PRMixin, QWidget):
         self._remote_tip_shas:  set  = set()
         self._branch_head_shas: set  = set()
         self._protected_branches: set = set()
+        self._can_push: bool = True
         self._branch_depths: dict    = {}
         self._jump_to_head:        bool = False
         self._jump_to_sha:         str  = ""    # specific SHA to jump to after canvas rebuild
@@ -478,6 +484,7 @@ class CommitViewPage(_PRMixin, QWidget):
 
         self._settings_loaded    = False
         self._pr_panel_loaded    = False
+        self._can_push           = True
         token = self._user.get("access_token", "")
         self._settings_panel.setup(self._tracker, self._user, token)
         self._settings_loaded = True
@@ -544,8 +551,9 @@ class CommitViewPage(_PRMixin, QWidget):
         self._worker.finished.connect(self._thread.quit)
         self._thread.start()
 
-    def _on_visibility_ready(self, url: str, visibility: str):
+    def _on_visibility_ready(self, url: str, visibility: str, can_push: bool = True):
         self._header.set_url(url, visibility)
+        self._can_push = can_push
         owner = self._tracker.repo_owner() if self._tracker else ""
         is_owner = bool(owner) and self._user.get("login", "") == owner
         if visibility == "not_found" and self._tracker and is_owner:
@@ -558,7 +566,118 @@ class CommitViewPage(_PRMixin, QWidget):
                 self._tracker.repo_name,
             )
             return
+        if can_push:
+            role = "Owner" if is_owner else "Collaborator"
+            self._settings_panel.set_role(role)
+        else:
+            self._settings_panel.set_role("Viewer")
+        if not can_push and visibility and visibility != "not_found":
+            self._show_fork_offer()
 
+    def _show_fork_offer(self):
+        if getattr(self, "_fork_card", None):
+            self._fork_card.show()
+            self._fork_card.raise_()
+            return
+        card = QWidget(self)
+        card.setObjectName("forkCard")
+        card.setAttribute(Qt.WA_StyledBackground, True)
+        card.setStyleSheet(f"""
+            #forkCard {{
+                background: {COLORS['bg_card']};
+                border: 1px solid {COLORS.get('warning', '#f59e0b')};
+                border-radius: 10px;
+            }}
+        """)
+        card.setFixedWidth(260)
+        vl = QVBoxLayout(card)
+        vl.setContentsMargins(14, 12, 14, 14)
+        vl.setSpacing(8)
+        top = QHBoxLayout()
+        top.setSpacing(6)
+        warn_icon = QLabel()
+        warn_icon.setPixmap(qta.icon("fa5s.eye", color=COLORS.get("warning", "#f59e0b")).pixmap(14, 14))
+        warn_icon.setStyleSheet("background: transparent;")
+        top.addWidget(warn_icon)
+        title = QLabel("Viewing this repo")
+        title.setStyleSheet(
+            f"background: transparent; font-size: 12px; font-weight: 700;"
+            f" font-family: 'Tilt Warp'; color: {COLORS.get('warning', '#f59e0b')};"
+        )
+        top.addWidget(title)
+        top.addStretch()
+        close_btn = QPushButton("✕")
+        close_btn.setFixedSize(20, 20)
+        close_btn.setCursor(Qt.PointingHandCursor)
+        close_btn.setStyleSheet(f"""
+            QPushButton {{ background: transparent; border: none;
+                color: {COLORS['text_muted']}; font-size: 11px; }}
+            QPushButton:hover {{ color: {COLORS['text_primary']}; }}
+        """)
+        close_btn.clicked.connect(lambda: card.hide())
+        top.addWidget(close_btn)
+        vl.addLayout(top)
+        body = QLabel("You can browse commits and diffs, but can't push changes.")
+        body.setWordWrap(True)
+        body.setStyleSheet(f"background: transparent; font-size: 11px; color: {COLORS['text_muted']};")
+        vl.addWidget(body)
+        fork_btn = QPushButton("Fork to your account")
+        fork_btn.setCursor(Qt.PointingHandCursor)
+        fork_btn.setFixedHeight(32)
+        fork_btn.setStyleSheet(f"""
+            QPushButton {{ background: {COLORS['accent']}; border: none; border-radius: 6px;
+                color: {COLORS['text_on_accent']}; font-size: 12px; font-weight: 600;
+                font-family: 'Tilt Warp'; }}
+            QPushButton:hover {{ background: {COLORS.get('accent_hover', COLORS['accent'])}; }}
+        """)
+        fork_btn.clicked.connect(lambda: (card.hide(), self._do_fork()))
+        vl.addWidget(fork_btn)
+        card.adjustSize()
+        self._fork_card = card
+        self._position_fork_card()
+        card.show()
+        card.raise_()
+
+    def _position_fork_card(self):
+        if not getattr(self, "_fork_card", None):
+            return
+        pw, margin = self.width(), 16
+        cw = self._fork_card.width()
+        self._fork_card.move(pw - cw - margin, 60)
+
+    def _do_fork(self):
+        if not self._tracker:
+            return
+        self._toast.show_message("Forking repository…", kind="loading")
+        path = self._tracker._path
+        token = self._user.get("access_token", "")
+        login = self._user.get("login", "")
+        import threading
+        threading.Thread(
+            target=self._fork_thread, args=(path, token, login), daemon=True
+        ).start()
+
+    def _fork_thread(self, path: str, token: str, login: str):
+        from core.ops import fork_repo
+        ok, result = fork_repo(path, token, login)
+        self._fork_done_sig.emit(ok, result)
+
+    def _on_fork_done(self, ok: bool, result: str):
+        if ok:
+            self._can_push = True
+            if getattr(self, "_fork_card", None):
+                self._fork_card.hide()
+            # Clear stale collab cache for the old remote URL
+            if self._tracker:
+                old_key = self._tracker.remote_url()
+                self._collab_cache.pop(old_key, None)
+            self._toast.show_message("Forked! Switching to your fork…", kind="success", duration_ms=5000)
+            self.repo_forked.emit()
+            # Full reload — re-reads remote URL, header, settings, collabs, graph
+            if self._tracker:
+                self.load_repo(self._tracker._path)
+        else:
+            self._toast.show_message(result or "Fork failed.", kind="error", duration_ms=6000)
 
     def _poll_remote(self):
         if not self._tracker or not self._tracker.has_remote():
@@ -1100,7 +1219,7 @@ class CommitViewPage(_PRMixin, QWidget):
                 "avatar_url":    self._user.get("avatar_url", ""),
                 "contributions": 0,
                 "gh_name":       self._user.get("name") or login,
-                "role":          "write",
+                "role":          "viewer" if not self._can_push else "write",
             }] + collabs
         owner = self._tracker.repo_owner() if self._tracker else ""
         for c in collabs:
@@ -1568,7 +1687,13 @@ class CommitViewPage(_PRMixin, QWidget):
                 prefetched_content=conflict_content or {})
             return
         else:
-            msg = "Timed out." if err == "timed_out" else "Couldn't push — check your connection and try again."
+            err_lower = err.lower()
+            if "permission" in err_lower or "denied" in err_lower or "403" in err_lower:
+                msg = "You don't have push access to this repo."
+            elif err == "timed_out":
+                msg = "Timed out."
+            else:
+                msg = "Couldn't push — check your connection and try again."
             self._toast.show_message(msg, kind="error", duration_ms=6000)
         self._panel.unlock_actions()
 
@@ -1884,8 +2009,8 @@ class CommitViewPage(_PRMixin, QWidget):
             display_author = ""   # not a known collaborator — show "—"
         self._panel.show_commit(commit, detail, collab.get("avatar_url", ""), display_author, files)
         has_remote = bool(self._tracker and self._tracker.has_remote())
-        can_push = has_remote and (commit.sha in self._last_unpushed or
-                                   commit.branch in self._last_local_only)
+        can_push = has_remote and self._can_push and (commit.sha in self._last_unpushed or
+                                                      commit.branch in self._last_local_only)
         # True when the branch exists on remote (not local-only) and a remote is configured.
         is_remote_branch = has_remote and commit.branch not in self._last_local_only
         # Determine branch state: ahead / behind / diverged
@@ -1929,7 +2054,7 @@ class CommitViewPage(_PRMixin, QWidget):
             is_current_head = commit.sha == self._last_head_sha
             self._panel.set_push_state(False, commit.branch)
             self._panel.set_pull_state(False, commit.branch)
-            self._panel.set_sync_state(is_local_tip, commit.branch)
+            self._panel.set_sync_state(is_local_tip and self._can_push, commit.branch)
         elif is_behind:
             self._panel.set_push_state(False, commit.branch)
             self._panel.set_pull_state(True, commit.branch)
@@ -1998,6 +2123,7 @@ class CommitViewPage(_PRMixin, QWidget):
             is_remote_branch=is_remote_branch,
             is_remote_only=commit.sha in self._canvas._future_shas,
             is_protected=branch in self._protected_branches,
+            can_push=self._can_push,
         )
 
     def _on_detail_thread_done(self, thread: QThread):
@@ -2275,4 +2401,5 @@ class CommitViewPage(_PRMixin, QWidget):
         if self._filter_panel.isVisible():
             self._reposition_filter()
         self._toast.reposition()
+        self._position_fork_card()
 

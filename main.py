@@ -74,6 +74,7 @@ class App(QStackedWidget):
         self._auth.auth_failed.connect(self._on_auth_failed)
         self._repo_page.repo_selected.connect(self._on_repo_selected)
         self._commit_page.access_denied.connect(self._on_access_denied)
+        self._commit_page.repo_forked.connect(self._repo_page._refresh_cards)
         self._main_window.logout_requested.connect(self._on_logout)
         self._main_window.add_account_requested.connect(self._on_add_account)
         self._main_window.switch_account_requested.connect(self._on_switch_account)

@@ -81,7 +81,7 @@ class _CommitDetailWorker(QObject):
 
 
 class _VisibilityWorker(QObject):
-    finished = pyqtSignal(str, str)   # url, visibility
+    finished = pyqtSignal(str, str, bool)   # url, visibility, can_push
 
     def __init__(self, path: str, token: str):
         super().__init__()
@@ -94,12 +94,12 @@ class _VisibilityWorker(QObject):
         try:
             t.open()
             url = t.remote_url()
-            vis = t.repo_visibility(self._token)
+            vis, can_push = t.repo_visibility(self._token)
         except Exception:
-            url, vis = "", ""
+            url, vis, can_push = "", "", False
         finally:
             t.close()
-        self.finished.emit(url, vis)
+        self.finished.emit(url, vis, can_push)
 
 
 class _FetchWorker(QObject):

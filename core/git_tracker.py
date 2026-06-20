@@ -322,16 +322,16 @@ class GitTracker:
             pass
         return set()
 
-    def repo_visibility(self, token: str) -> str:
-        """Return 'private', 'public', or '' if unknown."""
+    def repo_visibility(self, token: str) -> tuple[str, bool]:
+        """Return (visibility, can_push). Visibility is 'private', 'public', 'not_found', or ''."""
         import re, requests as req
         if not self._repo or not self.has_remote():
-            return ""
+            return "", False
         try:
             url = self._repo.remote("origin").url
             m = re.search(r"github\.com[:/]([^/]+)/([^/]+?)(?:\.git)?$", url)
             if not m:
-                return ""
+                return "", False
             owner, repo = m.group(1), m.group(2)
             r = req.get(
                 f"https://api.github.com/repos/{owner}/{repo}",
@@ -339,12 +339,15 @@ class GitTracker:
                 timeout=8,
             )
             if r.status_code == 200:
-                return "private" if r.json().get("private") else "public"
+                data = r.json()
+                vis = "private" if data.get("private") else "public"
+                can_push = data.get("permissions", {}).get("push", False)
+                return vis, can_push
             if r.status_code == 404:
-                return "not_found"
+                return "not_found", False
         except Exception:
             pass
-        return ""
+        return "", False
 
     def repo_owner(self) -> str:
         """Return the GitHub username that owns the remote repo, or ''."""

@@ -67,6 +67,7 @@ class _RoleBadge(QLabel):
         "owner": "Owner",
         "admin": "Admin",
         "collaborator": "Collaborator",
+        "viewer": "Viewer",
     }
 
     def __init__(self, parent=None):
@@ -97,6 +98,10 @@ class _RoleBadge(QLabel):
                     self._role_ready.emit("admin")
                 elif perm in ("write", "maintain"):
                     self._role_ready.emit("collaborator")
+                else:
+                    self._role_ready.emit("viewer")
+            elif r.status_code in (403, 404):
+                self._role_ready.emit("viewer")
         except Exception:
             pass
 
@@ -104,8 +109,9 @@ class _RoleBadge(QLabel):
         if role not in self._LABELS:
             return
         self.setText(self._LABELS[role])
+        color = COLORS.get("warning", "#f59e0b") if role == "viewer" else COLORS["text_muted"]
         self.setStyleSheet(
-            f"background: transparent; color: {COLORS['text_muted']}; font-size: 12px;"
+            f"background: transparent; color: {color}; font-size: 12px;"
         )
         self.show()
 

@@ -130,6 +130,7 @@ class GitHubAuth(QObject):
                 "name": info.get("name", login),
                 "avatar_url": info.get("avatar_url", ""),
                 "is_active": login == active,
+                "token_expires": info.get("token_expires", ""),
             })
         return result
 
@@ -164,7 +165,8 @@ class GitHubAuth(QObject):
     # ── internals ────────────────────────────────────────────────────────────
 
     def _validate_token(self, token: str) -> tuple[dict | None, set[str]]:
-        """Validate a token against the GitHub API. Returns (user_dict, scopes) or (None, set())."""
+        """Validate a token against the GitHub API. Returns (user_dict, scopes) or (None, set()).
+        Also sets user['token_expires'] from GitHub-Authentication-Token-Expiration header if present."""
         try:
             resp = requests.get(
                 "https://api.github.com/user",
@@ -177,7 +179,9 @@ class GitHubAuth(QObject):
             if resp.status_code == 200:
                 scopes_header = resp.headers.get("X-OAuth-Scopes", "")
                 scopes = {s.strip() for s in scopes_header.split(",") if s.strip()}
-                return resp.json(), scopes
+                user = resp.json()
+                user["token_expires"] = resp.headers.get("GitHub-Authentication-Token-Expiration", "")
+                return user, scopes
         except requests.exceptions.ConnectionError:
             self.auth_failed.emit("Couldn't reach GitHub — check your internet connection.")
             return None, set()
@@ -196,6 +200,7 @@ class GitHubAuth(QObject):
             "login": login,
             "name": user.get("name") or login,
             "avatar_url": user.get("avatar_url", ""),
+            "token_expires": user.get("token_expires", ""),
         }
         data["active"] = login
         data["accounts"] = accounts

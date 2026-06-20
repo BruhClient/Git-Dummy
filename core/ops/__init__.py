@@ -57,6 +57,7 @@ from .github_ops import (   # noqa: F401
     create_github_repo,
     push_branch,
     push_to_github,
+    fork_repo,
 )
 from .repo_ops import (   # noqa: F401
     init_repo,

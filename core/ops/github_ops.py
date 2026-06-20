@@ -114,3 +114,49 @@ def push_to_github(
         return False, str(e)
     except Exception as e:
         return False, str(e)
+
+
+def fork_repo(path: str, token: str, login: str) -> tuple[bool, str]:
+    """Fork the origin repo to the user's account and set push URL to the fork."""
+    import re
+    try:
+        r = subprocess.run(
+            ["git", "remote", "get-url", "origin"],
+            cwd=path, capture_output=True, text=True,
+            encoding="utf-8", errors="replace",
+        )
+        url = r.stdout.strip()
+        m = re.search(r"github\.com[:/]([^/]+)/([^/]+?)(?:\.git)?$", url)
+        if not m:
+            return False, "Could not parse remote URL."
+        owner, repo = m.group(1), m.group(2)
+
+        resp = requests.post(
+            f"https://api.github.com/repos/{owner}/{repo}/forks",
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Accept": "application/vnd.github+json",
+            },
+            timeout=30,
+        )
+        if resp.status_code not in (202, 200):
+            msg = resp.json().get("message", f"HTTP {resp.status_code}")
+            return False, msg
+
+        fork_url = resp.json().get("clone_url", "")
+        if not fork_url:
+            return False, "Fork created but no clone URL returned."
+
+        subprocess.run(
+            ["git", "remote", "set-url", "origin", fork_url],
+            cwd=path, capture_output=True,
+        )
+        b64 = base64.b64encode(f"{login}:{token}".encode()).decode()
+        subprocess.run(
+            ["git", "config", "--local",
+             f"http.{fork_url}.extraHeader", f"Authorization: Basic {b64}"],
+            cwd=path, capture_output=True,
+        )
+        return True, fork_url
+    except Exception as e:
+        return False, str(e)
