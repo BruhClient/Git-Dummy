@@ -253,20 +253,12 @@ class TopNav(QWidget):
         """)
 
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(24, 0, 24, 0)
+        layout.setContentsMargins(24, 8, 24, 0)
         layout.setSpacing(12)
 
-        # Left: logo + app name
+        # Left: logo only
         logo = _LogoMark()
-        layout.addWidget(logo)
-
-        self._app_name = QLabel("Evo Git")
-        self._app_name.setStyleSheet(
-            f"font-size: 18px; font-weight: 700; font-family: 'Tilt Warp'; color: {COLORS['text_primary']};"
-        )
-        layout.addWidget(self._app_name)
-
-        layout.addSpacing(16)
+        layout.addWidget(logo, 0, Qt.AlignVCenter)
 
         # Back button (hidden on repos page)
         self._back_btn = QPushButton("Projects")
@@ -389,14 +381,12 @@ class TopNav(QWidget):
         self._back_btn.hide()
         self._sep.hide()
         self._page_label.hide()
-        self._app_name.show()
 
     def show_commits_state(self, repo_name: str = ""):
         self._back_btn.show()
         self._sep.show()
         self._page_label.setText(repo_name)
         self._page_label.show()
-        self._app_name.hide()
 
 
 class MainWindow(QMainWindow):

@@ -145,6 +145,7 @@ class CommitViewPage(_PRMixin, QWidget):
         self._panel    = DetailPanel(self)
         self._panel.raise_()
         self._settings_panel._branch_protection_sig.connect(self._on_branch_protection_state)
+        self._settings_panel.protected_branches_ready.connect(self._on_protected_branches)
 
         self._changes_panel = ChangesPanel(self)
         self._changes_panel.raise_()
@@ -280,6 +281,7 @@ class CommitViewPage(_PRMixin, QWidget):
         self._local_branch_tip: dict = {}   # {branch_name: sha} — all local refs
         self._remote_tip_shas:  set  = set()
         self._branch_head_shas: set  = set()
+        self._protected_branches: set = set()
         self._branch_depths: dict    = {}
         self._jump_to_head:        bool = False
         self._jump_to_sha:         str  = ""    # specific SHA to jump to after canvas rebuild
@@ -476,10 +478,12 @@ class CommitViewPage(_PRMixin, QWidget):
 
         self._settings_loaded    = False
         self._pr_panel_loaded    = False
+        token = self._user.get("access_token", "")
+        self._settings_panel.setup(self._tracker, self._user, token)
+        self._settings_loaded = True
         has_remote = self._tracker.has_remote()
         self._no_remote_banner.hide()
         self._header.set_connection_state(has_remote)
-        token = self._user.get("access_token", "")
         if has_remote:
             self._header.set_url(self._tracker.remote_url())   # show URL immediately, badge loads async
             if token:
@@ -1121,6 +1125,9 @@ class CommitViewPage(_PRMixin, QWidget):
 
     def _on_branch_protection_state(self, branch: str, protected: bool):
         self._panel.set_branch_protection(branch if protected else None)
+
+    def _on_protected_branches(self, branches: set):
+        self._protected_branches = branches
 
     @staticmethod
     def _pr_btn_style(protected: bool) -> str:
@@ -1990,6 +1997,7 @@ class CommitViewPage(_PRMixin, QWidget):
             branch_depth=self._branch_depths.get(branch, 0),
             is_remote_branch=is_remote_branch,
             is_remote_only=commit.sha in self._canvas._future_shas,
+            is_protected=branch in self._protected_branches,
         )
 
     def _on_detail_thread_done(self, thread: QThread):

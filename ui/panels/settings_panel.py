@@ -315,6 +315,7 @@ class SettingsPanel(QWidget):
     _repo_info_ready    = pyqtSignal(dict)   # thread → main: repo API data
     _rulesets_ready_sig    = pyqtSignal(list, str)  # thread → main: (rulesets, status)
     _branch_protection_sig = pyqtSignal(str, bool)  # thread → main: (branch_name, is_protected)
+    protected_branches_ready = pyqtSignal(set)       # emitted with set of protected branch names
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -326,6 +327,7 @@ class SettingsPanel(QWidget):
         self._token:         str  = ""
         self._default_branch: str = "main"
         self._branch_protected_state: tuple | None = None  # (branch, protected)
+        self._all_branches: list[dict] = []  # [{"name": str, "protected": bool}, ...]
 
         self._repo_info_ready.connect(self._apply_repo_info)
         self._rulesets_ready_sig.connect(lambda rs, st: self._on_rulesets_ready(rs, st))
@@ -389,16 +391,28 @@ class SettingsPanel(QWidget):
         self._repo_desc.hide()
         rc_layout.addWidget(self._repo_desc)
 
-        stats_row = QHBoxLayout()
-        stats_row.setSpacing(16)
+        self._stats_row_w = QWidget()
+        self._stats_row_w.setStyleSheet("background: transparent;")
+        stats_row = QHBoxLayout(self._stats_row_w)
         stats_row.setContentsMargins(0, 4, 0, 0)
+        stats_row.setSpacing(16)
         self._stars_stat = _IconStat("fa5s.star")
         self._forks_stat = _IconStat("fa5s.code-branch")
         self._watch_stat = _IconStat("fa5s.eye")
         for w in (self._stars_stat, self._forks_stat, self._watch_stat):
             stats_row.addWidget(w)
         stats_row.addStretch()
-        rc_layout.addLayout(stats_row)
+        rc_layout.addWidget(self._stats_row_w)
+
+        self._repo_loading_lbl = QLabel("Loading…")
+        self._repo_loading_lbl.setAlignment(Qt.AlignCenter)
+        self._repo_loading_lbl.setStyleSheet(
+            f"background: transparent; font-size: 12px; color: {COLORS['text_muted']};"
+            f" padding: 8px 0;"
+        )
+        self._repo_loading_lbl.hide()
+        rc_layout.addWidget(self._repo_loading_lbl)
+
         self._content_layout.addWidget(self._repo_card)
         self._content_layout.addSpacing(20)
 
@@ -560,6 +574,36 @@ class SettingsPanel(QWidget):
         self._user      = user
         self._token     = token
         self._branch_protected_state = None
+        self._all_branches = []
+
+        # Repo card — show loading, hide stale content
+        self._repo_desc.hide()
+        self._vis_badge.setText("")
+        self._vis_badge.hide()
+        self._stats_row_w.hide()
+        self._repo_loading_lbl.show()
+        self._repo_name_lbl.setText(tracker.repo_name if tracker else "Loading…")
+
+        # Collaborators — clear old rows, show skeleton placeholders
+        while self._collab_list.count():
+            item = self._collab_list.takeAt(0)
+            if item.widget():
+                item.widget().setParent(None)
+        self._collab_count.hide()
+        for _ in range(3):
+            self._collab_list.addWidget(_Skeleton())
+
+        # Branch rules — clear old rows, show loading placeholder
+        while self._rules_list.count():
+            item = self._rules_list.takeAt(0)
+            if item.widget():
+                item.widget().setParent(None)
+        _rl = QLabel("Loading…")
+        _rl.setAlignment(Qt.AlignCenter)
+        _rl.setStyleSheet(
+            f"background: transparent; font-size: 12px; color: {COLORS['text_muted']}; padding: 8px 0;"
+        )
+        self._rules_list.addWidget(_rl)
 
         # Seed _default_branch from local git immediately (before async GitHub API fetch).
         if tracker:
@@ -567,9 +611,6 @@ class SettingsPanel(QWidget):
             self._default_branch = get_default_branch(tracker._path)
         else:
             self._default_branch = "main"
-
-        if tracker:
-            self._repo_name_lbl.setText(tracker.repo_name)
 
         if tracker and token:
             threading.Thread(target=self._fetch_repo_info, daemon=True).start()
@@ -642,15 +683,23 @@ class SettingsPanel(QWidget):
                 default_branch = data.get("default_branch", "main")
                 try:
                     br = requests.get(
-                        f"https://api.github.com/repos/{owner}/{repo}/branches/{default_branch}",
+                        f"https://api.github.com/repos/{owner}/{repo}/branches?per_page=100",
                         headers={"Authorization": f"Bearer {self._token}",
                                  "Accept": "application/vnd.github+json"},
                         timeout=10,
                     )
                     if br.status_code == 200:
-                        self._branch_protection_sig.emit(
-                            default_branch, br.json().get("protected", False)
-                        )
+                        protected = set()
+                        self._all_branches = []
+                        for b in br.json():
+                            name = b.get("name", "")
+                            is_prot = b.get("protected", False)
+                            self._all_branches.append({"name": name, "protected": is_prot})
+                            if is_prot:
+                                protected.add(name)
+                        self.protected_branches_ready.emit(protected)
+                        is_default_protected = default_branch in protected
+                        self._branch_protection_sig.emit(default_branch, is_default_protected)
                 except Exception:
                     pass
             self._fetch_rulesets(owner, repo, self._token)
@@ -676,6 +725,14 @@ class SettingsPanel(QWidget):
             self._rulesets_ready_sig.emit([], "error")
 
     def _apply_repo_info(self, data: dict):
+        repo_name = data.get("name", "")
+        current = self._tracker.repo_name if self._tracker else ""
+        if repo_name and current and repo_name.lower() != current.lower():
+            return
+        self._repo_loading_lbl.hide()
+        self._vis_badge.show()
+        self._stats_row_w.show()
+
         self._default_branch = data.get("default_branch") or self._default_branch
         self._repo_name_lbl.setText(data.get("name", "—"))
         vis = "Private" if data.get("private") else "Public"
@@ -684,6 +741,8 @@ class SettingsPanel(QWidget):
         if desc:
             self._repo_desc.setText(desc)
             self._repo_desc.show()
+        else:
+            self._repo_desc.hide()
         self._stars_stat.set_count(data.get("stargazers_count", 0))
         self._forks_stat.set_count(data.get("forks_count", 0))
         self._watch_stat.set_count(data.get("subscribers_count", 0))
@@ -715,7 +774,7 @@ class SettingsPanel(QWidget):
         )
         hl.addWidget(text_lbl, 1)
 
-        self._rules_list.insertWidget(0, row)
+        self._rules_list.addWidget(row)
 
     def _toggle_rules(self):
         self._rules_expanded = not self._rules_expanded
@@ -732,6 +791,7 @@ class SettingsPanel(QWidget):
             if w:
                 w.setParent(None)
 
+        active = []
         if status == "pro_required":
             msg = QLabel("Requires GitHub Pro for private repos")
             msg.setAlignment(Qt.AlignCenter)
@@ -764,8 +824,33 @@ class SettingsPanel(QWidget):
                 for rs in active:
                     self._rules_list.addWidget(self._build_ruleset_card(rs))
 
-        # Always re-insert the protection status row at the top if we have it.
-        if self._branch_protected_state:
+        # Show all branches in two groups: protected first, then unprotected
+        if self._all_branches:
+            protected_set = set()
+            if active:
+                protected_set.add(self._default_branch)
+            prot = [b for b in self._all_branches if b["protected"] or b["name"] in protected_set]
+            unprot = [b for b in self._all_branches if not b["protected"] and b["name"] not in protected_set]
+            if prot:
+                grp = QLabel("PROTECTED")
+                grp.setStyleSheet(
+                    f"background: transparent; font-size: 10px; font-weight: 700;"
+                    f" color: {COLORS.get('warning', '#f59e0b')}; letter-spacing: 0.06em;"
+                )
+                self._rules_list.addWidget(grp)
+                for b in prot:
+                    self._insert_protection_row(b["name"], True)
+            if unprot:
+                grp2 = QLabel("UNPROTECTED")
+                grp2.setStyleSheet(
+                    f"background: transparent; font-size: 10px; font-weight: 700;"
+                    f" color: {COLORS['text_muted']}; letter-spacing: 0.06em;"
+                    + (f" padding-top: 8px;" if prot else "")
+                )
+                self._rules_list.addWidget(grp2)
+                for b in unprot:
+                    self._insert_protection_row(b["name"], False)
+        elif self._branch_protected_state:
             self._insert_protection_row(*self._branch_protected_state)
 
     def _build_ruleset_card(self, rs: dict) -> QLabel:

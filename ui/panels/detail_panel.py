@@ -761,7 +761,8 @@ class DetailPanel(QWidget):
                             is_merge_commit: bool = False,
                             branch_depth: int = 0,
                             is_remote_branch: bool = False,
-                            is_remote_only: bool = False):
+                            is_remote_only: bool = False,
+                            is_protected: bool = False):
         self._last_action_kwargs = dict(
             branch=branch, parent_sha=parent_sha, has_parent=has_parent,
             is_first_of_branch=is_first_of_branch, is_main=is_main,
@@ -774,7 +775,16 @@ class DetailPanel(QWidget):
         self._action_parent_sha      = parent_sha
         self._action_is_merge_commit = is_merge_commit
         self._is_remote_head         = is_remote_head
-        print(f"[set_commit_actions] branch={branch} is_head={is_head} is_remote_head={is_remote_head} is_remote_only={is_remote_only}")
+        self._current_action_branch  = branch
+        if is_protected:
+            self._protected_branch_name = branch
+        elif self._protected_branch_name == branch:
+            self._protected_branch_name = None
+        self._protected_badge.setVisible(is_protected)
+        self._protected_badge.setToolTip(
+            "This branch is protected on GitHub.\n"
+            "Direct pushes are blocked — use a Pull Request instead."
+            if is_protected else "")
 
         if is_remote_only:
             self._goto_btn.hide()
