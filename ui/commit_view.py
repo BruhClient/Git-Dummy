@@ -195,6 +195,8 @@ class CommitViewPage(_PRMixin, QWidget):
         self._pr_panel.pr_hovered.connect(self._canvas.set_pr_highlight)
         self._pr_panel.pr_cleared.connect(lambda: self._canvas.set_pr_highlight(set()))
         self._pr_panel.merge_requested.connect(self._on_pr_merge_requested)
+        self._pr_panel.toast_requested.connect(lambda msg, kind: self._toast.show_message(msg, kind=kind, duration_ms=4000))
+        self._settings_panel.approval_count_ready.connect(self._pr_panel.set_approval_count)
         self._content_stack.addWidget(self._pr_panel)   # index 2 — Collaboration
 
         # PR Open Wizard — full-screen modal overlay
@@ -1117,6 +1119,7 @@ class CommitViewPage(_PRMixin, QWidget):
 
         all_branches = sorted(
             {c.branch for c in commits if c.branch}
+            | {n for names in branch_tip_map.values() for n in names if n}
         )
 
         self._filter_rebuilding = True
@@ -1938,8 +1941,12 @@ class CommitViewPage(_PRMixin, QWidget):
         self._author_display_map = author_display
 
         collab_names = [e["display_name"] for e in enriched if e.get("display_name")]
+        graph_authors = sorted(
+            {self._author_display_map.get(c.author, c.author) for c in self._commits if c.author}
+            - set(collab_names)
+        )
         self._filter_rebuilding = True
-        self._filter_panel.set_authors(collab_names)
+        self._filter_panel.set_authors(collab_names + graph_authors)
         self._filter_rebuilding = False
 
         self._settings_panel.load_collaborators(enriched, current_login=self._user.get("login", ""))

@@ -54,7 +54,10 @@ class _Loader(QObject):
             commits, branch_tip_map, local_only, unpushed, stash_shas, remote_tip_shas = [], {}, set(), set(), set(), set()
         finally:
             t.close()
-        self.finished.emit(commits, branch_tip_map, local_only, unpushed, stash_shas, remote_tip_shas)
+        try:
+            self.finished.emit(commits, branch_tip_map, local_only, unpushed, stash_shas, remote_tip_shas)
+        except RuntimeError:
+            pass
 
 
 class _CommitDetailWorker(QObject):

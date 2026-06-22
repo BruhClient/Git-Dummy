@@ -282,7 +282,7 @@ class _TabBar(QWidget):
         hl = QHBoxLayout(self)
         hl.setContentsMargins(16, 0, 16, 0)
         hl.setSpacing(0)
-        for key, label in [("schema", "Schema"), ("settings", "Settings"), ("collaboration", "Collaboration")]:
+        for key, label in [("schema", "Schema"), ("settings", "Settings"), ("collaboration", "Pull Requests")]:
             btn = QPushButton(label)
             btn.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
             btn.setCursor(Qt.PointingHandCursor)

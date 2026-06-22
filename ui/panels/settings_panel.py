@@ -313,9 +313,10 @@ class _IconStat(QWidget):
 
 class SettingsPanel(QWidget):
     _repo_info_ready    = pyqtSignal(dict, int)   # thread → main: (repo API data, generation)
-    _rulesets_ready_sig    = pyqtSignal(list, str)  # thread → main: (rulesets, status)
+    _rulesets_ready_sig    = pyqtSignal(list, str, int)  # thread → main: (rulesets, status, min_approvals)
     _branch_protection_sig = pyqtSignal(str, bool)  # thread → main: (branch_name, is_protected)
     protected_branches_ready = pyqtSignal(set)       # emitted with set of protected branch names
+    approval_count_ready     = pyqtSignal(int)       # min required approvals for PRs
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -331,7 +332,7 @@ class SettingsPanel(QWidget):
         self._gen: int = 0
 
         self._repo_info_ready.connect(self._apply_repo_info)
-        self._rulesets_ready_sig.connect(lambda rs, st: self._on_rulesets_ready(rs, st))
+        self._rulesets_ready_sig.connect(lambda rs, st, n: self._on_rulesets_ready(rs, st, n))
         self._branch_protection_sig.connect(self._on_branch_protection)
 
         # Root scroll
@@ -699,6 +700,7 @@ class SettingsPanel(QWidget):
         self._scroll.widget().adjustSize()
         self._scroll.updateGeometry()
 
+
     def _fetch_repo_info(self, gen: int):
         try:
             url = self._tracker.remote_url()
@@ -742,22 +744,46 @@ class SettingsPanel(QWidget):
             pass
 
     def _fetch_rulesets(self, owner: str, repo: str, token: str):
+        headers = {"Authorization": f"Bearer {token}",
+                   "Accept": "application/vnd.github+json"}
         try:
             r = requests.get(
                 f"https://api.github.com/repos/{owner}/{repo}/rulesets",
                 params={"includes_parents": "true"},
-                headers={"Authorization": f"Bearer {token}",
-                         "Accept": "application/vnd.github+json"},
-                timeout=10,
+                headers=headers, timeout=10,
             )
             if r.status_code == 200:
-                self._rulesets_ready_sig.emit(r.json(), "")
+                rulesets = r.json()
+                active_ids = [
+                    rs["id"] for rs in rulesets
+                    if rs.get("enforcement") == "active" and rs.get("target") == "branch"
+                ]
+                max_approvals = 0
+                for rs_id in active_ids:
+                    try:
+                        dr = requests.get(
+                            f"https://api.github.com/repos/{owner}/{repo}/rulesets/{rs_id}",
+                            headers=headers, timeout=10,
+                        )
+                        if dr.status_code == 200:
+                            detail = dr.json()
+                            for rule in detail.get("rules") or []:
+                                if rule.get("type") == "pull_request":
+                                    cnt = (rule.get("parameters") or {}).get(
+                                        "required_approving_review_count", 0)
+                                    max_approvals = max(max_approvals, cnt)
+                            idx = next((i for i, rs in enumerate(rulesets) if rs.get("id") == rs_id), None)
+                            if idx is not None:
+                                rulesets[idx] = detail
+                    except Exception:
+                        pass
+                self._rulesets_ready_sig.emit(rulesets, "", max_approvals)
             elif r.status_code == 403:
-                self._rulesets_ready_sig.emit([], "pro_required")
+                self._rulesets_ready_sig.emit([], "pro_required", 0)
             else:
-                self._rulesets_ready_sig.emit([], "error")
+                self._rulesets_ready_sig.emit([], "error", 0)
         except Exception:
-            self._rulesets_ready_sig.emit([], "error")
+            self._rulesets_ready_sig.emit([], "error", 0)
 
     def _apply_repo_info(self, data: dict, gen: int):
         if gen != self._gen:
@@ -818,7 +844,7 @@ class SettingsPanel(QWidget):
         self._scroll.widget().adjustSize()
         self._scroll.updateGeometry()
 
-    def _on_rulesets_ready(self, rulesets: list, status: str):
+    def _on_rulesets_ready(self, rulesets: list, status: str, min_approvals: int = 0):
         while self._rules_list.count():
             item = self._rules_list.takeAt(0)
             w = item.widget()
@@ -858,6 +884,8 @@ class SettingsPanel(QWidget):
                 for rs in active:
                     self._rules_list.addWidget(self._build_ruleset_card(rs))
 
+        self.approval_count_ready.emit(min_approvals)
+
         # Show all branches in two groups: protected first, then unprotected
         if self._all_branches:
             protected_set = set()
@@ -887,13 +915,39 @@ class SettingsPanel(QWidget):
         elif self._branch_protected_state:
             self._insert_protection_row(*self._branch_protected_state)
 
-    def _build_ruleset_card(self, rs: dict) -> QLabel:
-        name       = rs.get("name") or "Unnamed ruleset"
-        rule_count = len(rs.get("rules") or [])
-        suffix     = f"  ·  {rule_count} rule{'s' if rule_count != 1 else ''}" if rule_count else ""
-        lbl = QLabel(f"• {name}{suffix}")
-        lbl.setStyleSheet(
+    def _build_ruleset_card(self, rs: dict) -> QWidget:
+        name  = rs.get("name") or "Unnamed ruleset"
+        rules = rs.get("rules") or []
+
+        card = QWidget()
+        card.setStyleSheet("background: transparent;")
+        vl = QVBoxLayout(card)
+        vl.setContentsMargins(0, 2, 0, 4)
+        vl.setSpacing(1)
+
+        rule_count = len(rules)
+        suffix = f"  ·  {rule_count} rule{'s' if rule_count != 1 else ''}" if rule_count else ""
+        header = QLabel(f"• {name}{suffix}")
+        header.setStyleSheet(
             f"background: transparent; font-size: 12px; color: {COLORS['text_secondary']};"
         )
-        return lbl
+        vl.addWidget(header)
+
+        for rule in rules:
+            rtype = rule.get("type", "")
+            label = _RULE_LABELS.get(rtype)
+            if not label:
+                continue
+            params = rule.get("parameters") or {}
+            if rtype == "pull_request":
+                cnt = params.get("required_approving_review_count", 0)
+                if cnt:
+                    label += f"  ·  {cnt} approval{'s' if cnt != 1 else ''}"
+            rl = QLabel(f"    {label}")
+            rl.setStyleSheet(
+                f"background: transparent; font-size: 11px; color: {COLORS['text_muted']};"
+            )
+            vl.addWidget(rl)
+
+        return card
 
