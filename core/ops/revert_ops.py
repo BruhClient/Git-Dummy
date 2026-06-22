@@ -49,7 +49,15 @@ def hard_revert_to(path: str, branch: str, target_sha: str, force_push: bool = T
         ["git", "remote", "get-url", "origin"],
         cwd=path, capture_output=True, timeout=5,
     ).returncode == 0
-    if has_remote and force_push:
+    branch_on_remote = False
+    if has_remote:
+        ls = subprocess.run(
+            ["git", "ls-remote", "--heads", "origin", branch],
+            cwd=path, capture_output=True, text=True,
+            encoding="utf-8", errors="replace", timeout=10,
+        )
+        branch_on_remote = ls.returncode == 0 and bool(ls.stdout.strip())
+    if branch_on_remote and force_push:
         r = subprocess.run(
             ["git", "push", "--force", "origin", branch],
             cwd=path, capture_output=True, text=True,

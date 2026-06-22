@@ -1389,6 +1389,13 @@ class CommitViewPage(_PRMixin, QWidget):
     def _on_merge_branch(self, source: str, target: str):
         if not self._tracker or self._panel_op_active:
             return
+        head_sha = self._tracker.head_sha()
+        if self._last_dirty or head_sha in self._last_stash_shas:
+            self._toast.show_message(
+                "Save or clear your unsaved changes before merging.",
+                kind="warning", duration_ms=5000,
+            )
+            return
         self._panel_op_active = True
         self._navigating = True
         self._reload_debounce.stop()
@@ -1804,11 +1811,13 @@ class CommitViewPage(_PRMixin, QWidget):
                 self._start_load()
         self._panel.unlock_actions()
 
-    def _on_branch_create(self, sha: str, branch_name: str):
+    def _on_branch_create(self, sha: str, branch_name: str, move_stash: bool = False):
         if not self._tracker or self._panel_op_active:
             return
         self._panel_op_active = True
         self._reload_debounce.stop()
+        self._branch_move_stash = move_stash
+        self._branch_source_sha = sha
         path = self._tracker._path
         def _run():
             try:
@@ -1823,6 +1832,10 @@ class CommitViewPage(_PRMixin, QWidget):
     def _on_branch_create_done(self, ok: bool, err: str, branch_name: str):
         self._panel_op_active = False
         if ok:
+            if getattr(self, "_branch_move_stash", False) and self._tracker:
+                from core.ops import migrate_stash_after_pull
+                migrate_stash_after_pull(self._tracker._path, self._branch_source_sha)
+                self._branch_move_stash = False
             self._toast.show_message(f"Branch '{branch_name}' created.", kind="success")
             self._panel.hide_panel()           # close stale panel (HEAD has moved to new branch)
             self._last_branch_tips = {}        # force full graph redraw
@@ -2261,7 +2274,12 @@ class CommitViewPage(_PRMixin, QWidget):
         if self._panel._visible:
             panel_sha = getattr(self._panel, "_current_sha", "")
             if panel_sha == head_sha:
-                self._panel.update_uncommitted_files(files)
+                if dirty:
+                    self._panel.update_uncommitted_files(files)
+                elif panel_sha in self._last_stash_shas:
+                    self._panel.refresh_stash_section()
+                else:
+                    self._panel.update_uncommitted_files(files)
             elif stash_changed:
                 self._panel.refresh_stash_section()
 

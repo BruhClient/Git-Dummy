@@ -218,7 +218,7 @@ class DetailPanel(QWidget):
     file_selected        = pyqtSignal(dict)
     stash_file_selected  = pyqtSignal(dict)
     navigate_requested      = pyqtSignal(str)        # commit sha
-    branch_create_requested = pyqtSignal(str, str)   # sha, branch_name
+    branch_create_requested = pyqtSignal(str, str, bool)  # sha, branch_name, move_stash
     push_requested          = pyqtSignal(str)          # branch name (kept for compat)
     pr_open_requested       = pyqtSignal(str)          # branch name → triggers PR wizard
     pull_requested          = pyqtSignal(str)          # branch name
@@ -828,9 +828,22 @@ class DetailPanel(QWidget):
         if dlg.exec_() != CommitMessageDialog.Accepted:
             return
         name = dlg.get_message()
-        if name:
-            self.lock_actions()
-            self.branch_create_requested.emit(sha, name)
+        if not name:
+            return
+        move_stash = False
+        from core.ops import get_stash_ref_for_commit
+        if get_stash_ref_for_commit(self._repo_path, sha):
+            from ui.dialogs.confirm_dialog import ConfirmDialog
+            ask = ConfirmDialog(
+                self,
+                title="Move unsaved changes?",
+                body="This commit has unsaved changes. Move them to the new branch?",
+                confirm_text="Move",
+                danger=False,
+            )
+            move_stash = ask.exec_() == ConfirmDialog.Accepted
+        self.lock_actions()
+        self.branch_create_requested.emit(sha, name, move_stash)
 
     def set_branch_protection(self, protected_branch: str | None):
         self._protected_branch_name = protected_branch
@@ -1005,7 +1018,7 @@ class DetailPanel(QWidget):
         print(f"[_populate_stash_files] {n} files, showing buttons (is_remote_head={getattr(self, '_is_remote_head', '?')})")
         self._stash_label.setText(f"Unsaved  —  {n} file{'s' if n != 1 else ''}")
         self._view_stash_btn.setVisible(n > 0)
-        if not getattr(self, "_is_remote_head", False) and not getattr(self, "_viewer_mode", False):
+        if not getattr(self, "_is_remote_head", False):
             self._clear_stash_btn.setVisible(n > 0)
             self._clear_stash_btn.setEnabled(n > 0)
             self._save_stash_btn.setVisible(n > 0)
@@ -1064,7 +1077,7 @@ class DetailPanel(QWidget):
         n = len(files)
         self._stash_label.setText(f"Unsaved  —  {n} file{'s' if n != 1 else ''}")
         self._view_stash_btn.setVisible(n > 0)
-        if not getattr(self, "_is_remote_head", False) and not getattr(self, "_viewer_mode", False):
+        if not getattr(self, "_is_remote_head", False):
             self._clear_stash_btn.setVisible(n > 0)
             self._clear_stash_btn.setEnabled(n > 0)
             self._save_stash_btn.setVisible(n > 0)
