@@ -9,7 +9,6 @@ from .constants import (   # noqa: F401
 from .lane_algorithm import _branch_base, _compute_lanes  # noqa: F401
 from .graphics_items import (   # noqa: F401
     BranchLabel, CommitNode, EdgeItem, ContributorBadge,
-    _ContributorBadge,  # backward-compat alias
 )
 from .minimap import MiniMap  # noqa: F401
 from .spatial_canvas import SpatialCanvas  # noqa: F401

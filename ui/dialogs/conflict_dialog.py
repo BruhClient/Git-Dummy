@@ -57,10 +57,10 @@ class _ConflictDialog(QWidget):
         top_row = QHBoxLayout()
         top_row.setSpacing(12)
         top_row.setContentsMargins(0, 0, 0, 0)
-        self._type_lbl = QLabel("PUSH CONFLICT")
+        self._type_lbl = QLabel("Push conflict")
         self._type_lbl.setStyleSheet(
-            f"background: transparent; font-size: 10px; font-weight: 700; font-family: 'Tilt Warp';"
-            f" color: {COLORS['warning']}; letter-spacing: 0.08em;"
+            f"background: transparent; font-size: 10px; font-weight: 700;"
+            f" color: {COLORS['warning']};"
         )
         top_row.addWidget(self._type_lbl)
         top_row.addStretch()
@@ -70,7 +70,7 @@ class _ConflictDialog(QWidget):
         # Branches: "local/main  ↔  origin/main"
         self._branch_lbl = QLabel("")
         self._branch_lbl.setStyleSheet(
-            f"background: transparent; font-size: 13px; font-weight: 600; font-family: 'Tilt Warp';"
+            f"background: transparent; font-size: 13px; font-weight: 600;"
             f" color: {COLORS['text_primary']}; font-family: monospace;"
         )
         vl.addWidget(self._branch_lbl)
@@ -100,7 +100,7 @@ class _ConflictDialog(QWidget):
 
         self._diff_file_lbl = QLabel("")
         self._diff_file_lbl.setStyleSheet(
-            f"background: transparent; font-size: 11px; font-weight: 600; font-family: 'Tilt Warp';"
+            f"background: transparent; font-size: 11px; font-weight: 600;"
             f" color: {COLORS['text_primary']}; font-family: monospace;"
         )
         code_vl.addWidget(self._diff_file_lbl)
@@ -165,7 +165,7 @@ class _ConflictDialog(QWidget):
                 QPushButton {{
                     background: transparent; border: 1px solid {color};
                     border-radius: 8px; color: {color};
-                    font-size: 11px; font-weight: 600; font-family: 'Tilt Warp';
+                    font-size: 11px; font-weight: 600;
                 }}
                 QPushButton:hover {{ background: {color}; color: {COLORS['text_on_accent']}; }}
             """)
@@ -192,7 +192,7 @@ class _ConflictDialog(QWidget):
         cancel.clicked.connect(self._cancel)
         vl.addWidget(cancel, 0, Qt.AlignCenter)
 
-    def show_for_branch(self, branch: str, conflict_type: str = "PUSH CONFLICT",
+    def show_for_branch(self, branch: str, conflict_type: str = "Push conflict",
                         conflicting_files: list = None, arrow: str = "→",
                         repo_path: str = "", prefetched_content: dict = None):
         self._branch = branch
@@ -309,16 +309,16 @@ class _PullDirtyDialog(QWidget):
         hdr_vl.setContentsMargins(20, 14, 20, 14)
         hdr_vl.setSpacing(6)
 
-        badge = QLabel("PULL WITH UNSAVED CHANGES")
+        badge = QLabel("Pull with unsaved changes")
         badge.setStyleSheet(
-            f"background: transparent; font-size: 10px; font-weight: 700; font-family: 'Tilt Warp';"
-            f" color: {COLORS['warning']}; letter-spacing: 0.1em;"
+            f"background: transparent; font-size: 10px; font-weight: 700;"
+            f" color: {COLORS['warning']};"
         )
         hdr_vl.addWidget(badge)
 
         self._flow_lbl = QLabel("")
         self._flow_lbl.setStyleSheet(
-            f"background: transparent; font-size: 13px; font-weight: 600; font-family: 'Tilt Warp';"
+            f"background: transparent; font-size: 13px; font-weight: 600;"
             f" color: {COLORS['text_primary']}; font-family: monospace;"
         )
         hdr_vl.addWidget(self._flow_lbl)
@@ -346,7 +346,7 @@ class _PullDirtyDialog(QWidget):
                 QPushButton {{
                     background: transparent; border: 1px solid {color};
                     border-radius: 8px; color: {color};
-                    font-size: 12px; font-weight: 600; font-family: 'Tilt Warp';
+                    font-size: 12px; font-weight: 600;
                 }}
                 QPushButton:hover {{ background: {color}; color: {COLORS['text_on_accent']}; }}
             """)
@@ -447,10 +447,10 @@ class _NavigateDirtyDialog(QWidget):
         hdr_vl.setContentsMargins(20, 14, 20, 14)
         hdr_vl.setSpacing(4)
 
-        badge = QLabel("NAVIGATE WITH UNSAVED CHANGES")
+        badge = QLabel("Navigate with unsaved changes")
         badge.setStyleSheet(
-            f"background: transparent; font-size: 10px; font-weight: 700; font-family: 'Tilt Warp';"
-            f" color: {COLORS['warning']}; letter-spacing: 0.1em;"
+            f"background: transparent; font-size: 10px; font-weight: 700;"
+            f" color: {COLORS['warning']};"
         )
         hdr_vl.addWidget(badge)
         card_vl.addWidget(hdr)
@@ -480,7 +480,7 @@ class _NavigateDirtyDialog(QWidget):
                 QPushButton {{
                     background: transparent; border: 1px solid {color};
                     border-radius: 8px; color: {color};
-                    font-size: 12px; font-weight: 600; font-family: 'Tilt Warp';
+                    font-size: 12px; font-weight: 600;
                 }}
                 QPushButton:hover {{ background: {color}; color: {COLORS['text_on_accent']}; }}
             """)
@@ -572,10 +572,10 @@ class _MergeConflictDialog(QWidget):
         # ── Top row: badge + progress ─────────────────────────────────────────
         top = QHBoxLayout()
         top.setContentsMargins(0, 0, 0, 0)
-        badge = QLabel("MERGE CONFLICT")
+        badge = QLabel("Merge conflict")
         badge.setStyleSheet(
-            f"background: transparent; font-size: 10px; font-weight: 700; font-family: 'Tilt Warp';"
-            f" color: {COLORS['warning']}; letter-spacing: 0.08em;"
+            f"background: transparent; font-size: 10px; font-weight: 700;"
+            f" color: {COLORS['warning']};"
         )
         top.addWidget(badge)
         top.addStretch()
@@ -589,7 +589,7 @@ class _MergeConflictDialog(QWidget):
 
         self._branch_lbl2 = QLabel("")
         self._branch_lbl2.setStyleSheet(
-            f"background: transparent; font-size: 12px; font-weight: 600; font-family: 'Tilt Warp';"
+            f"background: transparent; font-size: 12px; font-weight: 600;"
             f" color: {COLORS['text_primary']}; font-family: monospace;"
         )
         vl.addWidget(self._branch_lbl2)
@@ -606,7 +606,7 @@ class _MergeConflictDialog(QWidget):
         # ── File name ─────────────────────────────────────────────────────────
         self._file_lbl2 = QLabel("")
         self._file_lbl2.setStyleSheet(
-            f"background: transparent; font-size: 12px; font-weight: 700; font-family: 'Tilt Warp';"
+            f"background: transparent; font-size: 12px; font-weight: 700;"
             f" color: {COLORS['text_primary']}; font-family: monospace;"
         )
         vl.addWidget(self._file_lbl2)
@@ -655,7 +655,7 @@ class _MergeConflictDialog(QWidget):
                 QPushButton {{
                     background: transparent; border: 1px solid {color};
                     border-radius: 8px; color: {color};
-                    font-size: 11px; font-weight: 600; font-family: 'Tilt Warp';
+                    font-size: 11px; font-weight: 600;
                 }}
                 QPushButton:hover {{ background: {color}; color: {COLORS['text_on_accent']}; }}
                 QPushButton:disabled {{ border-color: {COLORS['border']}; color: {COLORS['text_muted']}; }}
@@ -671,7 +671,7 @@ class _MergeConflictDialog(QWidget):
                 QPushButton {{
                     background: transparent; border: 1px solid {COLORS['border']};
                     border-radius: 8px; color: {COLORS['text_muted']};
-                    font-size: 14px; font-weight: 600; font-family: 'Tilt Warp';
+                    font-size: 14px; font-weight: 600;
                 }}
                 QPushButton:hover {{ border-color: {COLORS['accent']}; color: {COLORS['accent']}; }}
                 QPushButton:disabled {{ color: {COLORS['border']}; border-color: {COLORS['border']}; }}
@@ -700,7 +700,7 @@ class _MergeConflictDialog(QWidget):
             QPushButton {{
                 background: {COLORS['accent']}; border: none;
                 border-radius: 8px; color: {COLORS['text_on_accent']};
-                font-size: 12px; font-weight: 700; font-family: 'Tilt Warp';
+                font-size: 12px; font-weight: 700;
             }}
             QPushButton:hover {{ background: {COLORS['accent_hover']}; }}
             QPushButton:disabled {{ background: {COLORS['bg_secondary']}; color: {COLORS['text_muted']}; }}
@@ -769,26 +769,26 @@ class _MergeConflictDialog(QWidget):
         if decision == "ours":
             self._acc_orig_btn.setStyleSheet(f"""
                 QPushButton {{ background: {COLORS['text_secondary']}; border: 1px solid {COLORS['text_secondary']};
-                    border-radius: 8px; color: {COLORS['text_on_accent']}; font-size: 11px; font-weight: 600; font-family: 'Tilt Warp'; }}
+                    border-radius: 8px; color: {COLORS['text_on_accent']}; font-size: 11px; font-weight: 600; }}
                 QPushButton:hover {{ background: {COLORS['text_primary']}; border-color: {COLORS['text_primary']}; }}
             """)
         else:
             self._acc_orig_btn.setStyleSheet(f"""
                 QPushButton {{ background: transparent; border: 1px solid {COLORS['text_secondary']};
-                    border-radius: 8px; color: {COLORS['text_secondary']}; font-size: 11px; font-weight: 600; font-family: 'Tilt Warp'; }}
+                    border-radius: 8px; color: {COLORS['text_secondary']}; font-size: 11px; font-weight: 600; }}
                 QPushButton:hover {{ background: {COLORS['text_secondary']}; color: {COLORS['text_on_accent']}; }}
             """)
         # Incoming button
         if decision == "theirs":
             self._acc_inc_btn.setStyleSheet(f"""
                 QPushButton {{ background: {COLORS['accent']}; border: 1px solid {COLORS['accent']};
-                    border-radius: 8px; color: {COLORS['text_on_accent']}; font-size: 11px; font-weight: 600; font-family: 'Tilt Warp'; }}
+                    border-radius: 8px; color: {COLORS['text_on_accent']}; font-size: 11px; font-weight: 600; }}
                 QPushButton:hover {{ background: {COLORS['accent_hover']}; }}
             """)
         else:
             self._acc_inc_btn.setStyleSheet(f"""
                 QPushButton {{ background: transparent; border: 1px solid {COLORS['accent']};
-                    border-radius: 8px; color: {COLORS['accent']}; font-size: 11px; font-weight: 600; font-family: 'Tilt Warp'; }}
+                    border-radius: 8px; color: {COLORS['accent']}; font-size: 11px; font-weight: 600; }}
                 QPushButton:hover {{ background: {COLORS['accent']}; color: {COLORS['text_on_accent']}; }}
             """)
 

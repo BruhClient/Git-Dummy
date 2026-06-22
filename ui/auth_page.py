@@ -10,7 +10,7 @@ from PyQt5.QtWidgets import (
     QFrame, QSpacerItem, QScrollArea, QLineEdit,
 )
 from styles.theme import (
-    COLORS, BTN_PRIMARY, BTN_SECONDARY, GLOBAL_STYLE,
+    COLORS, BTN_PRIMARY, BTN_SECONDARY, GLOBAL_STYLE, LOGO_FONT,
 )
 from auth.github_auth import PAT_CREATE_URL
 
@@ -21,8 +21,15 @@ class LogoMark(QLabel):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setFixedSize(48, 48)
-        _logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "logo", "optimised_logo1.png")
+        _logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "logo", "optimised_logo1-removebg.png")
         src = QPixmap(_logo_path).scaled(48, 48, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        tinted = QPixmap(src.size())
+        tinted.fill(Qt.transparent)
+        tp = QPainter(tinted)
+        tp.drawPixmap(0, 0, src)
+        tp.setCompositionMode(QPainter.CompositionMode_SourceIn)
+        tp.fillRect(tinted.rect(), QColor(COLORS["accent"]))
+        tp.end()
         rounded = QPixmap(48, 48)
         rounded.fill(Qt.transparent)
         painter = QPainter(rounded)
@@ -30,7 +37,7 @@ class LogoMark(QLabel):
         clip = QPainterPath()
         clip.addRoundedRect(0, 0, 48, 48, 10, 10)
         painter.setClipPath(clip)
-        painter.drawPixmap(0, 0, src)
+        painter.drawPixmap(0, 0, tinted)
         painter.end()
         self.setPixmap(rounded)
 
@@ -70,7 +77,7 @@ class AuthPage(QWidget):
         logo_row.setSpacing(12)
         logo_row.addWidget(LogoMark())
         app_name = QLabel("Evo Git")
-        app_name.setStyleSheet(f"background: transparent; font-size: 20px; font-weight: 700; font-family: 'Tilt Warp'; color: {COLORS['text_primary']};")
+        app_name.setStyleSheet(f"background: transparent; font-size: 20px; font-weight: 700; font-family: {LOGO_FONT}; color: {COLORS['text_primary']};")
         logo_row.addWidget(app_name)
         logo_row.addStretch()
         left_layout.addLayout(logo_row)
@@ -78,7 +85,7 @@ class AuthPage(QWidget):
         left_layout.addSpacerItem(QSpacerItem(0, 48, QSizePolicy.Minimum, QSizePolicy.Fixed))
 
         tagline = QLabel("Every change you've made,\nbeautifully visualised.")
-        tagline.setStyleSheet(f"background: transparent; font-size: 28px; font-weight: 700; font-family: 'Tilt Warp'; color: {COLORS['text_primary']}; line-height: 1.3;")
+        tagline.setStyleSheet(f"background: transparent; font-size: 28px; font-weight: 700; color: {COLORS['text_primary']}; line-height: 1.3;")
         tagline.setWordWrap(True)
         left_layout.addWidget(tagline)
 
@@ -147,7 +154,7 @@ class AuthPage(QWidget):
         sb_layout.setSpacing(14)
 
         title = QLabel("Sign in")
-        title.setStyleSheet(f"background: transparent; font-size: 22px; font-weight: 700; font-family: 'Tilt Warp'; color: {COLORS['text_primary']};")
+        title.setStyleSheet(f"background: transparent; font-size: 22px; font-weight: 700; color: {COLORS['text_primary']};")
         sb_layout.addWidget(title)
 
         desc = QLabel("Paste a GitHub Personal Access Token\nto get started.")

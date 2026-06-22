@@ -72,7 +72,7 @@ def _pill_style(color: str, fill: bool = False) -> str:
         return f"""
             QPushButton {{
                 background: {color}; border: none; border-radius: 12px;
-                font-size: 11px; font-weight: 600; font-family: 'Tilt Warp';
+                font-size: 11px; font-weight: 600;
                 color: {COLORS['text_on_accent']}; padding: 0 14px;
             }}
             QPushButton:hover {{ opacity: 0.85; }}
@@ -80,7 +80,7 @@ def _pill_style(color: str, fill: bool = False) -> str:
     return f"""
         QPushButton {{
             background: transparent; border: 1px solid {color}; border-radius: 12px;
-            font-size: 11px; font-weight: 600; font-family: 'Tilt Warp';
+            font-size: 11px; font-weight: 600;
             color: {color}; padding: 0 14px;
         }}
         QPushButton:hover {{ background: {color}; color: {COLORS['text_on_accent']}; }}
@@ -127,7 +127,7 @@ class _PRRow(QWidget):
 
         title = QLabel(pr.get("title", "(untitled)"))
         title.setStyleSheet(
-            f"{_lbl_base} font-size: 13px; font-weight: 600; font-family: 'Tilt Warp';"
+            f"{_lbl_base} font-size: 13px; font-weight: 600;"
             f" color: {COLORS['text_primary']};"
         )
         title.setWordWrap(True)
@@ -586,7 +586,7 @@ class PullRequestsPanel(QWidget):
             return f"""
                 QPushButton {{
                     background: {COLORS['accent_dim']}; border: 1px solid {COLORS['accent']};
-                    border-radius: 5px; font-size: 11px; font-weight: 600; font-family: 'Tilt Warp';
+                    border-radius: 5px; font-size: 11px; font-weight: 600;
                     color: {COLORS['accent']}; padding: 0 12px;
                 }}
             """

@@ -14,7 +14,7 @@ from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QFileDialog, QScrollArea, QFrame, QSizePolicy, QGridLayout,
 )
-from styles.theme import COLORS
+from styles.theme import COLORS, card_shadow
 from core import repo_store
 from ui.dialogs import alert
 from ui.dialogs.clone_dialog import CloneDialog
@@ -141,7 +141,7 @@ class DropZone(QWidget):
         self._title = QLabel("Drop a project folder here")
         self._title.setAlignment(Qt.AlignCenter)
         self._title.setStyleSheet(
-            f"background: transparent; font-size: 15px; font-weight: 600; font-family: 'Tilt Warp'; color: {COLORS['text_secondary']};"
+            f"background: transparent; font-size: 15px; font-weight: 600; color: {COLORS['text_secondary']};"
         )
         layout.addWidget(self._title)
 
@@ -174,7 +174,7 @@ class DropZone(QWidget):
             f"background: transparent; font-size: 32px; color: {accent if active else muted};"
         )
         self._title.setStyleSheet(
-            f"background: transparent; font-size: 15px; font-weight: 600; font-family: 'Tilt Warp'; "
+            f"background: transparent; font-size: 15px; font-weight: 600; "
             f"color: {accent if active else secondary};"
         )
         self.update()
@@ -207,6 +207,7 @@ class RepoCard(QWidget):
         self.setFixedHeight(120)
         self._hovered = False
         self._apply_style(False)
+        card_shadow(self)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(16, 14, 16, 14)
@@ -218,7 +219,7 @@ class RepoCard(QWidget):
         name_label = QLabel(os.path.basename(self._path))
         name_label.setStyleSheet(
             f"font-size: 15px; font-weight: 700;"
-            f" font-family: 'Tilt Warp'; color: {COLORS['text_primary']};"
+            f" color: {COLORS['text_primary']};"
         )
         name_label.setAttribute(Qt.WA_TransparentForMouseEvents, True)
         top_row.addWidget(name_label)
@@ -391,7 +392,7 @@ class MissingRepoCard(QWidget):
         info.setSpacing(2)
         name_label = QLabel(os.path.basename(self._path))
         name_label.setStyleSheet(
-            f"background: transparent; font-size: 14px; font-weight: 600; font-family: 'Tilt Warp'; color: {COLORS['text_muted']};"
+            f"background: transparent; font-size: 14px; font-weight: 600; color: {COLORS['text_muted']};"
         )
         path_label = QLabel(self._path)
         path_label.setStyleSheet(f"background: transparent; font-size: 12px; color: {COLORS['text_muted']};")
@@ -402,8 +403,7 @@ class MissingRepoCard(QWidget):
 
         missing_badge = QLabel(" not found ")
         missing_badge.setStyleSheet(f"""
-            font-size: 11px; font-weight: 600; font-family: 'Tilt Warp';
-            color: {COLORS['warning']}; background: {COLORS['warning_dim']};
+            font-size: 11px; font-weight: 600;            color: {COLORS['warning']}; background: {COLORS['warning_dim']};
             border-radius: 4px; padding: 2px 8px;
         """)
         layout.addWidget(missing_badge)
@@ -478,7 +478,7 @@ class RepoPage(QWidget):
 
         title = QLabel("Your Projects")
         title.setStyleSheet(
-            f"background: transparent; font-size: 22px; font-weight: 700; font-family: 'Tilt Warp'; color: {COLORS['text_primary']};"
+            f"background: transparent; font-size: 22px; font-weight: 700; color: {COLORS['text_primary']};"
         )
         header_row.addWidget(title)
         header_row.addStretch()
@@ -492,7 +492,7 @@ class RepoPage(QWidget):
             QPushButton {{
                 background: transparent; border: 1px solid {COLORS['border']};
                 border-radius: 8px; color: {COLORS['text_secondary']};
-                font-size: 13px; font-weight: 600; font-family: 'Tilt Warp'; padding: 0 14px;
+                font-size: 13px; font-weight: 600; padding: 0 14px;
             }}
             QPushButton:hover {{ border-color: {COLORS['accent']}; color: {COLORS['accent']}; }}
         """)

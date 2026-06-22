@@ -1,7 +1,6 @@
 """Main commit detail panel — slides in from the right."""
 from __future__ import annotations
 
-import hashlib
 import threading
 
 import qtawesome as qta
@@ -13,34 +12,15 @@ from PyQt5.QtWidgets import (
     QFrame, QLineEdit,
 )
 
-from styles.theme import COLORS, scrollbar_style
+from styles.theme import COLORS, scrollbar_style, hash_color
 from ui.dialogs import confirm
-from ui.dialogs.message_dialog import _CommitMessageDialog
+from ui.dialogs.message_dialog import CommitMessageDialog
 from .diff_renderer import (
     _VScrollArea, _trunc, _close_btn_style,
     _STATUS_COLOR, _MiniBar, _fade_in, _fade_out_and_remove, _divider, _Row,
     PANEL_W, CHANGES_W, SWIPE_THRESHOLD,
 )
 from .all_changes_popup import AllChangesPopup
-
-# Roles that can act directly on main; write-level users get the branch redirect.
-
-_PALETTE = [
-    "#6366f1", "#f59e0b", "#ef4444", "#8b5cf6",
-    "#06b6d4", "#f97316", "#ec4899", "#14b8a6",
-    "#84cc16", "#a78bfa",
-]
-
-def _author_color(name: str) -> str:
-    idx = int(hashlib.md5(name.encode()).hexdigest(), 16) % len(_PALETTE)
-    return _PALETTE[idx]
-
-_STATUS_LABEL = {
-    "added":    "Added",
-    "deleted":  "Deleted",
-    "modified": "Edited",
-    "renamed":  "Renamed",
-}
 
 
 class _HeaderAvatar(QWidget):
@@ -57,7 +37,7 @@ class _HeaderAvatar(QWidget):
 
     def set_author(self, name: str, avatar_url: str = ""):
         self._initials = (name[:1] + (name.split()[-1][:1] if " " in name else "")).upper()
-        self._color    = QColor(_author_color(name))
+        self._color    = QColor(hash_color(name))
         self._pixmap   = None
         self.update()
         if avatar_url:
@@ -98,7 +78,7 @@ class _HeaderAvatar(QWidget):
             p.drawEllipse(0, 0, s, s)
             p.setClipping(False)
             p.setPen(QPen(self._color))
-            p.setFont(QFont("Tilt Warp", s // 4, QFont.Bold))
+            p.setFont(QFont("Urbanist", s // 4, QFont.Bold))
             p.drawText(self.rect(), Qt.AlignCenter, self._initials)
 
         p.setClipping(False)
@@ -149,7 +129,7 @@ class _FileCard(QWidget):
         name_lbl = QLabel(_trunc(info["name"], 36))
         name_lbl.setToolTip(info["name"])
         name_lbl.setStyleSheet(
-            f"background: transparent; font-size: 12px; font-weight: 600; font-family: 'Tilt Warp';"
+            f"background: transparent; font-size: 12px; font-weight: 600;"
             f" color: {COLORS['text_primary']};"
         )
         nb.addWidget(name_lbl)
@@ -303,11 +283,11 @@ class DetailPanel(QWidget):
 
         self._header_name = QLabel("—")
         self._header_name.setStyleSheet(
-            f"background: transparent; font-size: 14px; font-weight: 600; font-family: 'Tilt Warp'; color: {COLORS['text_primary']};"
+            f"background: transparent; font-size: 14px; font-weight: 600; color: {COLORS['text_primary']};"
         )
         self._header_branch = QLabel("—")
         self._header_branch.setStyleSheet(
-            f"background: transparent; font-size: 11px; color: {COLORS['text_muted']}; letter-spacing: 0.02em;"
+            f"background: transparent; font-size: 11px; color: {COLORS['text_muted']};"
         )
         _warn = COLORS.get("warning", "#f59e0b")
         self._protected_badge = QWidget()
@@ -370,9 +350,9 @@ class DetailPanel(QWidget):
         content_layout.addWidget(self._date)
         content_layout.addWidget(_divider())
 
-        msg_label = QLabel("DESCRIPTION")
+        msg_label = QLabel("Description")
         msg_label.setStyleSheet(
-            f"background: transparent; font-size: 10px; font-weight: 600; font-family: 'Tilt Warp'; color: {COLORS['text_muted']}; letter-spacing: 0.07em;"
+            f"background: transparent; font-size: 10px; font-weight: 600; color: {COLORS['text_muted']};"
         )
         content_layout.addWidget(msg_label)
 
@@ -390,7 +370,7 @@ class DetailPanel(QWidget):
         self._goto_btn.setStyleSheet(f"""
             QPushButton {{
                 background: {COLORS['accent']}; border: none; border-radius: 8px;
-                color: {COLORS['text_on_accent']}; font-size: 12px; font-weight: 600; font-family: 'Tilt Warp'; padding: 9px 16px;
+                color: {COLORS['text_on_accent']}; font-size: 12px; font-weight: 600; padding: 9px 16px;
             }}
             QPushButton:hover {{ background: {COLORS['accent_dim']}; }}
         """)
@@ -406,7 +386,7 @@ class DetailPanel(QWidget):
                 border: 1px solid {COLORS['border']};
                 border-radius: 8px;
                 color: {COLORS['text_secondary']};
-                font-size: 12px; font-weight: 600; font-family: 'Tilt Warp'; padding: 9px 16px;
+                font-size: 12px; font-weight: 600; padding: 9px 16px;
             }}
             QPushButton:hover {{
                 border-color: {COLORS['accent']};
@@ -425,7 +405,7 @@ class DetailPanel(QWidget):
                 border: 1px solid {COLORS['border']};
                 border-radius: 8px;
                 color: {COLORS['text_secondary']};
-                font-size: 12px; font-weight: 600; font-family: 'Tilt Warp'; padding: 9px 16px;
+                font-size: 12px; font-weight: 600; padding: 9px 16px;
             }}
             QPushButton:hover {{
                 border-color: {COLORS['accent']};
@@ -445,7 +425,7 @@ class DetailPanel(QWidget):
                 border: 1px solid {COLORS['border']};
                 border-radius: 8px;
                 color: {COLORS['text_secondary']};
-                font-size: 12px; font-weight: 600; font-family: 'Tilt Warp'; padding: 9px 16px;
+                font-size: 12px; font-weight: 600; padding: 9px 16px;
             }}
             QPushButton:hover {{
                 border-color: {COLORS['accent']};
@@ -465,7 +445,7 @@ class DetailPanel(QWidget):
                 border: 1px solid {COLORS['border']};
                 border-radius: 8px;
                 color: {COLORS['text_secondary']};
-                font-size: 12px; font-weight: 600; font-family: 'Tilt Warp'; padding: 9px 16px;
+                font-size: 12px; font-weight: 600; padding: 9px 16px;
             }}
             QPushButton:hover {{
                 border-color: {COLORS['accent']};
@@ -480,7 +460,7 @@ class DetailPanel(QWidget):
         def _action_style(color: str) -> str:
             return (f"QPushButton {{ background: transparent;"
                     f" border: 1px solid {color}; border-radius: 8px;"
-                    f" color: {color}; font-size: 12px; font-weight: 600; font-family: 'Tilt Warp'; padding: 9px 16px; }}"
+                    f" color: {color}; font-size: 12px; font-weight: 600; padding: 9px 16px; }}"
                     f"QPushButton:hover {{ background: {color}; color: {COLORS['text_on_accent']}; }}"
                     f"QPushButton:disabled {{ border-color: {COLORS['border']};"
                     f" color: {COLORS['text_muted']}; }}")
@@ -520,7 +500,7 @@ class DetailPanel(QWidget):
             QPushButton {{
                 background: transparent; border: 1px solid {COLORS['border']};
                 border-radius: 8px; color: {COLORS['text_secondary']};
-                font-size: 12px; font-weight: 600; font-family: 'Tilt Warp'; padding: 9px 16px;
+                font-size: 12px; font-weight: 600; padding: 9px 16px;
             }}
             QPushButton:hover {{ border-color: {COLORS['accent']}; color: {COLORS['accent']}; }}
             QPushButton:disabled {{ color: {COLORS['text_muted']}; }}
@@ -549,10 +529,10 @@ class DetailPanel(QWidget):
         stash_hl.setContentsMargins(0, 0, 0, 0)
         stash_hl.setSpacing(0)
 
-        self._stash_label = QLabel("UNSAVED")
+        self._stash_label = QLabel("Unsaved")
         self._stash_label.setStyleSheet(
-            f"background: transparent; font-size: 10px; font-weight: 600; font-family: 'Tilt Warp';"
-            f" color: {COLORS['warning']}; letter-spacing: 0.07em;"
+            f"background: transparent; font-size: 10px; font-weight: 600;"
+            f" color: {COLORS['warning']};"
         )
         stash_hl.addWidget(self._stash_label)
         stash_hl.addStretch()
@@ -589,10 +569,10 @@ class DetailPanel(QWidget):
         fhl.setContentsMargins(0, 0, 0, 0)
         fhl.setSpacing(0)
 
-        self._files_label = QLabel("CHANGES")
+        self._files_label = QLabel("Changes")
         self._files_label.setStyleSheet(
-            f"background: transparent; font-size: 10px; font-weight: 600; font-family: 'Tilt Warp';"
-            f" color: {COLORS['text_muted']}; letter-spacing: 0.07em;"
+            f"background: transparent; font-size: 10px; font-weight: 600;"
+            f" color: {COLORS['text_muted']};"
         )
         fhl.addWidget(self._files_label)
         fhl.addStretch()
@@ -636,7 +616,7 @@ class DetailPanel(QWidget):
         self._file_cards: list[_FileCard] = []
         self._selected_card: _FileCard | None = None
         n = len(files)
-        self._files_label.setText(f"CHANGES  —  {n} file{'s' if n != 1 else ''}")
+        self._files_label.setText(f"Changes  —  {n} file{'s' if n != 1 else ''}")
         self._view_all_btn.setVisible(n > 0)
         for info in files:
             card = _FileCard(info)
@@ -745,8 +725,8 @@ class DetailPanel(QWidget):
         stash_ref = getattr(self, "_stash_ref", "")
         if not sha:
             return
-        dlg = _CommitMessageDialog(self)
-        if dlg.exec_() != _CommitMessageDialog.Accepted:
+        dlg = CommitMessageDialog(self)
+        if dlg.exec_() != CommitMessageDialog.Accepted:
             return
         msg = dlg.get_message()
         if not msg:
@@ -843,9 +823,9 @@ class DetailPanel(QWidget):
         sha = getattr(self, "_current_sha", None)
         if not sha:
             return
-        dlg = _CommitMessageDialog(self, title="Create Branch",
+        dlg = CommitMessageDialog(self, title="Create Branch",
                                    placeholder="Branch name…")
-        if dlg.exec_() != _CommitMessageDialog.Accepted:
+        if dlg.exec_() != CommitMessageDialog.Accepted:
             return
         name = dlg.get_message()
         if name:
@@ -952,7 +932,7 @@ class DetailPanel(QWidget):
                 border: {'1px solid ' + COLORS['border'] if is_current else 'none'};
                 border-radius: 8px;
                 color: {COLORS['text_muted'] if is_current else COLORS['text_on_accent']};
-                font-size: 12px; font-weight: 600; font-family: 'Tilt Warp'; padding: 9px 16px;
+                font-size: 12px; font-weight: 600; padding: 9px 16px;
             }}
             QPushButton:hover {{
                 background: {COLORS['bg_hover'] if is_current else COLORS['accent_dim']};
@@ -1023,7 +1003,7 @@ class DetailPanel(QWidget):
 
         n = len(files)
         print(f"[_populate_stash_files] {n} files, showing buttons (is_remote_head={getattr(self, '_is_remote_head', '?')})")
-        self._stash_label.setText(f"UNSAVED  —  {n} file{'s' if n != 1 else ''}")
+        self._stash_label.setText(f"Unsaved  —  {n} file{'s' if n != 1 else ''}")
         self._view_stash_btn.setVisible(n > 0)
         if not getattr(self, "_is_remote_head", False) and not getattr(self, "_viewer_mode", False):
             self._clear_stash_btn.setVisible(n > 0)
@@ -1082,7 +1062,7 @@ class DetailPanel(QWidget):
         self._stash_data = files
 
         n = len(files)
-        self._stash_label.setText(f"UNSAVED  —  {n} file{'s' if n != 1 else ''}")
+        self._stash_label.setText(f"Unsaved  —  {n} file{'s' if n != 1 else ''}")
         self._view_stash_btn.setVisible(n > 0)
         if not getattr(self, "_is_remote_head", False) and not getattr(self, "_viewer_mode", False):
             self._clear_stash_btn.setVisible(n > 0)
@@ -1132,7 +1112,7 @@ class DetailPanel(QWidget):
 
         n = len(files)
         if files:
-            self._stash_label.setText(f"UNSAVED  —  {n} file{'s' if n != 1 else ''}")
+            self._stash_label.setText(f"Unsaved  —  {n} file{'s' if n != 1 else ''}")
             self._view_stash_btn.setVisible(True)
             self._clear_stash_btn.setVisible(True)
             self._clear_stash_btn.setEnabled(True)

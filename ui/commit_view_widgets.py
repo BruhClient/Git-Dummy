@@ -72,7 +72,7 @@ class _FilterPanel(QWidget):
         hl.setContentsMargins(14, 0, 8, 0)
         title_lbl = QLabel("Filters")
         title_lbl.setStyleSheet(
-            f"background: transparent; font-size: 12px; font-weight: 600; font-family: 'Tilt Warp';"
+            f"background: transparent; font-size: 12px; font-weight: 600;"
             f" color: {COLORS['text_muted']};"
         )
         hl.addWidget(title_lbl)
@@ -94,10 +94,10 @@ class _FilterPanel(QWidget):
         body.setContentsMargins(12, 8, 12, 12)
         body.setSpacing(4)
 
-        bl = QLabel("BRANCHES")
+        bl = QLabel("Branches")
         bl.setStyleSheet(
-            f"background: transparent; font-size: 10px; font-weight: 700; font-family: 'Tilt Warp';"
-            f" color: {COLORS['text_muted']}; letter-spacing: 0.06em;"
+            f"background: transparent; font-size: 10px; font-weight: 700;"
+            f" color: {COLORS['text_muted']};"
         )
         body.addWidget(bl)
 
@@ -122,10 +122,10 @@ class _FilterPanel(QWidget):
         div.setStyleSheet(f"background: {COLORS['border']}; max-height: 1px; margin: 4px 0;")
         body.addWidget(div)
 
-        al = QLabel("COLLABORATORS")
+        al = QLabel("Collaborators")
         al.setStyleSheet(
-            f"background: transparent; font-size: 10px; font-weight: 700; font-family: 'Tilt Warp';"
-            f" color: {COLORS['text_muted']}; letter-spacing: 0.06em;"
+            f"background: transparent; font-size: 10px; font-weight: 700;"
+            f" color: {COLORS['text_muted']};"
         )
         body.addWidget(al)
 
@@ -222,7 +222,7 @@ class _OrientBar(QWidget):
     _ACTIVE = f"""
         QPushButton {{
             background: {COLORS['accent']}; border: none; border-radius: 6px;
-            color: white; font-size: 14px; font-weight: 600; font-family: 'Tilt Warp';
+            color: white; font-size: 14px; font-weight: 600;
         }}
     """
     _INACTIVE = f"""
@@ -384,7 +384,7 @@ class _CreateRemoteDialog(QWidget):
         self._title_lbl = QLabel()
         self._title_lbl.setStyleSheet(
             f"background: transparent; border: none; font-size: 15px; font-weight: 700;"
-            f" font-family: 'Tilt Warp'; color: {COLORS['text_primary']};"
+            f" color: {COLORS['text_primary']};"
         )
         self._title_lbl.setWordWrap(True)
         inner.addWidget(self._title_lbl)
@@ -470,7 +470,7 @@ class _CreateRemoteDialog(QWidget):
             QPushButton {{
                 background: {COLORS['accent']}; border: none;
                 border-radius: 6px; color: #fff;
-                font-size: 13px; font-weight: 600; font-family: 'Tilt Warp'; padding: 0 16px;
+                font-size: 13px; font-weight: 600; padding: 0 16px;
             }}
             QPushButton:hover {{ background: {COLORS['accent_hover']}; }}
             QPushButton:disabled {{ background: {COLORS['border']}; color: {COLORS['text_muted']}; }}
@@ -501,7 +501,7 @@ class _CreateRemoteDialog(QWidget):
         self._apply_toggle_style()
 
     def _apply_toggle_style(self):
-        active   = f"background: {COLORS['accent']}; border: none; border-radius: 6px; color: #fff; font-size: 12px; font-weight: 600; font-family: 'Tilt Warp';"
+        active   = f"background: {COLORS['accent']}; border: none; border-radius: 6px; color: #fff; font-size: 12px; font-weight: 600;"
         inactive = f"background: transparent; border: 1px solid {COLORS['border']}; border-radius: 6px; color: {COLORS['text_muted']}; font-size: 12px;"
         self._priv_btn.setStyleSheet(f"QPushButton {{ {active if self._is_private else inactive} }}")
         self._pub_btn.setStyleSheet(f"QPushButton {{ {inactive if self._is_private else active} }}")

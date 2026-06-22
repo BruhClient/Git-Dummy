@@ -24,16 +24,16 @@ ORIENT_RL = "RL"   # right → left  (newest at left)
 
 # ── Branch colours ─────────────────────────────────────────────────────────────
 PALETTE = [
-    "#6366f1",  # indigo
-    "#f59e0b",  # amber
-    "#ef4444",  # red
-    "#8b5cf6",  # violet
-    "#06b6d4",  # cyan
-    "#f97316",  # orange
-    "#ec4899",  # pink
-    "#14b8a6",  # teal
-    "#84cc16",  # lime
-    "#a78bfa",  # purple
+    "#7c83db",  # soft indigo
+    "#d4a24e",  # warm amber
+    "#c86a6a",  # soft rose
+    "#9a7fd1",  # lavender
+    "#4fb8c9",  # soft teal
+    "#d48a54",  # warm copper
+    "#c97ba3",  # dusty pink
+    "#54b09e",  # sage
+    "#8fb85c",  # soft olive
+    "#a994d4",  # soft purple
 ]
 
 

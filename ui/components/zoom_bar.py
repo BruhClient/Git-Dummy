@@ -14,7 +14,7 @@ class ZoomBar(QWidget):
         QPushButton {{
             background: transparent; border: none;
             color: {COLORS['text_secondary']};
-            font-size: 16px; font-weight: 600; font-family: 'Tilt Warp'; padding: 0 4px;
+            font-size: 16px; font-weight: 600; padding: 0 4px;
         }}
         QPushButton:hover {{ color: {COLORS['text_primary']}; }}
         QPushButton:disabled {{ color: {COLORS['text_muted']}; }}

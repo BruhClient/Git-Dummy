@@ -1,31 +1,32 @@
 FONT_FAMILY   = "Urbanist, Inter, Segoe UI, system-ui, sans-serif"
-DISPLAY_FONT  = "'Tilt Warp', system-ui, sans-serif"
+DISPLAY_FONT  = "Urbanist, Inter, Segoe UI, system-ui, sans-serif"
+LOGO_FONT     = "'Tilt Warp', system-ui, sans-serif"
 
 COLORS: dict[str, str] = {
-    "bg_primary":    "#0f0f0f",
-    "bg_secondary":  "#1a1a1a",
-    "bg_card":       "#1c1c1c",
+    "bg_primary":    "#141414",
+    "bg_secondary":  "#1c1c1c",
+    "bg_card":       "#202020",
     "bg_hover":      "#2a2a2a",
-    "bg_sidebar":    "#111111",
-    "border":        "#2e2e2e",
-    "text_primary":  "#ededed",
-    "text_secondary":"#a1a1a1",
-    "text_muted":    "#666666",
+    "bg_sidebar":    "#121212",
+    "border":        "#303030",
+    "text_primary":  "#e8e6e3",
+    "text_secondary":"#a3a09c",
+    "text_muted":    "#6b6865",
     "text_on_accent":"#ffffff",
-    "danger":        "#e53e3e",
-    "danger_dim":    "#2d1515",
-    "danger_border": "#4a2020",
-    "warning":       "#d69e2e",
-    "warning_dim":   "#2d2010",
-    "info":          "#3182ce",
-    "commit_line":   "#2e2e2e",
-    "border_focus":  "#e05535",
-    "accent":        "#e05535",
-    "accent_hover":  "#c44828",
-    "accent_dim":    "#3d1a0e",
-    "commit_node":   "#e05535",
-    "tag_bg":        "#3d1a0e",
-    "tag_text":      "#e05535",
+    "danger":        "#d65d5d",
+    "danger_dim":    "#2d1919",
+    "danger_border": "#4a2424",
+    "warning":       "#c9a044",
+    "warning_dim":   "#2d2414",
+    "info":          "#5a9fd4",
+    "commit_line":   "#303030",
+    "border_focus":  "#d4775c",
+    "accent":        "#d4775c",
+    "accent_hover":  "#c06a52",
+    "accent_dim":    "#2e1f1a",
+    "commit_node":   "#d4775c",
+    "tag_bg":        "#2e1f1a",
+    "tag_text":      "#d4775c",
 }
 
 
@@ -162,8 +163,8 @@ QPushButton {{
     background-color: {COLORS['accent']};
     color: {COLORS['text_on_accent']};
     border: none;
-    border-radius: 6px;
-    padding: 10px 20px;
+    border-radius: 8px;
+    padding: 11px 22px;
     font-size: 14px;
     font-weight: 600;
 }}
@@ -185,8 +186,8 @@ QPushButton {{
     background-color: transparent;
     color: {COLORS['text_primary']};
     border: 1px solid {COLORS['border']};
-    border-radius: 6px;
-    padding: 10px 20px;
+    border-radius: 8px;
+    padding: 11px 22px;
     font-size: 14px;
     font-weight: 500;
 }}
@@ -225,8 +226,8 @@ QLineEdit {{
     background-color: {COLORS['bg_secondary']};
     color: {COLORS['text_primary']};
     border: 1px solid {COLORS['border']};
-    border-radius: 6px;
-    padding: 10px 14px;
+    border-radius: 8px;
+    padding: 11px 16px;
     font-size: 14px;
 }}
 QLineEdit:focus {{
@@ -267,8 +268,6 @@ QHeaderView::section {{
     padding: 10px 16px;
     font-size: 12px;
     font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
 }}
 QHeaderView::section:first {{
     border-top-left-radius: 8px;
@@ -285,3 +284,27 @@ def heading_style(size: int, weight: int = 700, color: str = "") -> str:
         f"font-family: {DISPLAY_FONT}; font-size: {size}px; "
         f"font-weight: {weight}; color: {c}; background: transparent;"
     )
+
+
+AVATAR_PALETTE = [
+    "#7c83db",  "#d4a24e",  "#c86a6a",  "#9a7fd1",  "#4fb8c9",
+    "#d48a54",  "#c97ba3",  "#54b09e",  "#8fb85c",  "#a994d4",
+]
+
+
+def hash_color(text: str, palette: list | None = None) -> str:
+    import hashlib
+    p = palette or AVATAR_PALETTE
+    return p[int(hashlib.md5(text.encode()).hexdigest(), 16) % len(p)]
+
+
+def card_shadow(widget, blur: int = 16, offset_y: int = 2, alpha: int = 40):
+    from PyQt5.QtWidgets import QGraphicsDropShadowEffect
+    from PyQt5.QtGui import QColor as _QColor
+    shadow = QGraphicsDropShadowEffect(widget)
+    c = _QColor("#000000")
+    c.setAlpha(alpha)
+    shadow.setColor(c)
+    shadow.setBlurRadius(blur)
+    shadow.setOffset(0, offset_y)
+    widget.setGraphicsEffect(shadow)

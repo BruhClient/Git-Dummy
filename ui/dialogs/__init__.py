@@ -5,10 +5,7 @@ from ui.dialogs.confirm_dialog import (  # noqa: F401
     confirm,
     alert,
 )
-from ui.dialogs.message_dialog import (  # noqa: F401
-    CommitMessageDialog,
-    _CommitMessageDialog,
-)
+from ui.dialogs.message_dialog import CommitMessageDialog  # noqa: F401
 from ui.dialogs.conflict_dialog import (  # noqa: F401
     _numbered,
     _ConflictDialog,

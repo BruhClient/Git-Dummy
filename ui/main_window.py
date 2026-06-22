@@ -64,7 +64,7 @@ class _AvatarCircle(QWidget):
             p.drawEllipse(0, 0, s, s)
             p.setClipping(False)
             p.setPen(QPen(QColor(COLORS["accent"])))
-            font = QFont("Tilt Warp", s // 3, QFont.Bold)
+            font = QFont("Urbanist", s // 3, QFont.Bold)
             p.setFont(font)
             p.drawText(self.rect(), Qt.AlignCenter, self._initials)
 
@@ -316,7 +316,7 @@ class TopNav(QWidget):
 
         self._page_label = QLabel("")
         self._page_label.setStyleSheet(
-            f"font-size: 13px; font-weight: 600; font-family: 'Tilt Warp'; color: {COLORS['text_primary']};"
+            f"font-size: 13px; font-weight: 600; color: {COLORS['text_primary']};"
         )
         self._page_label.hide()
         layout.addWidget(self._page_label)

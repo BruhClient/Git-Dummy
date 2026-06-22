@@ -6,7 +6,7 @@ from typing import Optional
 from PyQt5.QtCore import Qt, QRectF, QPointF, pyqtSignal
 from PyQt5.QtGui import (
     QPainter, QColor, QPen, QBrush, QFont, QFontMetrics,
-    QPainterPath, QRadialGradient, QPolygonF, QPixmap,
+    QPainterPath, QPolygonF, QPixmap,
 )
 from PyQt5.QtWidgets import (
     QGraphicsObject, QGraphicsPathItem, QGraphicsItem,
@@ -30,7 +30,7 @@ class BranchLabel(QGraphicsItem):
         self._name = name if len(name) <= 22 else name[:19] + "…"
         self._color = QColor(color)
 
-        self._font = QFont("Inter, Segoe UI", 10)
+        self._font = QFont("Urbanist", 10)
         self._font.setWeight(QFont.Medium)
         fm = QFontMetrics(self._font)
 
@@ -116,14 +116,11 @@ class CommitNode(QGraphicsObject):
         c = self._color
 
         if self._hovered or self._selected:
-            grad = QRadialGradient(QPointF(0, 0), r + 10)
-            glow = QColor(c)
-            glow.setAlpha(60)
-            grad.setColorAt(0, glow)
-            grad.setColorAt(1, QColor(0, 0, 0, 0))
-            painter.setPen(Qt.NoPen)
-            painter.setBrush(QBrush(grad))
-            painter.drawEllipse(QPointF(0, 0), r + 10, r + 10)
+            ring = QColor(c)
+            ring.setAlpha(40)
+            painter.setPen(QPen(ring, 2.5))
+            painter.setBrush(Qt.NoBrush)
+            painter.drawEllipse(QPointF(0, 0), r + 5, r + 5)
 
         if self._is_local_only:
             painter.setBrush(Qt.NoBrush)
@@ -270,10 +267,7 @@ class ContributorBadge(QGraphicsObject):
         self.update()
 
     def boundingRect(self) -> QRectF:
-        # The hover-glow gradient in paint() is drawn with radius BADGE_R + 8;
-        # the bounding rect must be at least that large or the glow's outer
-        # ring falls outside it, leaving a ghosting artifact on hover-out.
-        r = BADGE_R + 8
+        r = BADGE_R + 6
         return QRectF(-r, -r, r * 2, r * 2)
 
     def paint(self, painter: QPainter, _option, _widget):
@@ -282,14 +276,11 @@ class ContributorBadge(QGraphicsObject):
         c = self._color
 
         if self._hovered:
-            grad = QRadialGradient(QPointF(0, 0), r + 8)
-            glow = QColor(c)
-            glow.setAlpha(80)
-            grad.setColorAt(0, glow)
-            grad.setColorAt(1, QColor(0, 0, 0, 0))
-            painter.setPen(Qt.NoPen)
-            painter.setBrush(QBrush(grad))
-            painter.drawEllipse(QPointF(0, 0), r + 8, r + 8)
+            ring = QColor(c)
+            ring.setAlpha(50)
+            painter.setPen(QPen(ring, 2))
+            painter.setBrush(Qt.NoBrush)
+            painter.drawEllipse(QPointF(0, 0), r + 4, r + 4)
 
         clip = QPainterPath()
         clip.addEllipse(QPointF(0, 0), r, r)
@@ -304,7 +295,7 @@ class ContributorBadge(QGraphicsObject):
             painter.drawEllipse(QPointF(0, 0), r, r)
             painter.setClipping(False)
             painter.setPen(QPen(c))
-            font = QFont("Tilt Warp", max(6, r // 2), QFont.Bold)
+            font = QFont("Urbanist", max(6, r // 2), QFont.Bold)
             painter.setFont(font)
             painter.drawText(
                 QRectF(-r, -r, r * 2, r * 2), Qt.AlignCenter,
@@ -331,6 +322,3 @@ class ContributorBadge(QGraphicsObject):
         else:
             super().mousePressEvent(event)
 
-
-# Keep old private name as alias for backward compatibility
-_ContributorBadge = ContributorBadge

@@ -26,8 +26,7 @@ def _btn(text: str, accent: bool = True) -> QPushButton:
         b.setStyleSheet(f"""
             QPushButton {{
                 background: {COLORS['accent']}; border: none;
-                border-radius: 8px; font-size: 13px; font-weight: 600; font-family: 'Tilt Warp';
-                color: {COLORS['text_on_accent']}; padding: 0 20px;
+                border-radius: 8px; font-size: 13px; font-weight: 600;                color: {COLORS['text_on_accent']}; padding: 0 20px;
             }}
             QPushButton:hover {{ background: {COLORS['accent_hover'] if 'accent_hover' in COLORS else COLORS['accent']}; }}
             QPushButton:disabled {{ background: {COLORS['bg_hover']}; color: {COLORS['text_muted']}; }}
@@ -99,15 +98,15 @@ class PROpenWizard(QWidget):
         # Step indicator
         self._step_lbl = QLabel("")
         self._step_lbl.setStyleSheet(
-            f"background: transparent; font-size: 11px; font-weight: 600; font-family: 'Tilt Warp';"
-            f" color: {COLORS['text_muted']}; letter-spacing: 0.06em;"
+            f"background: transparent; font-size: 11px; font-weight: 600;"
+            f" color: {COLORS['text_muted']};"
         )
         card_vl.addWidget(self._step_lbl)
 
         # Step title
         self._title_lbl = QLabel("")
         self._title_lbl.setStyleSheet(
-            f"background: transparent; font-size: 18px; font-weight: 700; font-family: 'Tilt Warp';"
+            f"background: transparent; font-size: 18px; font-weight: 700;"
             f" color: {COLORS['text_primary']};"
         )
         card_vl.addWidget(self._title_lbl)
@@ -151,7 +150,7 @@ class PROpenWizard(QWidget):
 
         title_label = QLabel("Title")
         title_label.setStyleSheet(
-            f"background: transparent; font-size: 12px; font-weight: 600; font-family: 'Tilt Warp';"
+            f"background: transparent; font-size: 12px; font-weight: 600;"
             f" color: {COLORS['text_secondary']};"
         )
         s2.addWidget(title_label)
@@ -170,7 +169,7 @@ class PROpenWizard(QWidget):
 
         desc_label = QLabel("Description  (optional)")
         desc_label.setStyleSheet(
-            f"background: transparent; font-size: 12px; font-weight: 600; font-family: 'Tilt Warp';"
+            f"background: transparent; font-size: 12px; font-weight: 600;"
             f" color: {COLORS['text_secondary']};"
         )
         s2.addWidget(desc_label)
@@ -255,7 +254,7 @@ class PROpenWizard(QWidget):
 
     def _go_to_step(self, step: int):
         self._step = step
-        self._step_lbl.setText(f"STEP {step} OF 2")
+        self._step_lbl.setText(f"Step {step} of 2")
 
         self._step1_body.setVisible(step == 1)
         self._step2_body.setVisible(step == 2)

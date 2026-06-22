@@ -71,7 +71,7 @@ class ChangesPanel(QWidget):
 
         self._title = QLabel("—")
         self._title.setStyleSheet(
-            f"background: transparent; font-size: 13px; font-weight: 600; font-family: 'Tilt Warp';"
+            f"background: transparent; font-size: 13px; font-weight: 600;"
             f" color: {COLORS['text_primary']};"
         )
         self._subtitle = QLabel("")
@@ -121,13 +121,13 @@ class ChangesPanel(QWidget):
         self._title.setToolTip(info["name"])
 
         is_stash = source == "stash"
-        badge_text  = "UNSAVED" if is_stash else "CHANGE"
+        badge_text  = "Unsaved" if is_stash else "Change"
         badge_color = COLORS["warning"] if is_stash else COLORS["accent"]
         badge_bg    = "rgba(214,158,46,0.12)" if is_stash else COLORS["accent_dim"]
         self._source_badge.setText(badge_text)
         self._source_badge.setStyleSheet(
             f"background: {badge_bg}; color: {badge_color};"
-            f" font-size: 9px; font-weight: 700; font-family: 'Tilt Warp'; letter-spacing: 0.08em;"
+            f" font-size: 9px; font-weight: 700;"
             f" border-radius: 4px; padding: 0 7px;"
         )
         self._source_badge.show()
@@ -195,8 +195,8 @@ class ChangesPanel(QWidget):
         hl.setContentsMargins(12, 0, 12, 0)
         lbl = QLabel(title)
         lbl.setStyleSheet(
-            f"background: transparent; font-size: 10px; font-weight: 700; font-family: 'Tilt Warp';"
-            f" color: {color}; letter-spacing: 0.08em;"
+            f"background: transparent; font-size: 10px; font-weight: 700;"
+            f" color: {color};"
         )
         hl.addWidget(lbl)
         hl.addStretch()

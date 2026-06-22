@@ -1,24 +1,13 @@
 from __future__ import annotations
 
-import hashlib
 import threading
 
 from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QPainter, QColor, QBrush, QPen, QPainterPath, QPixmap, QFont
 from PyQt5.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton
-from styles.theme import COLORS
+from styles.theme import COLORS, hash_color
 
 PANEL_W = 240
-
-_PALETTE = [
-    "#6366f1", "#f59e0b", "#ef4444", "#8b5cf6",
-    "#06b6d4", "#f97316", "#ec4899", "#14b8a6",
-    "#84cc16", "#a78bfa",
-]
-
-def _author_color(name: str) -> str:
-    idx = int(hashlib.md5(name.encode()).hexdigest(), 16) % len(_PALETTE)
-    return _PALETTE[idx]
 
 
 class _Avatar(QWidget):
@@ -40,7 +29,7 @@ class _Avatar(QWidget):
 
     def set_author(self, name: str, avatar_url: str = ""):
         self._initials = (name[:1] + (name.split()[-1][:1] if " " in name else "")).upper()
-        self._color = QColor(_author_color(name))
+        self._color = QColor(hash_color(name))
         self._pixmap = None
         self.update()
         if avatar_url:
@@ -79,7 +68,7 @@ class _Avatar(QWidget):
             p.drawEllipse(0, 0, s, s)
             p.setClipping(False)
             p.setPen(QPen(self._color))
-            p.setFont(QFont("Tilt Warp", s // 4, QFont.Bold))
+            p.setFont(QFont("Urbanist", s // 4, QFont.Bold))
             p.drawText(self.rect(), Qt.AlignCenter, self._initials)
 
         p.setClipping(False)
@@ -135,20 +124,20 @@ class PositionPanel(QWidget):
 
         self._title = QLabel("Where you are now")
         self._title.setStyleSheet(
-            f"background: transparent; font-size: 12px; font-weight: 600; font-family: 'Tilt Warp';"
-            f" color: {COLORS['text_muted']}; letter-spacing: 0.04em;"
+            f"background: transparent; font-size: 12px; font-weight: 600;"
+            f" color: {COLORS['text_muted']};"
         )
         hl.addWidget(self._title)
         hl.addStretch()
 
-        self._explore_badge = QLabel("EXPLORING")
+        self._explore_badge = QLabel("Exploring")
         self._explore_badge.setStyleSheet(f"""
             background: {COLORS['warning']}22;
             border: 1px solid {COLORS['warning']}80;
             border-radius: 4px;
             color: {COLORS['warning']};
-            font-size: 9px; font-weight: 700; font-family: 'Tilt Warp';
-            padding: 2px 6px; letter-spacing: 0.06em;
+            font-size: 9px; font-weight: 700;
+            padding: 2px 6px;
         """)
         self._explore_badge.hide()
         hl.addWidget(self._explore_badge)
@@ -174,10 +163,10 @@ class PositionPanel(QWidget):
         author_block.setSpacing(1)
         author_block.setContentsMargins(0, 0, 0, 0)
 
-        made_by_lbl = QLabel("MADE BY")
+        made_by_lbl = QLabel("Made by")
         made_by_lbl.setStyleSheet(
-            f"background: transparent; font-size: 9px; font-weight: 400; font-family: 'Tilt Warp';"
-            f" color: {COLORS['text_muted']}; letter-spacing: 0.07em;"
+            f"background: transparent; font-size: 9px; font-weight: 400;"
+            f" color: {COLORS['text_muted']};"
         )
         author_block.addWidget(made_by_lbl)
 
@@ -210,7 +199,7 @@ class PositionPanel(QWidget):
         self._jump_btn.setStyleSheet(f"""
             QPushButton {{
                 background: {COLORS['accent']}; border: none; border-radius: 8px;
-                color: {COLORS['text_on_accent']}; font-size: 12px; font-weight: 600; font-family: 'Tilt Warp';
+                color: {COLORS['text_on_accent']}; font-size: 12px; font-weight: 600;
                 padding: 8px 16px;
             }}
             QPushButton:hover {{ background: {COLORS['accent_dim']}; }}
@@ -223,7 +212,7 @@ class PositionPanel(QWidget):
         self._pull_btn.setStyleSheet(f"""
             QPushButton {{
                 background: {COLORS['accent']}; border: none; border-radius: 8px;
-                color: {COLORS['text_on_accent']}; font-size: 12px; font-weight: 600; font-family: 'Tilt Warp';
+                color: {COLORS['text_on_accent']}; font-size: 12px; font-weight: 600;
                 padding: 8px 16px;
             }}
             QPushButton:hover {{ background: {COLORS['accent_dim']}; }}
@@ -240,7 +229,7 @@ class PositionPanel(QWidget):
                 border: 1px solid {COLORS['warning']}80;
                 border-radius: 8px;
                 color: {COLORS['warning']};
-                font-size: 12px; font-weight: 600; font-family: 'Tilt Warp';
+                font-size: 12px; font-weight: 600;
                 padding: 8px 16px;
             }}
             QPushButton:hover {{ background: {COLORS['warning']}33; }}
@@ -251,7 +240,7 @@ class PositionPanel(QWidget):
 
         self._stash_lbl = QLabel("")
         self._stash_lbl.setStyleSheet(
-            f"background: transparent; font-size: 11px; font-weight: 600; font-family: 'Tilt Warp'; color: {COLORS['text_muted']};"
+            f"background: transparent; font-size: 11px; font-weight: 600; color: {COLORS['text_muted']};"
         )
         self._stash_lbl.hide()
         bl.addWidget(self._stash_lbl)
@@ -346,10 +335,10 @@ class _Field(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(2)
 
-        lbl = QLabel(label.upper())
+        lbl = QLabel(label)
         lbl.setStyleSheet(
-            f"background: transparent; font-size: 9px; font-weight: 400; font-family: 'Tilt Warp';"
-            f" color: {COLORS['text_muted']}; letter-spacing: 0.07em;"
+            f"background: transparent; font-size: 9px; font-weight: 400;"
+            f" color: {COLORS['text_muted']};"
         )
         layout.addWidget(lbl)
 

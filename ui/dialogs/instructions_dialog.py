@@ -273,7 +273,7 @@ class _WelcomeIllust(_Illust):
         # "Evo Git" big text
         if t > 0.3:
             a = min(1.0, (t - 0.3) / 0.3)
-            font = QFont("Tilt Warp", 22)
+            font = QFont("Urbanist", 22)
             font.setWeight(QFont.Bold)
             p.setFont(font)
             p.setPen(QPen(QColor(255, 255, 255, int(a * 240))))
@@ -482,7 +482,7 @@ class _DetailPanelIllust(_Illust):
                 self._text(p, cx + 10, 68, "by you · 2 min ago",
                            QColor(255, 255, 255, int(ba * 100)), size=8)
 
-                self._text(p, cx + 10, 95, "ACTIONS",
+                self._text(p, cx + 10, 95, "Actions",
                            QColor(255, 255, 255, int(ba * 80)), size=7, bold=True)
 
                 btns = ["Create Branch", "Merge", "Revert"]
@@ -533,8 +533,8 @@ class _PushPullIllust(_Illust):
         rx = w * 0.7
         cy = 55
 
-        self._text(p, lx, 25, "LOCAL", _MUTED, size=8, bold=True, center=True)
-        self._text(p, rx, 25, "REMOTE", _MUTED, size=8, bold=True, center=True)
+        self._text(p, lx, 25, "Local", _MUTED, size=8, bold=True, center=True)
+        self._text(p, rx, 25, "Remote", _MUTED, size=8, bold=True, center=True)
 
         for i, x in enumerate([lx + 40, lx, lx - 40]):
             if t > i * 0.12:
@@ -678,7 +678,7 @@ class _CommitTypesIllust(_Illust):
             p.setBrush(Qt.NoBrush)
             p.setPen(QPen(rc, 2.5))
             p.drawEllipse(QPointF(cols[3], y), NODE_R + 5, NODE_R + 5)
-            self._text(p, cols[3], y + 28, "HEAD",
+            self._text(p, cols[3], y + 28, "Head",
                        QColor(255, 255, 255, int(a * 160)), size=8, center=True)
             self._text(p, cols[3], y + 41, "(you are here)",
                        QColor(255, 255, 255, int(a * 100)), size=7, center=True)
@@ -728,7 +728,7 @@ class _ConflictUIIllust(_Illust):
         ia = min(1.0, (t - 0.25) / 0.3)
 
         # Badge
-        self._text(p, card_x + 12, card_y + 20, "MERGE CONFLICT",
+        self._text(p, card_x + 12, card_y + 20, "Merge conflict",
                    QColor(_WARNING.red(), _WARNING.green(), _WARNING.blue(), int(ia * 255)),
                    size=7, bold=True)
 
@@ -1046,7 +1046,7 @@ class InstructionsDialog(QDialog):
         header_row.addWidget(self._header_logo)
         self._title_lbl = QLabel()
         self._title_lbl.setStyleSheet(
-            f"font-size: 20px; font-weight: 700; font-family: 'Tilt Warp';"
+            f"font-size: 20px; font-weight: 700;"
             f" color: {COLORS['text_primary']}; background: transparent;"
         )
         header_row.addWidget(self._title_lbl)
@@ -1099,7 +1099,7 @@ class InstructionsDialog(QDialog):
             QPushButton {{
                 background: transparent; border: 1px solid {COLORS['border']};
                 border-radius: 8px; color: {COLORS['text_secondary']};
-                font-size: 13px; font-weight: 600; font-family: 'Tilt Warp'; padding: 0 16px;
+                font-size: 13px; font-weight: 600; padding: 0 16px;
             }}
             QPushButton:hover {{ border-color: {COLORS['text_secondary']}; }}
         """)
@@ -1111,7 +1111,7 @@ class InstructionsDialog(QDialog):
         self._step_lbl = QLabel()
         self._step_lbl.setStyleSheet(
             f"font-size: 11px; color: {COLORS['text_muted']}; background: transparent;"
-            f" font-family: 'Tilt Warp';"
+            f""
         )
         btn_row.addWidget(self._step_lbl)
 
@@ -1125,7 +1125,7 @@ class InstructionsDialog(QDialog):
             QPushButton {{
                 background: {COLORS['accent']}; border: none;
                 border-radius: 8px; color: {COLORS['text_on_accent']};
-                font-size: 13px; font-weight: 700; font-family: 'Tilt Warp'; padding: 0 16px;
+                font-size: 13px; font-weight: 700; padding: 0 16px;
             }}
             QPushButton:hover {{ background: {COLORS['accent_hover']}; }}
         """)

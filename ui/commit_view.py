@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from typing import Optional
 
-import hashlib
 import os
 import re
 import threading
@@ -604,7 +603,7 @@ class CommitViewPage(_PRMixin, QWidget):
         title = QLabel("Viewing this repo")
         title.setStyleSheet(
             f"background: transparent; font-size: 12px; font-weight: 700;"
-            f" font-family: 'Tilt Warp'; color: {COLORS.get('warning', '#f59e0b')};"
+            f" color: {COLORS.get('warning', '#f59e0b')};"
         )
         top.addWidget(title)
         top.addStretch()
@@ -629,7 +628,7 @@ class CommitViewPage(_PRMixin, QWidget):
         fork_btn.setStyleSheet(f"""
             QPushButton {{ background: {COLORS['accent']}; border: none; border-radius: 6px;
                 color: {COLORS['text_on_accent']}; font-size: 12px; font-weight: 600;
-                font-family: 'Tilt Warp'; }}
+                }}
             QPushButton:hover {{ background: {COLORS.get('accent_hover', COLORS['accent'])}; }}
         """)
         fork_btn.clicked.connect(lambda: (card.hide(), self._do_fork()))
@@ -1256,13 +1255,13 @@ class CommitViewPage(_PRMixin, QWidget):
         if protected:
             return (f"QPushButton {{ background: {COLORS['accent_dim']};"
                     f" border: 1px solid {COLORS['accent']}; border-radius: 8px;"
-                    f" color: {COLORS['accent']}; font-size: 12px; font-weight: 600; font-family: 'Tilt Warp';"
+                    f" color: {COLORS['accent']}; font-size: 12px; font-weight: 600;"
                     f" padding: 0 12px; }}"
                     f"QPushButton:hover {{ background: {COLORS['accent']};"
                     f" color: {COLORS['text_on_accent']}; }}")
         return (f"QPushButton {{ background: {COLORS['bg_card']};"
                 f" border: 1px solid {COLORS['border']}; border-radius: 8px;"
-                f" color: {COLORS['text_muted']}; font-size: 12px; font-weight: 600; font-family: 'Tilt Warp';"
+                f" color: {COLORS['text_muted']}; font-size: 12px; font-weight: 600;"
                 f" padding: 0 12px; }}"
                 f"QPushButton:hover {{ color: {COLORS['text_primary']};"
                 f" background: {COLORS['bg_hover']}; }}")

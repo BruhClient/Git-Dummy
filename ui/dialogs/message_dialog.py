@@ -38,7 +38,7 @@ class CommitMessageDialog(QDialog):
 
         title_lbl = QLabel(title)
         title_lbl.setStyleSheet(
-            f"font-size: 15px; font-weight: 700; font-family: 'Tilt Warp'; color: {COLORS['text_primary']};"
+            f"font-size: 15px; font-weight: 700; color: {COLORS['text_primary']};"
             f" background: transparent;"
         )
         vl.addWidget(title_lbl)
@@ -71,8 +71,7 @@ class CommitMessageDialog(QDialog):
                 border: 1px solid {COLORS['border']};
                 border-radius: 8px;
                 color: {COLORS['text_secondary']};
-                font-size: 12px; font-weight: 600; font-family: 'Tilt Warp';
-            }}
+                font-size: 12px; font-weight: 600;            }}
             QPushButton:hover {{ border-color: {COLORS['text_secondary']}; }}
         """)
         cancel_btn.clicked.connect(self.reject)
@@ -86,8 +85,7 @@ class CommitMessageDialog(QDialog):
                 border: none;
                 border-radius: 8px;
                 color: {COLORS['text_on_accent']};
-                font-size: 12px; font-weight: 700; font-family: 'Tilt Warp';
-            }}
+                font-size: 12px; font-weight: 700;            }}
             QPushButton:hover {{ background: {COLORS.get('accent_hover', COLORS['accent'])}; }}
             QPushButton:disabled {{ background: {COLORS['border']}; color: {COLORS['text_muted']}; }}
         """)
@@ -110,7 +108,3 @@ class CommitMessageDialog(QDialog):
         super().showEvent(event)
         self._input.clear()
         self._input.setFocus()
-
-
-# Backward-compat alias used by detail_panel.py
-_CommitMessageDialog = CommitMessageDialog

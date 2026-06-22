@@ -66,11 +66,6 @@ def _trunc(text: str, n: int) -> str:
 
 # ── Style helpers ─────────────────────────────────────────────────────────────
 
-def _scrollbar_style(_colors=None) -> str:
-    """Thin wrapper kept for backward compatibility — delegates to theme.scrollbar_style()."""
-    return "QScrollArea { background: transparent; border: none; }\n" + scrollbar_style()
-
-
 def _close_btn_style(colors) -> str:
     return f"""
         QPushButton {{
@@ -229,8 +224,8 @@ def _side_header() -> QWidget:
     rl.setContentsMargins(0, 0, 0, 0)
     rl.setSpacing(0)
     for i, (label, color, bg) in enumerate([
-        ("BEFORE", "#ef4444", "rgba(239,68,68,0.08)"),
-        ("AFTER",  "#22c55e", "rgba(34,197,94,0.08)"),
+        ("Before", "#ef4444", "rgba(239,68,68,0.08)"),
+        ("After",  "#22c55e", "rgba(34,197,94,0.08)"),
     ]):
         cell = QWidget()
         cell.setAttribute(Qt.WA_StyledBackground, True)
@@ -240,8 +235,8 @@ def _side_header() -> QWidget:
         cl.setContentsMargins(40, 0, 12, 0)
         lbl = QLabel(label)
         lbl.setStyleSheet(
-            f"background: transparent; font-size: 10px; font-weight: 700; font-family: 'Tilt Warp';"
-            f" color: {color}; letter-spacing: 0.08em;"
+            f"background: transparent; font-size: 10px; font-weight: 700;"
+            f" color: {color};"
         )
         cl.addWidget(lbl)
         cl.addStretch()
@@ -354,10 +349,10 @@ class _Row(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(3)
 
-        lbl = QLabel(label.upper())
+        lbl = QLabel(label)
         lbl.setStyleSheet(
-            f"background: transparent; font-size: 10px; font-weight: 600; font-family: 'Tilt Warp';"
-            f" color: {COLORS['text_muted']}; letter-spacing: 0.07em;"
+            f"background: transparent; font-size: 10px; font-weight: 600;"
+            f" color: {COLORS['text_muted']};"
         )
         layout.addWidget(lbl)
 

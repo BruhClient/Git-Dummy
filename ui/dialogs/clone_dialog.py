@@ -177,7 +177,7 @@ class CloneDialog(QDialog):
         title_row.setContentsMargins(0, 0, 0, 0)
         title = QLabel("Track a Project")
         title.setStyleSheet(
-            f"font-size: 15px; font-weight: 700; font-family: 'Tilt Warp'; "
+            f"font-size: 15px; font-weight: 700; "
             f"color: {COLORS['text_primary']};"
         )
         title_row.addWidget(title)
@@ -204,12 +204,12 @@ class CloneDialog(QDialog):
         _tab_active = (
             f"QPushButton {{ background: transparent; border: none; border-bottom: 2px solid {COLORS['accent']};"
             f" color: {COLORS['text_primary']}; font-size: 13px; font-weight: 600;"
-            f" font-family: 'Tilt Warp'; padding: 6px 16px; }}"
+            f" padding: 6px 16px; }}"
         )
         _tab_inactive = (
             f"QPushButton {{ background: transparent; border: none; border-bottom: 2px solid transparent;"
             f" color: {COLORS['text_muted']}; font-size: 13px; font-weight: 600;"
-            f" font-family: 'Tilt Warp'; padding: 6px 16px; }}"
+            f" padding: 6px 16px; }}"
             f"QPushButton:hover {{ color: {COLORS['text_secondary']}; }}"
         )
         self._tab_active_style = _tab_active
@@ -265,7 +265,7 @@ class CloneDialog(QDialog):
         dt.setAlignment(Qt.AlignCenter)
         dt.setStyleSheet(
             f"border: none; font-size: 13px; font-weight: 600;"
-            f" font-family: 'Tilt Warp'; color: {COLORS['text_secondary']};"
+            f" color: {COLORS['text_secondary']};"
         )
         dl.addWidget(dt)
         drop_box.mousePressEvent = lambda _: self._browse_folder()
@@ -281,7 +281,7 @@ class CloneDialog(QDialog):
         ip_vl.setSpacing(12)
         self._init_title = QLabel()
         self._init_title.setStyleSheet(
-            f"font-size: 14px; font-weight: 700; font-family: 'Tilt Warp'; color: {COLORS['text_primary']};"
+            f"font-size: 14px; font-weight: 700; color: {COLORS['text_primary']};"
         )
         ip_vl.addWidget(self._init_title)
         self._init_desc = QLabel()

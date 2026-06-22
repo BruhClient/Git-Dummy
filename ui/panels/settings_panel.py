@@ -1,7 +1,6 @@
 """Settings panel — repo info and collaborators."""
 from __future__ import annotations
 
-import hashlib
 import os
 import re
 import threading
@@ -16,19 +15,9 @@ from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QScrollArea, QFrame, QSizePolicy,
 )
-from styles.theme import COLORS, scrollbar_style
-
-# ── Shared avatar cache (separate from commit_view cache) ─────────────────────
+from styles.theme import COLORS, scrollbar_style, hash_color
 
 _AVATAR_CACHE: dict[str, QPixmap] = {}
-_PALETTE = [
-    "#6366f1", "#f59e0b", "#ef4444", "#8b5cf6",
-    "#06b6d4", "#f97316", "#ec4899", "#14b8a6",
-]
-
-def _person_color(login: str) -> str:
-    idx = int(hashlib.md5(login.encode()).hexdigest(), 16) % len(_PALETTE)
-    return _PALETTE[idx]
 
 
 # ── Toggle switch ─────────────────────────────────────────────────────────────
@@ -95,7 +84,7 @@ class _Avatar(QWidget):
         self.setFixedSize(size, size)
         self._size  = size
         self._login = login
-        self._color = QColor(_person_color(login))
+        self._color = QColor(hash_color(login))
         self._pixmap: QPixmap | None = None
 
     def set_pixmap(self, pm: QPixmap):
@@ -124,7 +113,7 @@ class _Avatar(QWidget):
             p.drawEllipse(0, 0, s, s)
             p.setClipping(False)
             p.setPen(QPen(self._color))
-            p.setFont(QFont("Tilt Warp", s // 3, QFont.Bold))
+            p.setFont(QFont("Urbanist", s // 3, QFont.Bold))
             p.drawText(self.rect(), Qt.AlignCenter, self._login[:2].upper())
         p.setClipping(False)
         p.setPen(QPen(self._color, 1.5))
@@ -169,7 +158,7 @@ class _SCollabRow(QWidget):
         nm = QLabel(raw if len(raw) <= 20 else raw[:19] + "…")
         nm.setToolTip(raw)
         nm.setStyleSheet(
-            f"background: transparent; font-size: 12px; font-weight: 600; font-family: 'Tilt Warp';"
+            f"background: transparent; font-size: 12px; font-weight: 600;"
             f" color: {COLORS['text_primary']};"
         )
         name_row.addWidget(nm)
@@ -255,8 +244,8 @@ class _Skeleton(QWidget):
 def _section_lbl(text: str) -> QLabel:
     lbl = QLabel(text)
     lbl.setStyleSheet(
-        f"background: transparent; font-size: 10px; font-weight: 600; font-family: 'Tilt Warp';"
-        f" color: {COLORS['text_muted']}; letter-spacing: 0.08em;"
+        f"background: transparent; font-size: 10px; font-weight: 600;"
+        f" color: {COLORS['text_muted']};"
     )
     return lbl
 
@@ -368,7 +357,7 @@ class SettingsPanel(QWidget):
         name_row.setSpacing(8)
         self._repo_name_lbl = QLabel("—")
         self._repo_name_lbl.setStyleSheet(
-            f"background: transparent; font-size: 15px; font-weight: 700; font-family: 'Tilt Warp';"
+            f"background: transparent; font-size: 15px; font-weight: 700;"
             f" color: {COLORS['text_primary']};"
         )
         name_row.addWidget(self._repo_name_lbl)
@@ -426,7 +415,7 @@ class SettingsPanel(QWidget):
         self._content_layout.addSpacing(20)
 
         # ── Collaborators (collapsible) ───────────────────────────────────────
-        self._content_layout.addWidget(_section_lbl("COLLABORATORS"))
+        self._content_layout.addWidget(_section_lbl("Collaborators"))
         self._content_layout.addSpacing(10)
 
         self._collab_expanded = True
@@ -453,7 +442,7 @@ class SettingsPanel(QWidget):
         ch_layout.setSpacing(8)
         ch_lbl = QLabel("Contributors")
         ch_lbl.setStyleSheet(
-            f"background: transparent; font-size: 12px; font-weight: 600; font-family: 'Tilt Warp';"
+            f"background: transparent; font-size: 12px; font-weight: 600;"
             f" color: {COLORS['text_muted']};"
         )
         ch_layout.addWidget(ch_lbl)
@@ -462,7 +451,7 @@ class SettingsPanel(QWidget):
         self._collab_count.setAlignment(Qt.AlignCenter)
         self._collab_count.setStyleSheet(
             f"background: {COLORS['bg_primary']}; border-radius: 9px;"
-            f" font-size: 10px; font-weight: 600; font-family: 'Tilt Warp'; color: {COLORS['text_muted']};"
+            f" font-size: 10px; font-weight: 600; color: {COLORS['text_muted']};"
             f" padding: 0 8px;"
         )
         self._collab_count.setText("")
@@ -502,7 +491,7 @@ class SettingsPanel(QWidget):
         self._content_layout.addSpacing(20)
 
         # ── Branch Rules (collapsible) ────────────────────────────────────────
-        self._content_layout.addWidget(_section_lbl("BRANCH RULES"))
+        self._content_layout.addWidget(_section_lbl("Branch rules"))
         self._content_layout.addSpacing(10)
 
         self._rules_expanded = True
@@ -526,9 +515,9 @@ class SettingsPanel(QWidget):
         rh_layout = QHBoxLayout(rules_hdr)
         rh_layout.setContentsMargins(14, 0, 10, 0)
         rh_layout.setSpacing(8)
-        rh_lbl = QLabel("Branch Rules")
+        rh_lbl = QLabel("Branch rules")
         rh_lbl.setStyleSheet(
-            f"background: transparent; font-size: 12px; font-weight: 600; font-family: 'Tilt Warp';"
+            f"background: transparent; font-size: 12px; font-weight: 600;"
             f" color: {COLORS['text_muted']};"
         )
         rh_layout.addWidget(rh_lbl)
@@ -894,19 +883,19 @@ class SettingsPanel(QWidget):
             prot = [b for b in self._all_branches if b["protected"] or b["name"] in protected_set]
             unprot = [b for b in self._all_branches if not b["protected"] and b["name"] not in protected_set]
             if prot:
-                grp = QLabel("PROTECTED")
+                grp = QLabel("Protected")
                 grp.setStyleSheet(
                     f"background: transparent; font-size: 10px; font-weight: 700;"
-                    f" color: {COLORS.get('warning', '#f59e0b')}; letter-spacing: 0.06em;"
+                    f" color: {COLORS.get('warning', '#f59e0b')};"
                 )
                 self._rules_list.addWidget(grp)
                 for b in prot:
                     self._insert_protection_row(b["name"], True)
             if unprot:
-                grp2 = QLabel("UNPROTECTED")
+                grp2 = QLabel("Unprotected")
                 grp2.setStyleSheet(
                     f"background: transparent; font-size: 10px; font-weight: 700;"
-                    f" color: {COLORS['text_muted']}; letter-spacing: 0.06em;"
+                    f" color: {COLORS['text_muted']};"
                     + (f" padding-top: 8px;" if prot else "")
                 )
                 self._rules_list.addWidget(grp2)

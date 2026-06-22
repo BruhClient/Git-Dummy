@@ -97,7 +97,7 @@ class _AvatarDot(QWidget):
             p.drawEllipse(0, 0, s, s)
             p.setClipping(False)
             p.setPen(QPen(self._color))
-            font = QFont("Tilt Warp", s // 3, QFont.Bold)
+            font = QFont("Urbanist", s // 3, QFont.Bold)
             p.setFont(font)
             p.drawText(self.rect(), Qt.AlignCenter,
                        self._login[:2].upper())
@@ -139,7 +139,7 @@ class _CollabRow(QWidget):
         name_lbl = QLabel(raw_name if len(raw_name) <= 18 else raw_name[:17] + "…")
         name_lbl.setToolTip(raw_name)
         name_lbl.setStyleSheet(
-            f"background: transparent; font-size: 12px; font-weight: 600; font-family: 'Tilt Warp'; color: {COLORS['text_primary']};"
+            f"background: transparent; font-size: 12px; font-weight: 600; color: {COLORS['text_primary']};"
         )
         name_row.addWidget(name_lbl)
 
@@ -230,8 +230,7 @@ class CollaboratorPanel(QWidget):
         hdr_layout.setContentsMargins(14, 0, 8, 0)
         title = QLabel("Collaborators")
         title.setStyleSheet(
-            f"background: transparent; font-size: 12px; font-weight: 600; font-family: 'Tilt Warp'; color: {COLORS['text_muted']};"
-            " letter-spacing: 0.04em;"
+            f"background: transparent; font-size: 12px; font-weight: 600; color: {COLORS['text_muted']};"
         )
         hdr_layout.addWidget(title)
 
@@ -240,7 +239,7 @@ class CollaboratorPanel(QWidget):
         self._count_lbl.setAlignment(Qt.AlignCenter)
         self._count_lbl.setStyleSheet(
             f"background: {COLORS['bg_primary']}; border-radius: 9px;"
-            f" font-size: 10px; font-weight: 600; font-family: 'Tilt Warp'; color: {COLORS['text_muted']};"
+            f" font-size: 10px; font-weight: 600; color: {COLORS['text_muted']};"
             f" padding: 0 8px;"
         )
         self._count_lbl.hide()

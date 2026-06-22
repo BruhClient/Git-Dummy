@@ -53,7 +53,7 @@ class AddAccountDialog(QDialog):
         title_row.setContentsMargins(0, 0, 0, 0)
         title = QLabel("Add account")
         title.setStyleSheet(
-            f"font-size: 17px; font-weight: 700; font-family: 'Tilt Warp'; "
+            f"font-size: 17px; font-weight: 700; "
             f"color: {COLORS['text_primary']}; background: transparent;"
         )
         title_row.addWidget(title)

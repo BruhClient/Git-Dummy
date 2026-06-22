@@ -5,7 +5,7 @@ from PyQt5.QtCore import Qt
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QWidget,
 )
-from styles.theme import COLORS
+from styles.theme import COLORS, card_shadow
 
 
 class ConfirmDialog(QDialog):
@@ -25,13 +25,14 @@ class ConfirmDialog(QDialog):
 
         card = QWidget()
         card.setStyleSheet(f"background: {COLORS['bg_card']}; border-radius: 12px;")
+        card_shadow(card)
         vl = QVBoxLayout(card)
         vl.setContentsMargins(24, 24, 24, 24)
         vl.setSpacing(14)
 
         title_lbl = QLabel(title)
         title_lbl.setStyleSheet(
-            f"font-size: 15px; font-weight: 700; font-family: 'Tilt Warp'; color: {COLORS['text_primary']};"
+            f"font-size: 15px; font-weight: 700; color: {COLORS['text_primary']};"
             f" background: transparent;"
         )
         vl.addWidget(title_lbl)
@@ -55,7 +56,7 @@ class ConfirmDialog(QDialog):
             QPushButton {{
                 background: transparent; border: 1px solid {COLORS['border']};
                 border-radius: 8px; color: {COLORS['text_secondary']};
-                font-size: 13px; font-weight: 600; font-family: 'Tilt Warp'; padding: 0 16px;
+                font-size: 13px; font-weight: 600; padding: 0 16px;
             }}
             QPushButton:hover {{ border-color: {COLORS['text_secondary']}; }}
         """)
@@ -72,7 +73,7 @@ class ConfirmDialog(QDialog):
             QPushButton {{
                 background: {confirm_bg}; border: none;
                 border-radius: 8px; color: {COLORS['text_on_accent']};
-                font-size: 13px; font-weight: 700; font-family: 'Tilt Warp'; padding: 0 16px;
+                font-size: 13px; font-weight: 700; padding: 0 16px;
             }}
             QPushButton:hover {{ background: {confirm_hover}; }}
         """)
@@ -99,13 +100,14 @@ class AlertDialog(QDialog):
 
         card = QWidget()
         card.setStyleSheet(f"background: {COLORS['bg_card']}; border-radius: 12px;")
+        card_shadow(card)
         vl = QVBoxLayout(card)
         vl.setContentsMargins(24, 24, 24, 24)
         vl.setSpacing(14)
 
         title_lbl = QLabel(title)
         title_lbl.setStyleSheet(
-            f"font-size: 15px; font-weight: 700; font-family: 'Tilt Warp'; color: {COLORS['text_primary']};"
+            f"font-size: 15px; font-weight: 700; color: {COLORS['text_primary']};"
             f" background: transparent;"
         )
         vl.addWidget(title_lbl)
@@ -128,7 +130,7 @@ class AlertDialog(QDialog):
             QPushButton {{
                 background: transparent; border: 1px solid {COLORS['border']};
                 border-radius: 8px; color: {COLORS['text_secondary']};
-                font-size: 13px; font-weight: 600; font-family: 'Tilt Warp'; padding: 0 16px;
+                font-size: 13px; font-weight: 600; padding: 0 16px;
             }}
             QPushButton:hover {{ border-color: {COLORS['text_secondary']}; }}
         """)
@@ -159,13 +161,14 @@ class MergeDialog(QDialog):
 
         card = QWidget()
         card.setStyleSheet(f"background: {COLORS['bg_card']}; border-radius: 12px;")
+        card_shadow(card)
         vl = QVBoxLayout(card)
         vl.setContentsMargins(24, 24, 24, 24)
         vl.setSpacing(14)
 
         title_lbl = QLabel("Merge Branch")
         title_lbl.setStyleSheet(
-            f"font-size: 15px; font-weight: 700; font-family: 'Tilt Warp'; color: {COLORS['text_primary']};"
+            f"font-size: 15px; font-weight: 700; color: {COLORS['text_primary']};"
             f" background: transparent;"
         )
         vl.addWidget(title_lbl)
@@ -227,7 +230,7 @@ class MergeDialog(QDialog):
             QPushButton {{
                 background: transparent; border: 1px solid {COLORS['border']};
                 border-radius: 8px; color: {COLORS['text_secondary']};
-                font-size: 13px; font-weight: 600; font-family: 'Tilt Warp'; padding: 0 16px;
+                font-size: 13px; font-weight: 600; padding: 0 16px;
             }}
             QPushButton:hover {{ border-color: {COLORS['text_secondary']}; }}
         """)
@@ -242,7 +245,7 @@ class MergeDialog(QDialog):
             QPushButton {{
                 background: {COLORS['accent']}; border: none;
                 border-radius: 8px; color: {COLORS['text_on_accent']};
-                font-size: 13px; font-weight: 700; font-family: 'Tilt Warp'; padding: 0 16px;
+                font-size: 13px; font-weight: 700; padding: 0 16px;
             }}
             QPushButton:hover {{ background: {COLORS.get('accent_hover', COLORS['accent'])}; }}
         """)
