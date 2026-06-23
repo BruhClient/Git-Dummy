@@ -185,18 +185,33 @@ class GitTracker:
 
         local_only: set[str] = set()
 
-        # Fall back to local branches if no remote refs are available
-        if not ref_list:
-            for b in self._repo.branches:
+        # Read local branches via subprocess — GitPython caches hexsha in
+        # memory and returns stale values after back-to-back operations.
+        _local_branches: list[tuple[str, str]] = []  # (name, sha)
+        try:
+            _local_r = subprocess.run(
+                ["git", "for-each-ref",
+                 "--format=%(refname:short) %(objectname)", "refs/heads/"],
+                cwd=self._path, capture_output=True, text=True, timeout=5,
+            )
+            for _ln in (_local_r.stdout or "").strip().splitlines():
                 try:
-                    ref_list.append((b.name, b.name, b.commit.hexsha))
-                    # Only mark as local_only if there is genuinely no remote.
-                    # If a remote exists but has no cached refs (not yet fetched),
-                    # we don't know whether the branch is on remote or not.
-                    if not chosen:
-                        local_only.add(b.name)
+                    _name, _sha = _ln.strip().split()
+                    _local_branches.append((_name, _sha))
                 except Exception:
                     pass
+        except Exception:
+            pass
+
+        # Fall back to local branches if no remote refs are available
+        if not ref_list:
+            for _name, _sha in _local_branches:
+                ref_list.append((_name, _name, _sha))
+                # Only mark as local_only if there is genuinely no remote.
+                # If a remote exists but has no cached refs (not yet fetched),
+                # we don't know whether the branch is on remote or not.
+                if not chosen:
+                    local_only.add(_name)
         else:
             # Include local branches that are ahead of (or have no) remote
             # counterpart.  Compare each branch against its OWN remote SHA
@@ -207,22 +222,14 @@ class GitTracker:
             remote_sha_by_name: dict[str, str] = {}
             for _, display, sha in ref_list:
                 remote_sha_by_name.setdefault(display, sha)  # first entry wins
-            for b in self._repo.branches:
-                try:
-                    own_remote_sha = remote_sha_by_name.get(b.name)
-                    if own_remote_sha is not None:
-                        # Branch has a remote counterpart — add only when local
-                        # is ahead of it (SHA differs).  Fully-synced branches
-                        # are already represented via the remote ref entry.
-                        if b.commit.hexsha != own_remote_sha:
-                            ref_list.append((b.name, b.name, b.commit.hexsha))
-                            # NOT local_only — branch exists on remote, just ahead
-                    else:
-                        # No remote counterpart → local-only, always add.
-                        ref_list.append((b.name, b.name, b.commit.hexsha))
-                        local_only.add(b.name)
-                except Exception:
-                    pass
+            for _name, _sha in _local_branches:
+                own_remote_sha = remote_sha_by_name.get(_name)
+                if own_remote_sha is not None:
+                    if _sha != own_remote_sha:
+                        ref_list.append((_name, _name, _sha))
+                else:
+                    ref_list.append((_name, _name, _sha))
+                    local_only.add(_name)
 
         if not ref_list:
             return [], {}, set(), set()

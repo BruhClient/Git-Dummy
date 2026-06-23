@@ -269,12 +269,6 @@ _RULE_LABELS: dict[str, str] = {
 }
 
 
-def _humanize_ref(pattern: str) -> str:
-    if pattern == "~DEFAULT_BRANCH": return "default branch"
-    if pattern == "~ALL":            return "all branches"
-    return pattern.replace("refs/heads/", "")
-
-
 # ── Icon stat widget ──────────────────────────────────────────────────────────
 
 class _IconStat(QWidget):

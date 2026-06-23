@@ -70,19 +70,6 @@ def get_branch_unique_commits(path: str, tip_sha: str, base: str = "main") -> tu
     return True, shas
 
 
-def branch_unique_commits(path: str, source: str, target: str) -> list[str]:
-    """Return commit messages on source that are not reachable from target."""
-    try:
-        r = subprocess.run(
-            ["git", "log", "--format=%s", f"{target}..{source}"],
-            cwd=path, capture_output=True, text=True, timeout=10,
-            encoding="utf-8", errors="replace",
-        )
-        return [m.strip() for m in r.stdout.strip().splitlines() if m.strip()]
-    except Exception:
-        return []
-
-
 def branch_unique_count(path: str, branch: str, default_branch: str) -> int:
     """Return the number of commits on `branch` not reachable from `default_branch`."""
     try:

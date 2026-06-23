@@ -19,5 +19,4 @@ from ui.components.collaborator_panel import (  # noqa: F401
     _CollabRow,
     CollaboratorPanel,
 )
-from ui.components.explore_banner import _ExploreBanner  # noqa: F401
 from ui.components.toast import _Toast  # noqa: F401

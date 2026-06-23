@@ -27,7 +27,10 @@ class _CollabLoader(QObject):
             result = []
         finally:
             t.close()
-        self.finished.emit(result)
+        try:
+            self.finished.emit(result)
+        except RuntimeError:
+            pass
 
 
 class _Loader(QObject):
@@ -157,7 +160,10 @@ class _UncommittedRefreshWorker(QObject):
         dirty = has_uncommitted_changes(self._path)
         files = get_working_dir_diff_files(self._path) if dirty else []
         stash_id = get_stash_list_id(self._path)
-        self.finished.emit(dirty, files, stash_id)
+        try:
+            self.finished.emit(dirty, files, stash_id)
+        except RuntimeError:
+            pass
 
 
 class _NavigateWorker(QObject):

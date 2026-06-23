@@ -92,18 +92,6 @@ def merge_with_decisions(path: str, source_branch: str, decisions: dict) -> tupl
     return ok2, err2
 
 
-def merge_use_theirs(path: str, source_branch: str) -> tuple[bool, str]:
-    """Re-merge using theirs (-X theirs) strategy — no conflict markers in files."""
-    ok, err = _run(path, ["git", "merge", "--no-ff", "-X", "theirs", source_branch], timeout=60)
-    return ok, err
-
-
-def merge_use_ours(path: str, source_branch: str) -> tuple[bool, str]:
-    """Re-merge using ours (-X ours) strategy — no conflict markers in files."""
-    ok, err = _run(path, ["git", "merge", "--no-ff", "-X", "ours", source_branch], timeout=60)
-    return ok, err
-
-
 def merge_abort(path: str) -> tuple[bool, str]:
     return _run(path, ["git", "merge", "--abort"])
 

@@ -31,8 +31,6 @@ from .diff_ops import (   # noqa: F401
 from .merge_ops import (   # noqa: F401
     merge_branch,
     merge_with_decisions,
-    merge_use_theirs,
-    merge_use_ours,
     merge_abort,
     conflict_discard_local,
     conflict_keep_local,
@@ -48,7 +46,6 @@ from .branch_ops import (   # noqa: F401
     get_default_branch,
     branch_for_commit,
     get_branch_unique_commits,
-    branch_unique_commits,
     branch_unique_count,
     delete_branch_full,
     create_branch_with_commit,

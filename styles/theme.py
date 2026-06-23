@@ -278,14 +278,6 @@ QHeaderView::section:last {{
 """
 
 
-def heading_style(size: int, weight: int = 700, color: str = "") -> str:
-    c = color or COLORS["text_primary"]
-    return (
-        f"font-family: {DISPLAY_FONT}; font-size: {size}px; "
-        f"font-weight: {weight}; color: {c}; background: transparent;"
-    )
-
-
 AVATAR_PALETTE = [
     "#7c83db",  "#d4a24e",  "#c86a6a",  "#9a7fd1",  "#4fb8c9",
     "#d48a54",  "#c97ba3",  "#54b09e",  "#8fb85c",  "#a994d4",

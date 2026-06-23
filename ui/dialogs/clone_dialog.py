@@ -703,11 +703,27 @@ class CloneDialog(QDialog):
             self.cloned.emit(path)
             self.accept()
         else:
-            self._show_error("Clone failed — check the URL and your internet connection.")
+            msg = self._friendly_clone_error(err)
+            self._show_error(msg)
             self._clone_btn.setEnabled(True)
             self._clone_btn.setText("Clone")
             if self._has_auth:
                 self._repo_section.setEnabled(True)
+
+    @staticmethod
+    def _friendly_clone_error(err: str) -> str:
+        e = err.lower()
+        if "already exists" in e:
+            return "A folder with that name already exists in the destination."
+        if "not found" in e or "does not exist" in e:
+            return "Repository not found — check the URL is correct."
+        if "authentication" in e or "denied" in e or "403" in e:
+            return "Access denied — you may need permission to clone this repository."
+        if "could not resolve" in e or "unable to access" in e:
+            return "Can't reach GitHub — check your internet connection."
+        if "timed out" in e or "timeout" in e:
+            return "Connection timed out — try again later."
+        return err or "Clone failed — check the URL and your internet connection."
 
     def _on_clone_thread_done(self):
         self._clone_thread = None

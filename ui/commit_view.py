@@ -31,7 +31,6 @@ from ui.panels.settings_panel import SettingsPanel
 from ui.panels.pr_panel import PullRequestsPanel
 
 # ── Extracted submodules ──────────────────────────────────────────────────────
-from ui.components.avatar import _AVATAR_CACHE, _AVATAR_DIR, _avatar_disk_path, _load_avatar, _save_avatar
 from ui.workers.commit_workers import (
     _CollabLoader, _Loader, _CommitDetailWorker, _VisibilityWorker,
     _FetchWorker, _UncommittedRefreshWorker, _NavigateWorker,
@@ -44,9 +43,8 @@ from ui.components.header_bar import _Header
 from ui.components.zoom_bar import ZoomBar
 from ui.components.legend import _Legend
 from ui.components.collaborator_panel import (
-    _COLLAB_PALETTE, _person_color, _SkeletonRow, _AvatarDot, _CollabRow, CollaboratorPanel,
+    _person_color, CollaboratorPanel,
 )
-from ui.components.explore_banner import _ExploreBanner
 from ui.components.toast import _Toast
 from ui.dialogs.conflict_dialog import (
     _numbered, _ConflictDialog, _PullDirtyDialog, _NavigateDirtyDialog, _MergeConflictDialog,
@@ -1038,6 +1036,19 @@ class CommitViewPage(_PRMixin, QWidget):
                         self._local_tip_branch[sha] = name
         except Exception:
             pass
+        self._real_local_branches = set(self._local_branch_tip.keys())
+
+        # Auto-create virtual local tips for remote-only branches so every
+        # branch shows a local tip indicator (hollow ring) in the graph.
+        _local_names = set(self._local_branch_tip.keys())
+        for sha, names in branch_tip_map.items():
+            if sha in (remote_tip_shas or set()):
+                for name in names:
+                    if name not in _local_names:
+                        self._local_tip_shas.add(sha)
+                        self._local_branch_tip[name] = sha
+                        if sha not in self._local_tip_branch:
+                            self._local_tip_branch[sha] = name
 
         # _branch_head_shas must stay in sync before the early-return guard.
         # _branch_depths is computed AFTER load_graph (which sets commit.branch);
@@ -1093,7 +1104,6 @@ class CommitViewPage(_PRMixin, QWidget):
         local_tip_visible: set[str] = set(self._local_tip_branch.keys())
 
         self._you_shas = self._compute_you_shas(commits)
-
 
         self._canvas.load_graph(commits, branch_tip_map,
                                 you_shas=self._you_shas,
@@ -1256,22 +1266,6 @@ class CommitViewPage(_PRMixin, QWidget):
     def _on_protected_branches(self, branches: set):
         self._protected_branches = branches
 
-    @staticmethod
-    def _pr_btn_style(protected: bool) -> str:
-        if protected:
-            return (f"QPushButton {{ background: {COLORS['accent_dim']};"
-                    f" border: 1px solid {COLORS['accent']}; border-radius: 8px;"
-                    f" color: {COLORS['accent']}; font-size: 12px; font-weight: 600;"
-                    f" padding: 0 12px; }}"
-                    f"QPushButton:hover {{ background: {COLORS['accent']};"
-                    f" color: {COLORS['text_on_accent']}; }}")
-        return (f"QPushButton {{ background: {COLORS['bg_card']};"
-                f" border: 1px solid {COLORS['border']}; border-radius: 8px;"
-                f" color: {COLORS['text_muted']}; font-size: 12px; font-weight: 600;"
-                f" padding: 0 12px; }}"
-                f"QPushButton:hover {{ color: {COLORS['text_primary']};"
-                f" background: {COLORS['bg_hover']}; }}")
-
     def _switch_tab(self, tab: str):
         if tab == "schema":
             self._content_stack.setCurrentIndex(0)
@@ -1425,7 +1419,7 @@ class CommitViewPage(_PRMixin, QWidget):
                     if not ok_co:
                         self._merge_done_sig.emit(False, err_co, [], source, target, {})
                         return
-                git_source = source if source in self._local_branch_tip else f"origin/{source}"
+                git_source = source if source in self._real_local_branches else f"origin/{source}"
                 ok, err, files, content = merge_branch(path, git_source)
             except Exception as exc:
                 ok, err, files, content = False, str(exc), [], {}
@@ -1486,7 +1480,7 @@ class CommitViewPage(_PRMixin, QWidget):
         def _run():
             try:
                 from core.ops import merge_with_decisions
-                git_source = source if source.startswith("origin/") or source in self._local_branch_tip else f"origin/{source}"
+                git_source = source if source.startswith("origin/") or source in self._real_local_branches else f"origin/{source}"
                 ok, err = merge_with_decisions(path, git_source, decisions)
                 if ok and source.startswith("origin/"):
                     from core.ops import _run as git_run

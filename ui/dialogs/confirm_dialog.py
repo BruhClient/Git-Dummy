@@ -1,11 +1,76 @@
 """Styled confirmation and alert dialogs, plus convenience helpers."""
 from __future__ import annotations
 
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, QRect, QSize, QPoint
 from PyQt5.QtWidgets import (
     QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QWidget,
+    QLayout, QLayoutItem, QSizePolicy, QScrollArea,
 )
-from styles.theme import COLORS, card_shadow
+from styles.theme import COLORS, card_shadow, scrollbar_style
+
+
+class _FlowLayout(QLayout):
+    """Layout that wraps items to the next row when the width is exceeded."""
+
+    def __init__(self, parent=None, h_spacing=8, v_spacing=8):
+        super().__init__(parent)
+        self._h = h_spacing
+        self._v = v_spacing
+        self._items: list[QLayoutItem] = []
+
+    def addItem(self, item):
+        self._items.append(item)
+
+    def count(self):
+        return len(self._items)
+
+    def itemAt(self, index):
+        if 0 <= index < len(self._items):
+            return self._items[index]
+        return None
+
+    def takeAt(self, index):
+        if 0 <= index < len(self._items):
+            return self._items.pop(index)
+        return None
+
+    def hasHeightForWidth(self):
+        return True
+
+    def heightForWidth(self, width):
+        return self._do_layout(QRect(0, 0, width, 0), test_only=True)
+
+    def setGeometry(self, rect):
+        super().setGeometry(rect)
+        self._do_layout(rect)
+
+    def sizeHint(self):
+        return self.minimumSize()
+
+    def minimumSize(self):
+        s = QSize()
+        for item in self._items:
+            s = s.expandedTo(item.minimumSize())
+        m = self.contentsMargins()
+        return QSize(s.width() + m.left() + m.right(),
+                     s.height() + m.top() + m.bottom())
+
+    def _do_layout(self, rect, test_only=False):
+        m = self.contentsMargins()
+        effective = rect.adjusted(m.left(), m.top(), -m.right(), -m.bottom())
+        x, y = effective.x(), effective.y()
+        row_h = 0
+        for item in self._items:
+            sz = item.sizeHint()
+            if x + sz.width() > effective.right() + 1 and row_h > 0:
+                x = effective.x()
+                y += row_h + self._v
+                row_h = 0
+            if not test_only:
+                item.setGeometry(QRect(QPoint(x, y), sz))
+            x += sz.width() + self._h
+            row_h = max(row_h, sz.height())
+        return y + row_h - rect.y() + m.bottom()
 
 
 class ConfirmDialog(QDialog):
@@ -180,12 +245,14 @@ class MergeDialog(QDialog):
         vl.addWidget(body_lbl)
 
         from PyQt5.QtWidgets import QButtonGroup
-        toggle_row = QHBoxLayout()
-        toggle_row.setSpacing(8)
         self._branch_btns: list[QPushButton] = []
         self._btn_styles: dict[str, tuple[str, str]] = {}
         self._btn_group = QButtonGroup(self)
         self._btn_group.setExclusive(True)
+
+        flow_widget = QWidget()
+        flow_widget.setStyleSheet("background: transparent;")
+        flow = _FlowLayout(flow_widget, h_spacing=8, v_spacing=8)
 
         for b in branches:
             color = self._branch_colors.get(b, COLORS['accent'])
@@ -208,9 +275,15 @@ class MergeDialog(QDialog):
             btn.toggled.connect(self._on_toggle)
             self._btn_group.addButton(btn)
             self._branch_btns.append(btn)
-            toggle_row.addWidget(btn)
-        toggle_row.addStretch()
-        vl.addLayout(toggle_row)
+            flow.addWidget(btn)
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QScrollArea.NoFrame)
+        scroll.setStyleSheet(f"QScrollArea {{ background: transparent; border: none; }} {scrollbar_style()}")
+        scroll.setMaximumHeight(160)
+        scroll.setWidget(flow_widget)
+        vl.addWidget(scroll)
 
         default_btn = next((b for b in self._branch_btns if b.text() == default_branch), None)
         if default_btn:
