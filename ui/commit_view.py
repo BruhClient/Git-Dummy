@@ -434,6 +434,8 @@ class CommitViewPage(_PRMixin, QWidget):
         if self._create_remote_dlg:
             self._create_remote_dlg.hide()
             self._create_remote_dlg = None
+        if getattr(self, "_fork_card", None):
+            self._fork_card.hide()
         self._loading.show()
         self._loading.raise_()
 
@@ -570,6 +572,8 @@ class CommitViewPage(_PRMixin, QWidget):
         if can_push:
             role = "Owner" if is_owner else "Collaborator"
             self._settings_panel.set_role(role)
+            if getattr(self, "_fork_card", None):
+                self._fork_card.hide()
         else:
             self._settings_panel.set_role("Viewer")
         if not can_push and visibility and visibility != "not_found":
