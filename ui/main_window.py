@@ -17,7 +17,7 @@ def _LogoMark(parent=None):
     lbl = QLabel(parent)
     sz = 42
     lbl.setFixedSize(sz, sz)
-    _logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "logo", "optimised_logo1-removebg.png")
+    _logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "logo", "logo.png")
     src = QPixmap(_logo_path).scaled(sz, sz, Qt.KeepAspectRatio, Qt.SmoothTransformation)
     lbl.setPixmap(src)
     return lbl
@@ -427,7 +427,7 @@ class MainWindow(QMainWindow):
     def __init__(self, github_auth, parent=None):
         super().__init__(parent)
         self._auth = github_auth
-        self.setWindowTitle("Evo Git")
+        self.setWindowTitle("Git Dummy")
         self.setMinimumSize(1100, 680)
         self.setStyleSheet(make_global_style())
 

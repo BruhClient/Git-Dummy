@@ -40,7 +40,7 @@ from styles.theme import make_global_style
 class App(QStackedWidget):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Evo Git")
+        self.setWindowTitle("Git Dummy")
         self.setMinimumSize(1100, 700)
 
         self._auth = GitHubAuth(self)
@@ -138,8 +138,8 @@ def main():
     QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
 
     app = QApplication(sys.argv)
-    app.setApplicationName("Evo Git")
-    app.setOrganizationName("EvoGit")
+    app.setApplicationName("Git Dummy")
+    app.setOrganizationName("GitDummy")
 
     window = App()
     window.show()

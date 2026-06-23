@@ -143,7 +143,7 @@ class _Header(QWidget):
             self._op_badge.setText(f"{op}…")
             self._op_badge.setToolTip(
                 f"This repo has a {op.lower()} in progress that hasn't been "
-                "finished — usually because it was started outside Evo Git, "
+                "finished — usually because it was started outside Git Dummy, "
                 "or a conflict was left unresolved. Resolve any conflicts and "
                 f"finish (or cancel) the {op.lower()} to clear this."
             )

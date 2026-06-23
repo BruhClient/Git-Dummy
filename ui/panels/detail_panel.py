@@ -797,6 +797,7 @@ class DetailPanel(QWidget):
                 return
 
         show_delete = not is_main and bool(branch) and (is_head or is_remote_head) and not is_merge_commit and is_first_of_branch
+        print(f"[delete] show_delete={show_delete} is_main={is_main} branch={branch} is_head={is_head} is_remote_head={is_remote_head} is_merge_commit={is_merge_commit} is_first_of_branch={is_first_of_branch}")
         self._delete_branch_btn.setVisible(show_delete)
         self._delete_branch_btn.setEnabled(show_delete)
 

@@ -1,6 +1,7 @@
 """Background QThread worker classes for CommitViewPage."""
 from __future__ import annotations
 
+import os
 import subprocess
 
 from PyQt5.QtCore import QObject, pyqtSlot, pyqtSignal
@@ -49,7 +50,9 @@ class _Loader(QObject):
             unpushed = t.get_unpushed_shas()
             from core.ops import get_stash_commit_shas, has_uncommitted_changes
             stash_shas = get_stash_commit_shas(self._path)
-            if has_uncommitted_changes(self._path):
+            dirty = has_uncommitted_changes(self._path)
+            is_mid_merge = os.path.exists(os.path.join(self._path, ".git", "MERGE_HEAD"))
+            if dirty and not is_mid_merge:
                 head = t.head_sha()
                 if head:
                     stash_shas = stash_shas | {head}

@@ -16,12 +16,12 @@ from auth.github_auth import PAT_CREATE_URL
 
 
 class LogoMark(QLabel):
-    """Evo Git branded logo mark."""
+    """Git Dummy branded logo mark."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setFixedSize(48, 48)
-        _logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "logo", "optimised_logo1-removebg.png")
+        _logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "logo", "logo.png")
         src = QPixmap(_logo_path).scaled(48, 48, Qt.KeepAspectRatio, Qt.SmoothTransformation)
         tinted = QPixmap(src.size())
         tinted.fill(Qt.transparent)
@@ -76,7 +76,7 @@ class AuthPage(QWidget):
         logo_row = QHBoxLayout()
         logo_row.setSpacing(12)
         logo_row.addWidget(LogoMark())
-        app_name = QLabel("Evo Git")
+        app_name = QLabel("Git Dummy")
         app_name.setStyleSheet(f"background: transparent; font-size: 20px; font-weight: 700; font-family: {LOGO_FONT}; color: {COLORS['text_primary']};")
         logo_row.addWidget(app_name)
         logo_row.addStretch()
@@ -119,7 +119,7 @@ class AuthPage(QWidget):
 
         left_layout.addSpacerItem(QSpacerItem(0, 32, QSizePolicy.Minimum, QSizePolicy.Fixed))
 
-        footer = QLabel("© 2026 Evo Git")
+        footer = QLabel("© 2026 Git Dummy")
         footer.setStyleSheet(f"background: transparent; font-size: 12px; color: {COLORS['text_muted']};")
         left_layout.addWidget(footer)
 

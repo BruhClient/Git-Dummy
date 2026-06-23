@@ -61,7 +61,7 @@ class _StepInit(QWidget):
 
         layout.addWidget(_label("This folder isn't tracked yet", 18, bold=True))
         layout.addWidget(_label(
-            f"<b>{os.path.basename(folder)}</b> isn't being tracked by Evo Git.",
+            f"<b>{os.path.basename(folder)}</b> isn't being tracked by Git Dummy.",
             13, COLORS["text_secondary"], wrap=True,
         ))
         layout.addWidget(_label(folder, 11, COLORS["text_muted"]))

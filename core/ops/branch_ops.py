@@ -84,6 +84,7 @@ def branch_unique_count(path: str, branch: str, default_branch: str) -> int:
 
 
 def delete_branch_full(path: str, branch: str, fallback_sha: str = "") -> tuple[bool, str]:
+    print(f"[delete_branch_full] branch={branch} fallback_sha={fallback_sha[:7] if fallback_sha else ''}")
     cur = subprocess.run(
         ["git", "rev-parse", "--abbrev-ref", "HEAD"],
         cwd=path, capture_output=True, text=True, timeout=10,
@@ -137,12 +138,16 @@ def delete_branch_full(path: str, branch: str, fallback_sha: str = "") -> tuple[
                 )
             checkout_target = target
 
+        print(f"[delete_branch_full] checking out {checkout_target}")
         ok, err = _run(path, ["git", "checkout", checkout_target])
         if not ok:
+            print(f"[delete_branch_full] checkout failed: {err}")
             return False, err
 
+    print(f"[delete_branch_full] deleting local branch {branch}")
     ok, err = _run(path, ["git", "branch", "-D", branch])
     if not ok:
+        print(f"[delete_branch_full] local delete failed: {err}")
         return False, err
 
     # Only attempt remote delete when the branch actually exists on origin
@@ -159,6 +164,7 @@ def delete_branch_full(path: str, branch: str, fallback_sha: str = "") -> tuple[
         )
         if r.returncode != 0:
             stderr = r.stderr.strip()
+            print(f"[delete_branch_full] remote delete failed: {stderr}")
             if "refusing to delete the current branch" in stderr:
                 return False, (
                     f"Local branch deleted, but '{branch}' is the default branch on GitHub — "

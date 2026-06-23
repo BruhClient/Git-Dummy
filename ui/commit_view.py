@@ -1753,7 +1753,7 @@ class CommitViewPage(_PRMixin, QWidget):
         _fp = not getattr(self, "_last_detail_diverged", False)
         self._run_branch_op(
             lambda p: __import__("core.ops", fromlist=["hard_revert_to"]).hard_revert_to(p, branch, target_sha, force_push=_fp),
-            success_msg=f"Hard reverted '{branch}'.",
+            success_msg=f"Hard reverted and synced '{branch}' with GitHub.",
             fail_prefix="Hard revert failed",
             start_msg=f"Hard reverting '{branch}'…",
             close_panel=True,
@@ -1809,7 +1809,12 @@ class CommitViewPage(_PRMixin, QWidget):
             self._jump_to_head = True   # always scroll to new HEAD after any successful op
             self._start_load()
         else:
-            msg = "Timed out." if err == "timed_out" else "Something went wrong — try again."
+            if err == "timed_out":
+                msg = "Timed out."
+            elif err:
+                msg = err
+            else:
+                msg = "Something went wrong — try again."
             self._toast.show_message(msg, kind="error", duration_ms=6000)
             if close_panel:
                 self._panel.hide_panel()

@@ -38,7 +38,7 @@ NODE_R = 10
 START_R = 14
 
 import os as _os
-_LOGO_PATH = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "..", "..", "logo", "optimised_logo1-removebg.png")
+_LOGO_PATH = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "..", "..", "logo", "logo.png")
 
 
 # ── Base illustration widget ──────────────────────────────────────────────────
@@ -270,7 +270,7 @@ class _WelcomeIllust(_Illust):
             p.drawPixmap(int(cx - pm.width() / 2), 15, pm)
             p.setOpacity(1.0)
 
-        # "Evo Git" big text
+        # "Git Dummy" big text
         if t > 0.3:
             a = min(1.0, (t - 0.3) / 0.3)
             font = QFont("Urbanist", 22)
@@ -278,8 +278,8 @@ class _WelcomeIllust(_Illust):
             p.setFont(font)
             p.setPen(QPen(QColor(255, 255, 255, int(a * 240))))
             fm = p.fontMetrics()
-            tw = fm.horizontalAdvance("Evo Git")
-            p.drawText(QPointF(cx - tw / 2, 115), "Evo Git")
+            tw = fm.horizontalAdvance("Git Dummy")
+            p.drawText(QPointF(cx - tw / 2, 115), "Git Dummy")
 
         # Tagline
         if t > 0.55:
@@ -319,7 +319,7 @@ class _TrackProjectIllust(_Illust):
                            QColor(255, 255, 255, int(a * 100)), size=8, center=True)
         if t > 0.8:
             a = min(1.0, (t - 0.8) / 0.2)
-            self._text(p, cx, 160, "start by connecting a project to Evo Git",
+            self._text(p, cx, 160, "start by connecting a project to Git Dummy",
                        QColor(255, 255, 255, int(a * 130)), size=9, center=True)
 
 
@@ -913,7 +913,7 @@ class _ReadyIllust(_Illust):
 
 _STAGES = [
     {
-        "title": "Welcome to Evo Git",
+        "title": "Welcome to Git Dummy",
         "body": "A visual Git client that turns your project's history into an interactive graph you can see and touch.",
         "illust": _WelcomeIllust,
     },
