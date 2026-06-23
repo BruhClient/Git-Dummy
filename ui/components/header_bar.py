@@ -13,6 +13,7 @@ from styles.theme import COLORS
 
 class _Header(QWidget):
     connect_requested = pyqtSignal()
+    help_requested = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -115,6 +116,21 @@ class _Header(QWidget):
         self._count = QLabel("")
         self._count.setStyleSheet(f"background: transparent; font-size: 12px; color: {COLORS['text_muted']};")
         layout.addWidget(self._count)
+
+        self._help_btn = QPushButton()
+        self._help_btn.setIcon(qta.icon("mdi.help-circle-outline", color=COLORS["text_secondary"]))
+        self._help_btn.setIconSize(QSize(18, 18))
+        self._help_btn.setFixedSize(32, 32)
+        self._help_btn.setCursor(Qt.PointingHandCursor)
+        self._help_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: transparent; border: 1px solid {COLORS['border']};
+                border-radius: 16px;
+            }}
+            QPushButton:hover {{ border-color: {COLORS['accent']}; }}
+        """)
+        self._help_btn.clicked.connect(self.help_requested)
+        layout.addWidget(self._help_btn)
 
     def set_center(self, widget: QWidget):
         self._center_layout.addWidget(widget)

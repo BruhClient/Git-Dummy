@@ -406,6 +406,7 @@ class PullRequestsPanel(QWidget):
     pr_cleared       = pyqtSignal()       # canvas: clear highlight
     merge_requested  = pyqtSignal(dict)   # → commit_view: handle merge + conflict check
     toast_requested  = pyqtSignal(str, str)  # → commit_view: (message, kind)
+    help_requested   = pyqtSignal()
     _prs_ready       = pyqtSignal(list)   # thread → main
     _fetch_error     = pyqtSignal()       # thread → main
     _action_done     = pyqtSignal(bool, str)   # thread → main: ok, message
@@ -471,6 +472,23 @@ class PullRequestsPanel(QWidget):
         """)
         self._refresh_btn.clicked.connect(self._do_refresh)
         fl.addWidget(self._refresh_btn)
+
+        help_btn = QPushButton()
+        help_btn.setIcon(qta.icon("mdi.help-circle-outline", color=COLORS["text_muted"]))
+        help_btn.setIconSize(QSize(14, 14))
+        help_btn.setFixedSize(28, 28)
+        help_btn.setCursor(Qt.PointingHandCursor)
+        help_btn.setToolTip("Guide")
+        help_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: transparent; border: none; border-radius: 6px;
+            }}
+            QPushButton:hover {{
+                background: {COLORS['bg_hover']};
+            }}
+        """)
+        help_btn.clicked.connect(self.help_requested)
+        fl.addWidget(help_btn)
 
         root.addWidget(filter_bar)
 

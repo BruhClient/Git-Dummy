@@ -19,3 +19,5 @@ from ui.dialogs.init_dialog import InitDialog  # noqa: F401
 from ui.dialogs.pr_open_wizard import PROpenWizard  # noqa: F401
 from ui.dialogs.add_account_dialog import AddAccountDialog  # noqa: F401
 from ui.dialogs.instructions_dialog import InstructionsDialog  # noqa: F401
+from ui.dialogs.visualizer_help_dialog import VisualizerHelpDialog  # noqa: F401
+from ui.dialogs.pr_help_dialog import PRHelpDialog  # noqa: F401

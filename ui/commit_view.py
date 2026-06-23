@@ -195,6 +195,7 @@ class CommitViewPage(_PRMixin, QWidget):
         self._pr_panel.pr_cleared.connect(lambda: self._canvas.set_pr_highlight(set()))
         self._pr_panel.merge_requested.connect(self._on_pr_merge_requested)
         self._pr_panel.toast_requested.connect(lambda msg, kind: self._toast.show_message(msg, kind=kind, duration_ms=4000))
+        self._pr_panel.help_requested.connect(self._open_pr_help)
         self._settings_panel.approval_count_ready.connect(self._pr_panel.set_approval_count)
         self._content_stack.addWidget(self._pr_panel)   # index 2 — Collaboration
 
@@ -230,6 +231,7 @@ class CommitViewPage(_PRMixin, QWidget):
         self._github_connect_dialog._connect_choice.connect(self._on_github_connect)
         self._github_connect_dialog.raise_()
         self._header.connect_requested.connect(self._on_connect_requested)
+        self._header.help_requested.connect(self._open_visualizer_help)
 
         self._settings_loaded = False
         self._op_done.connect(self._on_branch_op_done)
@@ -1358,6 +1360,14 @@ class CommitViewPage(_PRMixin, QWidget):
     def _on_connect_requested(self):
         if self._tracker:
             self._github_connect_dialog.show_near(self._tracker._path)
+
+    def _open_visualizer_help(self):
+        from ui.dialogs.visualizer_help_dialog import VisualizerHelpDialog
+        VisualizerHelpDialog(self).exec_()
+
+    def _open_pr_help(self):
+        from ui.dialogs.pr_help_dialog import PRHelpDialog
+        PRHelpDialog(self).exec_()
 
     def _on_github_connect(self, name: str, is_private: bool):
         if not self._tracker:

@@ -447,8 +447,13 @@ class MissingRepoCard(QWidget):
 
 # ── Repo page ─────────────────────────────────────────────────────────────────
 
+def _norm_path(p: str) -> str:
+    return os.path.normcase(os.path.normpath(p))
+
+
 class RepoPage(QWidget):
     repo_selected = pyqtSignal(str)
+    _validate_done = pyqtSignal(list, list)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -456,6 +461,7 @@ class RepoPage(QWidget):
         self._missing: list[str] = []  # paths that no longer exist
         self._user: dict | None = None
         self.setAcceptDrops(True)
+        self._validate_done.connect(self._on_validate_done)
         self._setup_ui()
 
     def set_user(self, user: dict):
@@ -546,29 +552,41 @@ class RepoPage(QWidget):
         if not login:
             return
         saved = repo_store.load(login)
+        seen = set()
         for path in saved:
+            norm = _norm_path(path)
+            if norm in seen:
+                continue
+            seen.add(norm)
             if os.path.isdir(os.path.join(path, ".git")):
-                if path not in self._repos:
+                if norm not in {_norm_path(r) for r in self._repos}:
                     self._repos.append(path)
-            elif path not in self._missing:
+            elif norm not in {_norm_path(m) for m in self._missing}:
                 self._missing.append(path)
         self._refresh_cards()
 
     def _validate_paths(self):
-        changed = False
-        for path in list(self._repos):
-            if not os.path.isdir(os.path.join(path, ".git")):
-                self._repos.remove(path)
-                if path not in self._missing:
-                    self._missing.append(path)
-                changed = True
-        for path in list(self._missing):
-            if os.path.isdir(os.path.join(path, ".git")):
-                self._missing.remove(path)
-                if path not in self._repos:
-                    self._repos.append(path)
-                changed = True
-        if changed:
+        repos = list(self._repos)
+        missing = list(self._missing)
+        def _check():
+            valid, gone = [], []
+            seen = set()
+            for path in repos + missing:
+                norm = _norm_path(path)
+                if norm in seen:
+                    continue
+                seen.add(norm)
+                if os.path.isdir(os.path.join(path, ".git")):
+                    valid.append(path)
+                else:
+                    gone.append(path)
+            self._validate_done.emit(valid, gone)
+        threading.Thread(target=_check, daemon=True).start()
+
+    def _on_validate_done(self, valid: list, gone: list):
+        if valid != self._repos or gone != self._missing:
+            self._repos = valid
+            self._missing = gone
             self._persist()
             self._refresh_cards()
 
@@ -606,17 +624,17 @@ class RepoPage(QWidget):
     # ── public ────────────────────────────────────────────────────────────────
 
     def add_repo(self, path: str):
-        if path not in self._repos:
+        norm = _norm_path(path)
+        if norm not in {_norm_path(r) for r in self._repos}:
             self._repos.append(path)
-            if path in self._missing:
-                self._missing.remove(path)
+            self._missing = [m for m in self._missing if _norm_path(m) != norm]
             self._persist()
             self._refresh_cards()
 
     def remove_repo(self, path: str):
-        for lst in (self._repos, self._missing):
-            if path in lst:
-                lst.remove(path)
+        norm = _norm_path(path)
+        self._repos = [r for r in self._repos if _norm_path(r) != norm]
+        self._missing = [m for m in self._missing if _norm_path(m) != norm]
         self._persist()
         self._refresh_cards()
 
@@ -644,9 +662,11 @@ class RepoPage(QWidget):
 
     def _handle_path(self, path: str):
         """Decide what to do with a dropped/browsed path."""
-        if path in self._repos:
-            self.repo_selected.emit(path)  # already tracked — just navigate
-            return
+        norm = _norm_path(path)
+        for r in self._repos:
+            if _norm_path(r) == norm:
+                self.repo_selected.emit(r)
+                return
 
         git_dir = os.path.join(path, ".git")
         if os.path.isdir(git_dir):
@@ -682,9 +702,9 @@ class RepoPage(QWidget):
                   f"This doesn't look like a tracked project folder:\n{folder}")
             return
         # Replace old path with new one and navigate immediately
-        if old_path in self._missing:
-            self._missing.remove(old_path)
-        if folder not in self._repos:
+        self._missing = [m for m in self._missing if _norm_path(m) != _norm_path(old_path)]
+        norm = _norm_path(folder)
+        if norm not in {_norm_path(r) for r in self._repos}:
             self._repos.append(folder)
         self._persist()
         self._refresh_cards()
