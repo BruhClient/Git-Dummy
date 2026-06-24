@@ -278,6 +278,7 @@ class _PRRow(QWidget):
             base = f"https://api.github.com/repos/{self._owner}/{self._repo}"
             r = requests.get(f"{base}/pulls/{self._number}", headers=headers, timeout=10)
             if r.status_code != 200:
+                self._detail_ready.emit({})
                 return
             data = r.json()
             state = _pr_state(self._pr)
@@ -296,7 +297,7 @@ class _PRRow(QWidget):
                             break
             self._detail_ready.emit(data)
         except Exception:
-            pass
+            self._detail_ready.emit({})
 
     def _apply_detail(self, data: dict):
         self._detail_fetched = True
@@ -309,7 +310,8 @@ class _PRRow(QWidget):
             self._conflict_badge.setText("Has conflicts")
             self._conflict_badge.setStyleSheet(f"{_base} color: #ef4444;")
         else:
-            self._conflict_badge.setText("")
+            self._conflict_badge.setText("Checking…")
+            self._conflict_badge.setStyleSheet(f"{_base} color: {COLORS['text_muted']};")
 
         body = data.get("body") or ""
         self._desc_lbl.setText(body if body else "No description.")
@@ -406,6 +408,7 @@ class PullRequestsPanel(QWidget):
     pr_cleared       = pyqtSignal()       # canvas: clear highlight
     merge_requested  = pyqtSignal(dict)   # → commit_view: handle merge + conflict check
     toast_requested  = pyqtSignal(str, str)  # → commit_view: (message, kind)
+    graph_reload_requested = pyqtSignal()  # → commit_view: refresh graph after PR action
     help_requested   = pyqtSignal()
     _prs_ready       = pyqtSignal(list)   # thread → main
     _fetch_error     = pyqtSignal()       # thread → main
@@ -749,4 +752,7 @@ class PullRequestsPanel(QWidget):
 
     def _on_action_done(self, ok: bool, msg: str):
         self.toast_requested.emit(msg, "success" if ok else "error")
+        if ok:
+            self._do_refresh()
+            self.graph_reload_requested.emit()
 

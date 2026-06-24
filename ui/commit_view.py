@@ -193,6 +193,7 @@ class CommitViewPage(_PRMixin, QWidget):
         self._pr_panel.pr_cleared.connect(lambda: self._canvas.set_pr_highlight(set()))
         self._pr_panel.merge_requested.connect(self._on_pr_merge_requested)
         self._pr_panel.toast_requested.connect(lambda msg, kind: self._toast.show_message(msg, kind=kind, duration_ms=4000))
+        self._pr_panel.graph_reload_requested.connect(self._on_pr_action_reload)
         self._pr_panel.help_requested.connect(self._open_pr_help)
         self._settings_panel.approval_count_ready.connect(self._pr_panel.set_approval_count)
         self._content_stack.addWidget(self._pr_panel)   # index 2 — Collaboration
@@ -1162,7 +1163,7 @@ class CommitViewPage(_PRMixin, QWidget):
             self._place_contributor_badges()
 
     def _update_position_panel(self, commits: list):
-        if not self._tracker:
+        if not self._tracker or self._current_tab != "schema":
             return
         head_sha = self._tracker.head_sha()
         if not head_sha or head_sha == self._last_head_sha:
@@ -1431,6 +1432,7 @@ class CommitViewPage(_PRMixin, QWidget):
         if ok:
             self._panel_op_active = False
             self._navigating = False
+            self._pr_panel_loaded = False
             if err in ("already_up_to_date",) or err.startswith("already_merged:"):
                 self._toast.show_message(
                     f"'{source}' is already fully merged into '{target}'.", kind="success", duration_ms=5000)
@@ -1459,9 +1461,9 @@ class CommitViewPage(_PRMixin, QWidget):
     def _on_merge_conflict_choice(self, decisions, source: str, target: str):
         path = self._tracker._path
         if decisions is None:
-            # Cancel — merge was already aborted, nothing to do
             self._panel_op_active = False
             self._navigating = False
+            self._pending_merge_pr = {}
             self._panel.unlock_actions()
             return
         # decisions is a dict {filepath: "ours"|"theirs"}
@@ -1479,15 +1481,36 @@ class CommitViewPage(_PRMixin, QWidget):
             return
         def _run():
             try:
-                from core.ops import merge_with_decisions
+                from core.ops import merge_with_decisions, checkout_branch
+                from core.ops import _run as git_run
+                import subprocess
+                cur = subprocess.run(
+                    ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+                    cwd=path, capture_output=True, text=True,
+                    encoding="utf-8", errors="replace", timeout=5,
+                ).stdout.strip()
+                switched = False
+                if cur != target:
+                    ok_co, err_co = checkout_branch(path, target)
+                    if not ok_co:
+                        self._merge_resolve_done_sig.emit(False, err_co, "")
+                        return
+                    switched = True
                 git_source = source if source.startswith("origin/") or source in self._real_local_branches else f"origin/{source}"
                 ok, err = merge_with_decisions(path, git_source, decisions)
+                is_pr_merge = bool(self._pending_merge_pr)
                 if ok and source.startswith("origin/"):
-                    from core.ops import _run as git_run
                     push_branch = source.removeprefix("origin/")
                     push_ok, push_err = git_run(path, ["git", "push", "origin", push_branch], timeout=30)
                     if not push_ok:
                         ok, err = False, push_err
+                elif ok and is_pr_merge:
+                    push_ok, push_err = git_run(path, ["git", "push", "origin", target], timeout=30)
+                    if not push_ok:
+                        ok, err = False, push_err
+                    self._pending_merge_pr = {}
+                if switched:
+                    checkout_branch(path, cur)
             except Exception as exc:
                 ok, err = False, str(exc)
             msg = f"Merged '{source}' into '{target}'."
@@ -1499,12 +1522,19 @@ class CommitViewPage(_PRMixin, QWidget):
         self._panel_op_active = False
         self._navigating = False
         if ok:
+            self._pr_panel_loaded = False
             self._toast.show_message(success_msg, kind="success", duration_ms=5000)
             self._start_load()
+            if self._current_tab == "collaboration":
+                self._pr_panel._do_refresh()
         else:
             msg = "Timed out." if err == "timed_out" else "Couldn't finish the merge — try again."
             self._toast.show_message(msg, kind="error", duration_ms=6000)
         self._panel.unlock_actions()
+
+    def _on_pr_action_reload(self):
+        self._pr_panel_loaded = False
+        self._poll_remote()
 
     def _on_save_stash(self, sha: str, stash_ref: str, message: str, branch: str = ""):
         if not self._tracker or self._panel_op_active:
