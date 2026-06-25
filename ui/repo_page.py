@@ -231,6 +231,7 @@ class RepoCard(QWidget):
         )
         name_label.setAttribute(Qt.WA_TransparentForMouseEvents, True)
         top_row.addWidget(name_label)
+        top_row.addSpacing(8)
 
         self._vis_badge = QLabel("")
         self._vis_badge.setObjectName("visBadge")
