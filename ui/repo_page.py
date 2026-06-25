@@ -204,7 +204,7 @@ class DropZone(QWidget):
 class RepoCard(QWidget):
     open_requested   = pyqtSignal(str)
     remove_requested = pyqtSignal(str)
-    _stats_ready     = pyqtSignal(int, int, int, int)
+    _stats_ready     = pyqtSignal(int, int, int, int, str)
 
     def __init__(self, repo_path: str, user: dict = None, parent=None):
         super().__init__(parent)
@@ -231,6 +231,14 @@ class RepoCard(QWidget):
         )
         name_label.setAttribute(Qt.WA_TransparentForMouseEvents, True)
         top_row.addWidget(name_label)
+
+        self._vis_badge = QLabel("")
+        self._vis_badge.setObjectName("visBadge")
+        self._vis_badge.setFixedHeight(18)
+        self._vis_badge.setAlignment(Qt.AlignCenter)
+        self._vis_badge.hide()
+        top_row.addWidget(self._vis_badge)
+
         top_row.addStretch()
 
         self._rm_btn = QPushButton()
@@ -295,6 +303,7 @@ class RepoCard(QWidget):
         except Exception:
             pass
         stars = watchers = forks = -1
+        vis = ""
         if owner and repo and token:
             try:
                 import requests
@@ -307,14 +316,18 @@ class RepoCard(QWidget):
                     stars = d.get("stargazers_count", 0)
                     watchers = d.get("subscribers_count", 0)
                     forks = d.get("forks_count", 0)
+                    vis = "Private" if d.get("private") else "Public"
             except Exception:
                 pass
         try:
-            self._stats_ready.emit(stars, watchers, forks, commits)
+            self._stats_ready.emit(stars, watchers, forks, commits, vis)
         except RuntimeError:
             pass
 
-    def _on_stats(self, stars: int, watchers: int, forks: int, commits: int):
+    def _on_stats(self, stars: int, watchers: int, forks: int, commits: int, vis: str):
+        if vis:
+            self._vis_badge.setText(vis)
+            self._vis_badge.show()
         while self._stats_row.count() > 1:
             item = self._stats_row.takeAt(0)
             if item.widget():
@@ -350,6 +363,8 @@ class RepoCard(QWidget):
         self.setStyleSheet(
             f"#repoCard {{ background: {bg}; border: 1px solid {border}; border-radius: 12px; }}"
             f"#repoCard * {{ background: transparent; border: none; }}"
+            f"#visBadge {{ background: {COLORS['bg_secondary']}; border: 1px solid {COLORS['border']};"
+            f" border-radius: 9px; font-size: 10px; color: {COLORS['text_muted']}; padding: 0 8px; }}"
         )
 
     def enterEvent(self, _):
@@ -462,6 +477,7 @@ def _norm_path(p: str) -> str:
 class RepoPage(QWidget):
     repo_selected = pyqtSignal(str)
     _validate_done = pyqtSignal(list, list)
+    _access_check_done = pyqtSignal(str, bool, str)  # path, accessible, owner
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -470,6 +486,7 @@ class RepoPage(QWidget):
         self._user: dict | None = None
         self.setAcceptDrops(True)
         self._validate_done.connect(self._on_validate_done)
+        self._access_check_done.connect(self._on_access_check_done)
         self._setup_ui()
 
     def set_user(self, user: dict):
@@ -631,7 +648,55 @@ class RepoPage(QWidget):
 
     # ── public ────────────────────────────────────────────────────────────────
 
-    def add_repo(self, path: str):
+    def add_repo(self, path: str, navigate: bool = False):
+        norm = _norm_path(path)
+        if norm in {_norm_path(r) for r in self._repos}:
+            return
+        owner = _remote_owner(path)
+        repo = _remote_repo(path)
+        token = (self._user or {}).get("access_token", "")
+        if owner and repo and token:
+            self._pending_navigate = path if navigate else None
+            threading.Thread(
+                target=self._check_repo_access,
+                args=(path, owner, repo, token),
+                daemon=True,
+            ).start()
+        else:
+            self._do_add_repo(path)
+            if navigate:
+                self.repo_selected.emit(path)
+
+    def _check_repo_access(self, path: str, owner: str, repo: str, token: str):
+        try:
+            import requests
+            r = requests.get(
+                f"https://api.github.com/repos/{owner}/{repo}",
+                headers={"Authorization": f"Bearer {token}",
+                         "Accept": "application/vnd.github+json"},
+                timeout=8,
+            )
+            accessible = r.status_code != 404
+        except Exception:
+            accessible = True
+        try:
+            self._access_check_done.emit(path, accessible, owner)
+        except RuntimeError:
+            pass
+
+    def _on_access_check_done(self, path: str, accessible: bool, owner: str):
+        if accessible:
+            self._do_add_repo(path)
+            if getattr(self, "_pending_navigate", None) == path:
+                self.repo_selected.emit(path)
+                self._pending_navigate = None
+        else:
+            self._pending_navigate = None
+            alert(self, "Private repository",
+                  f"This repository is private and owned by {owner}.\n"
+                  f"Your current account doesn't have access to it.")
+
+    def _do_add_repo(self, path: str):
         norm = _norm_path(path)
         if norm not in {_norm_path(r) for r in self._repos}:
             self._repos.append(path)
@@ -658,8 +723,7 @@ class RepoPage(QWidget):
         dlg.exec_()
 
     def _on_cloned(self, path: str):
-        self.add_repo(path)
-        self.repo_selected.emit(path)
+        self.add_repo(path, navigate=True)
 
     def _pick_folder(self):
         folder = QFileDialog.getExistingDirectory(
@@ -678,8 +742,7 @@ class RepoPage(QWidget):
 
         git_dir = os.path.join(path, ".git")
         if os.path.isdir(git_dir):
-            self.add_repo(path)
-            self.repo_selected.emit(path)
+            self.add_repo(path, navigate=True)
         else:
             self._prompt_init(path)
 
