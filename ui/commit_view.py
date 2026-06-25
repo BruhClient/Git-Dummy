@@ -575,7 +575,7 @@ class CommitViewPage(_PRMixin, QWidget):
             self._settings_panel.set_role(role)
             if getattr(self, "_fork_card", None):
                 self._fork_card.hide()
-        else:
+        elif not self._collaborators:
             self._settings_panel.set_role("Viewer")
         if not can_push and visibility and visibility != "not_found":
             self._show_fork_offer()
@@ -1233,12 +1233,17 @@ class CommitViewPage(_PRMixin, QWidget):
         login = self._user.get("login", "")
         is_real_collab = bool(login) and any(c.get("login") == login for c in collabs)
         if login and not is_real_collab:
+            nl = self._alpha(login)
+            nn = self._alpha(self._user.get("name") or "")
+            commit_count = sum(1 for c in self._commits
+                               if (nl and nl == self._alpha(c.author))
+                               or (nn and nn == self._alpha(c.author)))
             collabs = [{
                 "login":         login,
                 "avatar_url":    self._user.get("avatar_url", ""),
-                "contributions": 0,
+                "contributions": commit_count,
                 "gh_name":       self._user.get("name") or login,
-                "role":          "viewer" if not self._can_push else "write",
+                "role":          "contributor" if commit_count else "viewer",
             }] + collabs
         owner = self._tracker.repo_owner() if self._tracker else ""
         for c in collabs:
@@ -1246,6 +1251,14 @@ class CommitViewPage(_PRMixin, QWidget):
             if c.get("login") == owner:
                 c["role"] = "owner"
         self._collaborators = collabs
+        if login:
+            my_entry = next((c for c in collabs if c.get("login") == login), None)
+            if my_entry:
+                role = my_entry.get("role", "viewer")
+                role_label = {"owner": "Owner", "admin": "Admin", "maintain": "Admin",
+                              "write": "Collaborator", "contributor": "Contributor",
+                              "viewer": "Viewer"}.get(role, "Viewer")
+                self._settings_panel.set_role(role_label)
 
         if self._tracker:
             cache_key = self._tracker.remote_url()
@@ -1483,12 +1496,7 @@ class CommitViewPage(_PRMixin, QWidget):
             try:
                 from core.ops import merge_with_decisions, checkout_branch
                 from core.ops import _run as git_run
-                import subprocess
-                cur = subprocess.run(
-                    ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-                    cwd=path, capture_output=True, text=True,
-                    encoding="utf-8", errors="replace", timeout=5,
-                ).stdout.strip()
+                cur = current_branch(path)
                 switched = False
                 if cur != target:
                     ok_co, err_co = checkout_branch(path, target)
@@ -1562,12 +1570,7 @@ class CommitViewPage(_PRMixin, QWidget):
         def _run():
             try:
                 from core.ops import _run as git_run, merge_branch, checkout_branch
-                import subprocess
-                cur = subprocess.run(
-                    ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-                    cwd=path, capture_output=True, text=True,
-                    encoding="utf-8", errors="replace", timeout=5,
-                ).stdout.strip()
+                cur = current_branch(path)
                 switched = False
                 if cur != branch:
                     ok_co, err_co = checkout_branch(path, branch)
@@ -1908,8 +1911,7 @@ class CommitViewPage(_PRMixin, QWidget):
             na = self._alpha(commit.author)
             if not na:
                 continue
-            if (nl and (nl == na or nl in na or na in nl)) or \
-               (nn and (nn == na or nn in na or na in nn)):
+            if (nl and nl == na) or (nn and nn == na):
                 result.add(commit.sha)
         return result
 
@@ -1930,8 +1932,7 @@ class CommitViewPage(_PRMixin, QWidget):
             na = self._alpha(commit.author)
             if not na:
                 continue
-            if (nl and (nl == na or nl in na or na in nl)) or \
-               (nn and (nn == na or nn in na or na in nn)):
+            if (nl and nl == na) or (nn and nn == na):
                 user_commits.append(commit)
         if not user_commits:
             return None
@@ -1970,8 +1971,7 @@ class CommitViewPage(_PRMixin, QWidget):
             nn = self._alpha(gh_name)
             for c in self._commits:
                 na = self._alpha(c.author)
-                if (nl and (nl == na or nl in na or na in nl)) or \
-                   (nn and (nn == na or nn in na or na in nn)):
+                if (nl and nl == na) or (nn and nn == na):
                     known_authors.add(c.author)
 
         you_gh_name = next(
@@ -1990,8 +1990,7 @@ class CommitViewPage(_PRMixin, QWidget):
                     nl = self._alpha(entry.get("login", ""))
                     nn = self._alpha(entry.get("gh_name", ""))
                     na = self._alpha(c.author)
-                    if (nl and (nl == na or nl in na or na in nl)) or \
-                       (nn and (nn == na or nn in na or na in nn)):
+                    if (nl and nl == na) or (nn and nn == na):
                         author_display[c.author] = display
         self._author_display_map = author_display
 
@@ -2343,8 +2342,7 @@ class CommitViewPage(_PRMixin, QWidget):
         for collab in self._collaborators:
             nl = re.sub(r'[^a-z]', '', collab.get("login", "").lower())
             nn = re.sub(r'[^a-z]', '', (collab.get("gh_name", "") or "").lower())
-            if (nl and (nl == na or nl in na or na in nl)) or \
-               (nn and (nn == na or nn in na or na in nn)):
+            if (nl and nl == na) or (nn and nn == na):
                 return collab.get("avatar_url", "")
         return ""
 

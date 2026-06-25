@@ -9,7 +9,7 @@ import threading
 import qtawesome as qta
 
 from PyQt5.QtCore import Qt, QSize, pyqtSignal
-from PyQt5.QtGui import QPainter, QColor, QPen, QBrush
+from PyQt5.QtGui import QPainter, QColor, QPen, QBrush, QPixmap
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QFileDialog, QScrollArea, QFrame, QSizePolicy, QGridLayout,
@@ -67,6 +67,7 @@ class _RoleBadge(QLabel):
         "owner": "Owner",
         "admin": "Admin",
         "collaborator": "Collaborator",
+        "contributor": "Contributor",
         "viewer": "Viewer",
     }
 
@@ -86,22 +87,29 @@ class _RoleBadge(QLabel):
     def _fetch(self, owner: str, repo: str, login: str, token: str):
         try:
             import requests
+            headers = {"Authorization": f"Bearer {token}",
+                       "Accept": "application/vnd.github+json"}
             r = requests.get(
                 f"https://api.github.com/repos/{owner}/{repo}/collaborators/{login}/permission",
-                headers={"Authorization": f"Bearer {token}",
-                         "Accept": "application/vnd.github+json"},
-                timeout=8,
+                headers=headers, timeout=8,
             )
             if r.status_code == 200:
                 perm = r.json().get("permission", "none")
                 if perm == "admin":
                     self._role_ready.emit("admin")
+                    return
                 elif perm in ("write", "maintain"):
                     self._role_ready.emit("collaborator")
-                else:
-                    self._role_ready.emit("viewer")
-            elif r.status_code in (403, 404):
-                self._role_ready.emit("viewer")
+                    return
+            cr = requests.get(
+                f"https://api.github.com/repos/{owner}/{repo}/contributors",
+                headers=headers, params={"per_page": 100}, timeout=8,
+            )
+            if cr.status_code == 200:
+                if any(c.get("login") == login for c in cr.json()):
+                    self._role_ready.emit("contributor")
+                    return
+            self._role_ready.emit("viewer")
         except Exception:
             pass
 
@@ -718,6 +726,11 @@ class RepoPage(QWidget):
 
         total = len(self._repos) + len(self._missing)
         self._section_label.setVisible(total > 0)
+        self._cards_layout.setAlignment(Qt.AlignTop | Qt.AlignLeft)
+
+        if total == 0:
+            self._show_empty_state()
+            return
 
         cols = 3
         idx = 0
@@ -735,3 +748,58 @@ class RepoPage(QWidget):
             card.remove_requested.connect(self.remove_repo)
             self._cards_layout.addWidget(card, idx // cols, idx % cols)
             idx += 1
+
+    def _show_empty_state(self):
+        import os
+        self._cards_layout.setAlignment(Qt.AlignCenter)
+        container = QWidget()
+        container.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        container.setStyleSheet("background: transparent;")
+        vl = QVBoxLayout(container)
+        vl.setContentsMargins(0, 0, 0, 0)
+        vl.setSpacing(16)
+        vl.setAlignment(Qt.AlignHCenter | Qt.AlignVCenter)
+
+        logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "logo", "logo.png")
+        logo_lbl = QLabel()
+        pm = QPixmap(logo_path).scaled(64, 64, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        logo_lbl.setPixmap(pm)
+        logo_lbl.setAlignment(Qt.AlignCenter)
+        logo_lbl.setStyleSheet("background: transparent;")
+        vl.addWidget(logo_lbl)
+
+        title = QLabel("No projects yet")
+        title.setAlignment(Qt.AlignCenter)
+        title.setStyleSheet(
+            f"background: transparent; font-size: 16px; font-weight: 700;"
+            f" color: {COLORS['text_primary']};"
+        )
+        vl.addWidget(title)
+
+        desc = QLabel("Track a local Git repository to visualize\nits history, branches, and collaborators.")
+        desc.setAlignment(Qt.AlignCenter)
+        desc.setWordWrap(True)
+        desc.setStyleSheet(
+            f"background: transparent; font-size: 13px;"
+            f" color: {COLORS['text_muted']};"
+        )
+        vl.addWidget(desc)
+
+        btn = QPushButton("  Track a Project")
+        btn.setIcon(qta.icon("mdi.connection", color=COLORS["text_on_accent"]))
+        btn.setIconSize(QSize(14, 14))
+        btn.setFixedHeight(40)
+        btn.setFixedWidth(180)
+        btn.setCursor(Qt.PointingHandCursor)
+        btn.setStyleSheet(f"""
+            QPushButton {{
+                background: {COLORS['accent']}; border: none;
+                border-radius: 8px; color: {COLORS['text_on_accent']};
+                font-size: 13px; font-weight: 700; padding: 0 16px;
+            }}
+            QPushButton:hover {{ background: {COLORS.get('accent_hover', COLORS['accent'])}; }}
+        """)
+        btn.clicked.connect(self._open_clone_dialog)
+        vl.addWidget(btn, 0, Qt.AlignCenter)
+
+        self._cards_layout.addWidget(container, 0, 0)

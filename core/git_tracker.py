@@ -509,10 +509,10 @@ class GitTracker:
                 if r.status_code == 200:
                     gh_name = r.json().get("name") or ""
                     return {**collab, "gh_name": gh_name,
-                            "role": role_map.get(login, "write")}
+                            "role": role_map.get(login, "contributor")}
             except Exception:
                 pass
-            return {**collab, "gh_name": "", "role": role_map.get(login, "write")}
+            return {**collab, "gh_name": "", "role": role_map.get(login, "contributor")}
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=10) as pool:
             enriched = list(pool.map(_fetch_gh_name, contributors))

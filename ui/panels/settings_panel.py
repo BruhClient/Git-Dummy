@@ -9,7 +9,7 @@ import qtawesome as qta
 import requests
 
 from PyQt5.QtCore import (Qt, QPropertyAnimation, QEasingCurve,
-                           pyqtSignal, pyqtProperty, QRectF)
+                           pyqtSignal, pyqtProperty, QRectF, QSize)
 from PyQt5.QtGui import QPainter, QColor, QBrush, QPen, QPixmap, QFont
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
@@ -129,8 +129,9 @@ class _SCollabRow(QWidget):
         "owner":    "Owner",
         "admin":    "Admin",
         "maintain": "Admin",
-        "write":    "Collaborator",
-        "viewer":   "Viewer",
+        "write":       "Collaborator",
+        "contributor": "Contributor",
+        "viewer":      "Viewer",
     }
 
     def __init__(self, login: str, contributions: int, avatar_url: str,
@@ -450,6 +451,15 @@ class SettingsPanel(QWidget):
         )
         self._collab_count.setText("")
         ch_layout.addWidget(self._collab_count)
+        roles_info_btn = QPushButton()
+        roles_info_btn.setIcon(qta.icon("mdi.help-circle-outline", color=COLORS["text_muted"]))
+        roles_info_btn.setIconSize(QSize(14, 14))
+        roles_info_btn.setFixedSize(22, 22)
+        roles_info_btn.setCursor(Qt.PointingHandCursor)
+        roles_info_btn.setStyleSheet("QPushButton { background: transparent; border: none; }")
+        roles_info_btn.setToolTip("Role descriptions")
+        roles_info_btn.clicked.connect(self._show_roles_info)
+        ch_layout.addWidget(roles_info_btn)
         ch_layout.addStretch()
         self._collab_toggle = QPushButton("▾")
         self._collab_toggle.setFixedSize(24, 24)
@@ -616,6 +626,7 @@ class SettingsPanel(QWidget):
             "Viewer": (COLORS.get("warning", "#f59e0b"), COLORS.get("warning", "#f59e0b")),
             "Owner": (COLORS["accent"], COLORS["accent"]),
             "Collaborator": (COLORS["accent"], COLORS["accent"]),
+            "Contributor": (COLORS["text_muted"], COLORS["border"]),
         }
         color, border = _ROLE_STYLES.get(role, (COLORS["text_muted"], COLORS["border"]))
         self._role_badge.setText(role)
@@ -625,6 +636,15 @@ class SettingsPanel(QWidget):
             f" padding: 0 8px;"
         )
         self._role_badge.show()
+
+    def _show_roles_info(self):
+        from ui.dialogs.confirm_dialog import alert
+        alert(self, "Contributor Roles",
+              "Owner — Owns the repository on GitHub\n\n"
+              "Admin — Can manage settings and collaborators\n\n"
+              "Collaborator — Has push access to the repository\n\n"
+              "Contributor — Has commits but no direct access\n\n"
+              "Viewer — Logged-in user viewing the repository")
 
     def load_collaborators(self, collabs: list[dict], current_login: str = ""):
         while self._collab_list.count():
