@@ -96,6 +96,43 @@ class GitHubAuth(QObject):
 
         threading.Thread(target=_validate, daemon=True).start()
 
+    def update_token(self, login: str, new_token: str):
+        """Validate a new PAT and update an existing account. Runs on a background thread."""
+        new_token = new_token.strip()
+        if not new_token:
+            self.auth_failed.emit("Token cannot be empty.")
+            return
+
+        def _validate():
+            user, scopes = self._validate_token(new_token)
+            if not user:
+                self.auth_failed.emit(
+                    "Invalid token — check that you copied the full token, "
+                    "or the token may have expired."
+                )
+                return
+            missing = REQUIRED_SCOPES - scopes
+            if missing:
+                names = ", ".join(sorted(missing))
+                self.auth_failed.emit(
+                    f"Your token is missing required permissions: {names}.\n"
+                    f"Create a new token with repo and read:user scopes."
+                )
+                return
+            user["access_token"] = new_token
+            data = self._load_accounts_file()
+            accounts = data.get("accounts", {})
+            if login in accounts:
+                accounts[login]["access_token"] = new_token
+                accounts[login]["token_expires"] = user.get("token_expires", "")
+                data["accounts"] = accounts
+                self._write_accounts_file(data)
+            if data.get("active") == login:
+                self._user = user
+            self.auth_success.emit(user)
+
+        threading.Thread(target=_validate, daemon=True).start()
+
     def switch_account(self, login: str):
         """Switch to a different saved account."""
         data = self._load_accounts_file()

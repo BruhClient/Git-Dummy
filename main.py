@@ -96,6 +96,7 @@ class App(QStackedWidget):
         self._main_window.logout_requested.connect(self._on_logout)
         self._main_window.add_account_requested.connect(self._on_add_account)
         self._main_window.switch_account_requested.connect(self._on_switch_account)
+        self._main_window.change_token_requested.connect(self._on_change_token)
         self._auth_page.account_selected.connect(self._on_switch_account)
 
         self._auth_page.show_sign_in()
@@ -133,6 +134,11 @@ class App(QStackedWidget):
 
     def _on_switch_account(self, login: str):
         self._auth.switch_account(login)
+
+    def _on_change_token(self, login: str):
+        from ui.dialogs.add_account_dialog import AddAccountDialog
+        dlg = AddAccountDialog(self._auth, parent=self._main_window, change_token_login=login)
+        dlg.exec_()
 
     def _on_repo_selected(self, repo_path: str):
         import os

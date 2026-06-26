@@ -4,7 +4,7 @@ from datetime import datetime
 
 import qtawesome as qta
 
-from PyQt5.QtCore import Qt, pyqtSignal, QPoint
+from PyQt5.QtCore import Qt, QSize, pyqtSignal, QPoint
 from PyQt5.QtGui import QFont, QPainter, QColor, QBrush, QPen, QPixmap, QPainterPath
 from PyQt5.QtWidgets import (
     QMainWindow, QWidget, QHBoxLayout, QVBoxLayout, QLabel,
@@ -82,6 +82,7 @@ class _AccountPopup(QFrame):
     signout_clicked = pyqtSignal()
     switch_account = pyqtSignal(str)
     add_account_clicked = pyqtSignal()
+    change_token_requested = pyqtSignal(str)
 
     def __init__(self, auth, parent=None):
         super().__init__(parent, Qt.Popup | Qt.FramelessWindowHint)
@@ -185,8 +186,25 @@ class _AccountPopup(QFrame):
         h.addLayout(text_col)
         h.addStretch()
 
+        import qtawesome as qta
+        key_btn = QPushButton()
+        key_btn.setIcon(qta.icon("fa5s.pen", color=COLORS["text_muted"]))
+        key_btn.setIconSize(QSize(11, 11))
+        key_btn.setFixedSize(24, 24)
+        key_btn.setCursor(Qt.PointingHandCursor)
+        key_btn.setToolTip("Change token")
+        key_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: transparent; border: none; border-radius: 12px;
+            }}
+            QPushButton:hover {{
+                background: {COLORS['bg_secondary']};
+            }}
+        """)
+        key_btn.clicked.connect(lambda _=False, l=login: self._on_change_token(l))
+        h.addWidget(key_btn)
+
         if is_active:
-            import qtawesome as qta
             check = QLabel()
             check.setPixmap(qta.icon("fa5s.check", color=COLORS["accent"]).pixmap(12, 12))
             check.setStyleSheet("background: transparent;")
@@ -218,6 +236,10 @@ class _AccountPopup(QFrame):
     def _on_switch(self, login: str):
         self.hide()
         self.switch_account.emit(login)
+
+    def _on_change_token(self, login: str):
+        self.hide()
+        self.change_token_requested.emit(login)
 
     def _make_separator(self) -> QFrame:
         sep = QFrame()
@@ -268,6 +290,7 @@ class TopNav(QWidget):
     logout_clicked = pyqtSignal()
     add_account_clicked = pyqtSignal()
     switch_account = pyqtSignal(str)
+    change_token_requested = pyqtSignal(str)
 
     def __init__(self, auth=None, parent=None):
         super().__init__(parent)
@@ -385,6 +408,7 @@ class TopNav(QWidget):
             self._popup.signout_clicked.connect(self._on_signout)
             self._popup.switch_account.connect(self.switch_account.emit)
             self._popup.add_account_clicked.connect(self._on_add_account)
+            self._popup.change_token_requested.connect(self.change_token_requested.emit)
 
         self._popup.set_user(self._user)
 
@@ -424,6 +448,7 @@ class MainWindow(QMainWindow):
     logout_requested = pyqtSignal()
     add_account_requested = pyqtSignal()
     switch_account_requested = pyqtSignal(str)
+    change_token_requested = pyqtSignal(str)
 
     def __init__(self, github_auth, parent=None):
         super().__init__(parent)
@@ -446,6 +471,7 @@ class MainWindow(QMainWindow):
         self.topnav.logout_clicked.connect(self._on_logout)
         self.topnav.add_account_clicked.connect(self.add_account_requested.emit)
         self.topnav.switch_account.connect(self.switch_account_requested.emit)
+        self.topnav.change_token_requested.connect(self.change_token_requested.emit)
         layout.addWidget(self.topnav)
 
         self._stack = QStackedWidget()

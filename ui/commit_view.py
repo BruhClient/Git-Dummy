@@ -1738,7 +1738,9 @@ class CommitViewPage(_PRMixin, QWidget):
             return
         else:
             err_lower = err.lower()
-            if "permission" in err_lower or "denied" in err_lower or "403" in err_lower:
+            if "scope" in err_lower or "refusing to allow" in err_lower:
+                msg = "Your token is missing a required scope. Go to GitHub → Settings → Tokens and add the 'workflow' scope."
+            elif "permission" in err_lower or "denied" in err_lower or "403" in err_lower:
                 msg = "You don't have push access to this repo."
             elif err == "timed_out":
                 msg = "Timed out."

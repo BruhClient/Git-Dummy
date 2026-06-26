@@ -19,15 +19,19 @@ class AddAccountDialog(QDialog):
 
     account_selected = pyqtSignal(str)
 
-    def __init__(self, github_auth, parent=None):
+    def __init__(self, github_auth, parent=None, change_token_login: str = ""):
         super().__init__(parent)
         self.setWindowFlags(Qt.Dialog | Qt.FramelessWindowHint)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setFixedWidth(420)
         self._auth = github_auth
         self._eye_visible = False
+        self._change_token_login = change_token_login
         self._setup_ui()
-        self._refresh_accounts()
+        if change_token_login:
+            self._accounts_section.hide()
+        else:
+            self._refresh_accounts()
         self._auth.auth_success.connect(self._on_auth_success)
         self._auth.auth_failed.connect(self._on_auth_failed)
 
@@ -51,7 +55,8 @@ class AddAccountDialog(QDialog):
         # Title row with close button
         title_row = QHBoxLayout()
         title_row.setContentsMargins(0, 0, 0, 0)
-        title = QLabel("Add account")
+        title_text = f"Change token for @{self._change_token_login}" if self._change_token_login else "Add account"
+        title = QLabel(title_text)
         title.setStyleSheet(
             f"font-size: 17px; font-weight: 700; "
             f"color: {COLORS['text_primary']}; background: transparent;"
@@ -72,7 +77,8 @@ class AddAccountDialog(QDialog):
         cl.addLayout(title_row)
 
         # Description
-        desc = QLabel("Paste a GitHub Personal Access Token.")
+        desc_text = "Paste a new token to replace the current one." if self._change_token_login else "Paste a GitHub Personal Access Token."
+        desc = QLabel(desc_text)
         desc.setStyleSheet(
             f"font-size: 13px; color: {COLORS['text_secondary']}; background: transparent;"
         )
@@ -278,7 +284,10 @@ class AddAccountDialog(QDialog):
         self._continue_btn.setText("Validating…")
         self._status.setText("Checking your token with GitHub…")
         self._error.hide()
-        self._auth.add_account(token)
+        if self._change_token_login:
+            self._auth.update_token(self._change_token_login, token)
+        else:
+            self._auth.add_account(token)
 
     def _on_auth_success(self, user: dict):
         self.accept()
