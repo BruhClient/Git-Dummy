@@ -1,0 +1,122 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Build executable
+        run: pyinstaller git_dummy.spec --clean
+
+      - name: Rename artifact
+        run: |
+          Rename-Item -Path "dist\GitDummy.exe" -NewName "GitDummy-windows.exe"
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-build
+          path: dist/GitDummy-windows.exe
+
+  build-macos:
+    runs-on: macos-13
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Convert icon to ICNS
+        run: |
+          mkdir -p logo/GitDummy.iconset
+          sips -z 16 16     logo/logo.png --out logo/GitDummy.iconset/icon_16x16.png
+          sips -z 32 32     logo/logo.png --out logo/GitDummy.iconset/icon_16x16@2x.png
+          sips -z 32 32     logo/logo.png --out logo/GitDummy.iconset/icon_32x32.png
+          sips -z 64 64     logo/logo.png --out logo/GitDummy.iconset/icon_32x32@2x.png
+          sips -z 128 128   logo/logo.png --out logo/GitDummy.iconset/icon_128x128.png
+          sips -z 256 256   logo/logo.png --out logo/GitDummy.iconset/icon_128x128@2x.png
+          sips -z 256 256   logo/logo.png --out logo/GitDummy.iconset/icon_256x256.png
+          sips -z 512 512   logo/logo.png --out logo/GitDummy.iconset/icon_256x256@2x.png
+          sips -z 512 512   logo/logo.png --out logo/GitDummy.iconset/icon_512x512.png
+          sips -z 1024 1024 logo/logo.png --out logo/GitDummy.iconset/icon_512x512@2x.png
+          iconutil -c icns logo/GitDummy.iconset -o logo/logo.icns
+
+      - name: Build macOS app
+        run: pyinstaller git_dummy_macos.spec --clean
+
+      - name: Zip app bundle
+        run: |
+          cd dist
+          ditto -c -k --sequesterRsrc --keepParent GitDummy.app GitDummy-macos.zip
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-build
+          path: dist/GitDummy-macos.zip
+
+  release:
+    runs-on: ubuntu-latest
+    needs: [build-windows, build-macos]
+
+    steps:
+      - name: Download Windows artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-build
+          path: artifacts/windows
+
+      - name: Download macOS artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: macos-build
+          path: artifacts/macos
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            artifacts/windows/GitDummy-windows.exe
+            artifacts/macos/GitDummy-macos.zip
+          body: |
+            ## Installation
+
+            **Windows:** Download `GitDummy-windows.exe` and run it directly.
+
+            **macOS:** Download `GitDummy-macos.zip`, extract it, then right-click `GitDummy.app` and select **Open** (required for unsigned apps on first launch).
+          generate_release_notes: true
+          append_body: true
+          draft: false
+          prerelease: false
