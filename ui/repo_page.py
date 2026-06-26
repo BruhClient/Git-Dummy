@@ -8,7 +8,7 @@ import threading
 
 import qtawesome as qta
 
-from PyQt5.QtCore import Qt, QSize, pyqtSignal
+from PyQt5.QtCore import Qt, QSize, QTimer, pyqtSignal
 from PyQt5.QtGui import QPainter, QColor, QPen, QBrush, QPixmap
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
@@ -205,10 +205,12 @@ class RepoCard(QWidget):
     open_requested   = pyqtSignal(str)
     remove_requested = pyqtSignal(str)
     _stats_ready     = pyqtSignal(int, int, int, int, str)
+    _remote_deleted  = pyqtSignal()
 
     def __init__(self, repo_path: str, user: dict = None, parent=None):
         super().__init__(parent)
         self._path = repo_path
+        self._is_deleted = False
         self.setObjectName("repoCard")
         self.setAttribute(Qt.WA_StyledBackground, True)
         self.setCursor(Qt.PointingHandCursor)
@@ -290,6 +292,7 @@ class RepoCard(QWidget):
             self._role_badge.start(owner, repo, login, token)
 
         self._stats_ready.connect(self._on_stats)
+        self._remote_deleted.connect(self._on_remote_deleted)
         threading.Thread(target=self._fetch_stats,
                          args=(repo_path, owner, repo, (user or {}).get("access_token", "")),
                          daemon=True).start()
@@ -318,6 +321,12 @@ class RepoCard(QWidget):
                     watchers = d.get("subscribers_count", 0)
                     forks = d.get("forks_count", 0)
                     vis = "Private" if d.get("private") else "Public"
+                elif r.status_code == 404:
+                    try:
+                        self._remote_deleted.emit()
+                    except RuntimeError:
+                        pass
+                    return
             except Exception:
                 pass
         try:
@@ -358,7 +367,23 @@ class RepoCard(QWidget):
             self._stats_row.insertWidget(pos, w)
             pos += 1
 
+    def _on_remote_deleted(self):
+        self._is_deleted = True
+        self._vis_badge.setText(" repo deleted ")
+        self._vis_badge.setStyleSheet(
+            f"font-size: 11px; font-weight: 600; color: {COLORS['danger']};"
+            f" background: {COLORS['danger_dim']}; border-radius: 4px; padding: 2px 8px;"
+        )
+        self._vis_badge.setFixedHeight(22)
+        self._vis_badge.show()
+        self.setStyleSheet(
+            f"#repoCard {{ background: {COLORS['bg_card']}; border: 1px solid {COLORS['danger_border']}; border-radius: 12px; }}"
+            f"#repoCard * {{ background: transparent; border: none; }}"
+        )
+
     def _apply_style(self, hovered: bool):
+        if self._is_deleted:
+            return
         border = COLORS['accent'] if hovered else COLORS['border']
         bg = COLORS['bg_hover'] if hovered else COLORS['bg_card']
         self.setStyleSheet(
@@ -425,9 +450,9 @@ class MissingRepoCard(QWidget):
         layout.addLayout(info)
         layout.addStretch()
 
-        missing_badge = QLabel(" not found ")
+        missing_badge = QLabel(" repo deleted ")
         missing_badge.setStyleSheet(f"""
-            font-size: 11px; font-weight: 600;            color: {COLORS['warning']}; background: {COLORS['warning_dim']};
+            font-size: 11px; font-weight: 600;            color: {COLORS['danger']}; background: {COLORS['danger_dim']};
             border-radius: 4px; padding: 2px 8px;
         """)
         layout.addWidget(missing_badge)
@@ -488,6 +513,9 @@ class RepoPage(QWidget):
         self.setAcceptDrops(True)
         self._validate_done.connect(self._on_validate_done)
         self._access_check_done.connect(self._on_access_check_done)
+        self._validate_timer = QTimer(self)
+        self._validate_timer.setInterval(5000)
+        self._validate_timer.timeout.connect(self._validate_paths)
         self._setup_ui()
 
     def set_user(self, user: dict):
@@ -610,7 +638,8 @@ class RepoPage(QWidget):
         threading.Thread(target=_check, daemon=True).start()
 
     def _on_validate_done(self, valid: list, gone: list):
-        if valid != self._repos or gone != self._missing:
+        changed = valid != self._repos or gone != self._missing
+        if changed:
             self._repos = valid
             self._missing = gone
             self._persist()
@@ -619,6 +648,11 @@ class RepoPage(QWidget):
     def showEvent(self, event):
         super().showEvent(event)
         self._validate_paths()
+        self._validate_timer.start()
+
+    def hideEvent(self, event):
+        super().hideEvent(event)
+        self._validate_timer.stop()
 
     def _persist(self):
         login = self._user.get("login", "") if self._user else ""
@@ -824,7 +858,8 @@ class RepoPage(QWidget):
         vl.setSpacing(16)
         vl.setAlignment(Qt.AlignHCenter | Qt.AlignVCenter)
 
-        logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "logo", "logo.png")
+        from utils import resource_path
+        logo_path = resource_path(os.path.join("logo", "logo.png"))
         logo_lbl = QLabel()
         pm = QPixmap(logo_path).scaled(64, 64, Qt.KeepAspectRatio, Qt.SmoothTransformation)
         logo_lbl.setPixmap(pm)

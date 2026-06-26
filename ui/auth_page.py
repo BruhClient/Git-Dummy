@@ -21,7 +21,8 @@ class LogoMark(QLabel):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setFixedSize(48, 48)
-        _logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "logo", "logo.png")
+        from utils import resource_path
+        _logo_path = resource_path(os.path.join("logo", "logo.png"))
         src = QPixmap(_logo_path).scaled(48, 48, Qt.KeepAspectRatio, Qt.SmoothTransformation)
         tinted = QPixmap(src.size())
         tinted.fill(Qt.transparent)

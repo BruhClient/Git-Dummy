@@ -17,7 +17,8 @@ def _LogoMark(parent=None):
     lbl = QLabel(parent)
     sz = 42
     lbl.setFixedSize(sz, sz)
-    _logo_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "logo", "logo.png")
+    from utils import resource_path
+    _logo_path = resource_path(os.path.join("logo", "logo.png"))
     src = QPixmap(_logo_path).scaled(sz, sz, Qt.KeepAspectRatio, Qt.SmoothTransformation)
     lbl.setPixmap(src)
     return lbl

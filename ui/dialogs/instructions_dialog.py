@@ -38,7 +38,8 @@ NODE_R = 10
 START_R = 14
 
 import os as _os
-_LOGO_PATH = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "..", "..", "logo", "logo.png")
+from utils import resource_path as _resource_path
+_LOGO_PATH = _resource_path(_os.path.join("logo", "logo.png"))
 
 
 # ── Base illustration widget ──────────────────────────────────────────────────

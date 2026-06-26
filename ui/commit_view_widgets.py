@@ -8,12 +8,13 @@ module focused on page orchestration. No behavior change.
 from __future__ import annotations
 
 from PyQt5.QtCore import (
-    Qt, QRect, QTimer, QPropertyAnimation, QEasingCurve, pyqtSignal,
+    Qt, QRect, QSize, QTimer, QPropertyAnimation, QEasingCurve, pyqtSignal,
 )
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton,
     QFrame, QLineEdit, QCheckBox, QSizePolicy,
 )
+import qtawesome as qta
 
 from styles.theme import COLORS, scrollbar_style
 from ui.canvas import ORIENT_TB, ORIENT_BT, ORIENT_LR, ORIENT_RL
@@ -421,16 +422,16 @@ class _CreateRemoteDialog(QWidget):
         self._is_private = True
 
         toggle_row = QHBoxLayout()
-        toggle_row.setSpacing(8)
+        toggle_row.setSpacing(0)
 
-        self._pub_btn  = QPushButton("Public")
-        self._priv_btn = QPushButton("Private")
+        self._pub_btn  = QPushButton("  Public")
+        self._priv_btn = QPushButton("  Private")
+        self._pub_btn.setIcon(qta.icon("fa5s.globe", color=COLORS["text_muted"]))
+        self._priv_btn.setIcon(qta.icon("fa5s.lock", color=COLORS["text_on_accent"]))
         for btn in (self._pub_btn, self._priv_btn):
-            btn.setFixedHeight(30)
-            btn.setCheckable(True)
+            btn.setFixedHeight(32)
+            btn.setIconSize(QSize(12, 12))
             btn.setCursor(Qt.PointingHandCursor)
-        self._pub_btn.setChecked(False)
-        self._priv_btn.setChecked(True)
         self._pub_btn.clicked.connect(lambda: self._set_privacy(False))
         self._priv_btn.clicked.connect(lambda: self._set_privacy(True))
         self._apply_toggle_style()
@@ -496,15 +497,23 @@ class _CreateRemoteDialog(QWidget):
 
     def _set_privacy(self, is_private: bool):
         self._is_private = is_private
-        self._pub_btn.setChecked(not is_private)
-        self._priv_btn.setChecked(is_private)
         self._apply_toggle_style()
 
     def _apply_toggle_style(self):
-        active   = f"background: {COLORS['accent']}; border: none; border-radius: 6px; color: #fff; font-size: 12px; font-weight: 600;"
-        inactive = f"background: transparent; border: 1px solid {COLORS['border']}; border-radius: 6px; color: {COLORS['text_muted']}; font-size: 12px;"
-        self._priv_btn.setStyleSheet(f"QPushButton {{ {active if self._is_private else inactive} }}")
-        self._pub_btn.setStyleSheet(f"QPushButton {{ {inactive if self._is_private else active} }}")
+        priv = self._is_private
+        self._priv_btn.setIcon(qta.icon("fa5s.lock", color="#fff" if priv else COLORS["text_muted"]))
+        self._pub_btn.setIcon(qta.icon("fa5s.globe", color="#fff" if not priv else COLORS["text_muted"]))
+        active = (
+            f"QPushButton {{ background: {COLORS['accent']}; border: 1px solid {COLORS['accent']};"
+            f" border-radius: 6px; color: #fff; font-size: 12px; font-weight: 600; padding: 4px 14px; }}"
+        )
+        inactive = (
+            f"QPushButton {{ background: transparent; border: 1px solid {COLORS['border']};"
+            f" border-radius: 6px; color: {COLORS['text_muted']}; font-size: 12px; padding: 4px 14px; }}"
+            f"QPushButton:hover {{ border-color: {COLORS['accent']}; color: {COLORS['text_secondary']}; }}"
+        )
+        self._priv_btn.setStyleSheet(active if priv else inactive)
+        self._pub_btn.setStyleSheet(active if not priv else inactive)
 
     def _on_create_clicked(self):
         name = self._name_edit.text().strip()

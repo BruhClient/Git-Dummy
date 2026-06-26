@@ -1,12 +1,18 @@
 import sys
 import os
+import subprocess
 
 sys.path.insert(0, os.path.dirname(__file__))
+
+from utils import resource_path
+from version import __version__
 
 # Qt converts QT_QPA_PLATFORM_PLUGIN_PATH through the Windows ANSI codepage,
 # which can't encode emoji. Use GetShortPathNameW to get an ASCII-safe 8.3
 # path before handing it to Qt.
 def _qt_plugins_path() -> str:
+    if getattr(sys, 'frozen', False):
+        return ""
     try:
         import PyQt5 as _p
         path = os.path.join(os.path.dirname(_p.__file__), "Qt5", "plugins")
@@ -27,7 +33,7 @@ if _p:
     os.environ["QT_QPA_PLATFORM_PLUGIN_PATH"] = _p
 
 from PyQt5.QtCore import Qt, QTimer
-from PyQt5.QtWidgets import QApplication, QStackedWidget
+from PyQt5.QtWidgets import QApplication, QStackedWidget, QMessageBox
 
 from auth.github_auth import GitHubAuth
 from ui.auth_page import AuthPage
@@ -37,16 +43,28 @@ from ui.commit_view import CommitViewPage
 from styles.theme import make_global_style
 
 
+def _check_git_installed() -> bool:
+    try:
+        subprocess.run(
+            ["git", "--version"],
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
+        )
+        return True
+    except FileNotFoundError:
+        return False
+
+
 class App(QStackedWidget):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Git Dummy")
+        self.setWindowTitle(f"Git Dummy v{__version__}")
         self.setMinimumSize(1100, 700)
 
         self._auth = GitHubAuth(self)
 
         from PyQt5.QtGui import QFontDatabase
-        _fonts_dir = os.path.join(os.path.dirname(__file__), "fonts")
+        _fonts_dir = resource_path("fonts")
         for _fname in (
             "TiltWarp-Regular.ttf",
             "Urbanist-Regular.ttf",
@@ -140,6 +158,21 @@ def main():
     app = QApplication(sys.argv)
     app.setApplicationName("Git Dummy")
     app.setOrganizationName("GitDummy")
+
+    from PyQt5.QtGui import QIcon
+    ico_path = resource_path(os.path.join("logo", "logo.ico"))
+    if os.path.isfile(ico_path):
+        app.setWindowIcon(QIcon(ico_path))
+    else:
+        app.setWindowIcon(QIcon(resource_path(os.path.join("logo", "logo.png"))))
+
+    if not _check_git_installed():
+        QMessageBox.critical(
+            None, "Git Not Found",
+            "Git Dummy requires Git to be installed on your computer.\n\n"
+            "Please install Git from https://git-scm.com and try again.",
+        )
+        sys.exit(1)
 
     window = App()
     window.show()
