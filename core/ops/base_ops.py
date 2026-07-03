@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import os
 import subprocess
+import sys
+
+_POPEN_FLAGS = subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0
 
 _commit_author: dict[str, str] = {}
 
@@ -27,7 +30,8 @@ def _run(path: str, cmd: list, timeout: int = 30) -> tuple[bool, str]:
     try:
         env = ({**os.environ, **_commit_author} if _commit_author else None)
         r = subprocess.run(cmd, cwd=path, capture_output=True, text=True, timeout=timeout,
-                           encoding="utf-8", errors="replace", env=env)
+                           encoding="utf-8", errors="replace", env=env,
+                           creationflags=_POPEN_FLAGS)
         if r.returncode != 0:
             return False, r.stderr.strip() or r.stdout.strip()
         return True, ""
@@ -39,6 +43,7 @@ def has_uncommitted_changes(path: str) -> bool:
     r = subprocess.run(
         ["git", "status", "--porcelain"],
         cwd=path, capture_output=True, text=True, encoding="utf-8", errors="replace",
+        creationflags=_POPEN_FLAGS,
     )
     return bool(r.stdout.strip())
 
@@ -47,6 +52,7 @@ def checkout_commit(path: str, sha: str) -> tuple[bool, str]:
     r = subprocess.run(
         ["git", "checkout", sha],
         cwd=path, capture_output=True, text=True, encoding="utf-8", errors="replace",
+        creationflags=_POPEN_FLAGS,
     )
     return r.returncode == 0, r.stderr.strip()
 
@@ -55,6 +61,7 @@ def checkout_branch(path: str, branch: str) -> tuple[bool, str]:
     r = subprocess.run(
         ["git", "checkout", branch],
         cwd=path, capture_output=True, text=True, encoding="utf-8", errors="replace",
+        creationflags=_POPEN_FLAGS,
     )
     return r.returncode == 0, r.stderr.strip()
 
@@ -64,6 +71,7 @@ def current_branch(path: str) -> str:
     r = subprocess.run(
         ["git", "rev-parse", "--abbrev-ref", "HEAD"],
         cwd=path, capture_output=True, text=True, encoding="utf-8", errors="replace",
+        creationflags=_POPEN_FLAGS,
     )
     result = r.stdout.strip()
     return "" if result == "HEAD" else result
@@ -74,6 +82,7 @@ def reset_hard(path: str) -> bool:
     r = subprocess.run(
         ["git", "reset", "--hard", "HEAD"],
         cwd=path, capture_output=True, text=True, encoding="utf-8", errors="replace",
+        creationflags=_POPEN_FLAGS,
     )
     return r.returncode == 0
 
@@ -85,6 +94,7 @@ def get_conflict_files(path: str) -> list:
             ["git", "diff", "--name-only", "--diff-filter=U"],
             cwd=path, capture_output=True, text=True, timeout=10,
             encoding="utf-8", errors="replace",
+            creationflags=_POPEN_FLAGS,
         )
         return [f for f in r.stdout.strip().splitlines() if f]
     except Exception:

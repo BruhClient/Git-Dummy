@@ -445,6 +445,7 @@ class MissingRepoCard(QWidget):
         )
         path_label = QLabel(self._path)
         path_label.setStyleSheet(f"background: transparent; font-size: 12px; color: {COLORS['text_muted']};")
+        path_label.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
         info.addWidget(name_label)
         info.addWidget(path_label)
         layout.addLayout(info)
@@ -594,6 +595,8 @@ class RepoPage(QWidget):
         self._cards_layout.setHorizontalSpacing(8)
         self._cards_layout.setVerticalSpacing(8)
         self._cards_layout.setAlignment(Qt.AlignTop | Qt.AlignLeft)
+        for col in range(3):
+            self._cards_layout.setColumnStretch(col, 1)
 
         scroll.setWidget(self._cards_container)
         scroll.viewport().setStyleSheet("background: transparent;")

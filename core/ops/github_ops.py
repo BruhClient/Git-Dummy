@@ -6,7 +6,7 @@ from urllib.parse import urlparse
 
 import requests
 
-from .base_ops import _run
+from .base_ops import _run, _POPEN_FLAGS
 
 
 def create_github_repo(name: str, private: bool, token: str) -> tuple[bool, str, str]:
@@ -41,12 +41,12 @@ def push_branch(
         subprocess.run(
             ["git", "config", "--local", f"http.{remote_url}.extraHeader",
              f"Authorization: Basic {b64}"],
-            cwd=path, capture_output=True,
+            cwd=path, capture_output=True, creationflags=_POPEN_FLAGS,
         )
     r = subprocess.run(
         ["git", "push", "-u", "origin", branch],
         cwd=path, capture_output=True, text=True, timeout=60,
-        encoding="utf-8", errors="replace",
+        encoding="utf-8", errors="replace", creationflags=_POPEN_FLAGS,
     )
     if r.returncode == 0:
         return True, "", [], {}
@@ -77,26 +77,30 @@ def push_to_github(
             r = subprocess.run(
                 list(args), cwd=path,
                 capture_output=True, text=True,
-                encoding="utf-8", errors="replace", **kw,
+                encoding="utf-8", errors="replace",
+                creationflags=_POPEN_FLAGS, **kw,
             )
             if r.returncode != 0:
                 raise RuntimeError(r.stderr.strip() or r.stdout.strip())
             return r
 
-        subprocess.run(["git", "config", "user.name",  user_name  or username or "User"],       cwd=path)
-        subprocess.run(["git", "config", "user.email", user_email or "user@evogit.local"],   cwd=path)
+        subprocess.run(["git", "config", "user.name",  user_name  or username or "User"],
+                       cwd=path, creationflags=_POPEN_FLAGS)
+        subprocess.run(["git", "config", "user.email", user_email or "user@evogit.local"],
+                       cwd=path, creationflags=_POPEN_FLAGS)
 
         # Stage and commit if no commits yet
         log = subprocess.run(
             ["git", "log", "--oneline", "-1"],
-            cwd=path, capture_output=True,
+            cwd=path, capture_output=True, creationflags=_POPEN_FLAGS,
         )
         if log.returncode != 0 or not log.stdout.strip():
             run("git", "add", ".")
             run("git", "commit", "--allow-empty", "-m", "Initial commit")
 
         # Add remote with the clean URL (no token embedded — stored as http header below).
-        subprocess.run(["git", "remote", "remove", "origin"], cwd=path, capture_output=True)
+        subprocess.run(["git", "remote", "remove", "origin"], cwd=path,
+                       capture_output=True, creationflags=_POPEN_FLAGS)
         run("git", "remote", "add", "origin", clone_url)
 
         # Authenticate via HTTP Basic header so the token never appears in the remote URL
@@ -123,7 +127,7 @@ def fork_repo(path: str, token: str, login: str) -> tuple[bool, str]:
         r = subprocess.run(
             ["git", "remote", "get-url", "origin"],
             cwd=path, capture_output=True, text=True,
-            encoding="utf-8", errors="replace",
+            encoding="utf-8", errors="replace", creationflags=_POPEN_FLAGS,
         )
         url = r.stdout.strip()
         m = re.search(r"github\.com[:/]([^/]+)/([^/]+?)(?:\.git)?$", url)
@@ -149,13 +153,13 @@ def fork_repo(path: str, token: str, login: str) -> tuple[bool, str]:
 
         subprocess.run(
             ["git", "remote", "set-url", "origin", fork_url],
-            cwd=path, capture_output=True,
+            cwd=path, capture_output=True, creationflags=_POPEN_FLAGS,
         )
         b64 = base64.b64encode(f"{login}:{token}".encode()).decode()
         subprocess.run(
             ["git", "config", "--local",
              f"http.{fork_url}.extraHeader", f"Authorization: Basic {b64}"],
-            cwd=path, capture_output=True,
+            cwd=path, capture_output=True, creationflags=_POPEN_FLAGS,
         )
         return True, fork_url
     except Exception as e:

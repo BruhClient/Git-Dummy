@@ -3,18 +3,20 @@ from __future__ import annotations
 import os
 import subprocess
 
+from .base_ops import _POPEN_FLAGS
+
 
 def get_stash_diff_files(path: str, stash_ref: str) -> list[dict]:
     """Return per-file diff info for a stash, in the same format as commit_files."""
     r = subprocess.run(
         ["git", "show", "--format=", "--numstat", stash_ref],
         cwd=path, capture_output=True, text=True,
-        encoding="utf-8", errors="replace",
+        encoding="utf-8", errors="replace", creationflags=_POPEN_FLAGS,
     )
     patch = subprocess.run(
         ["git", "stash", "show", "-p", stash_ref],
         cwd=path, capture_output=True, text=True,
-        encoding="utf-8", errors="replace",
+        encoding="utf-8", errors="replace", creationflags=_POPEN_FLAGS,
     )
 
     # Build a map of file path → diff lines from the patch
@@ -75,12 +77,12 @@ def get_working_dir_diff_files(path: str) -> list[dict]:
     r = subprocess.run(
         ["git", "diff", "HEAD", "--numstat"],
         cwd=path, capture_output=True, text=True,
-        encoding="utf-8", errors="replace",
+        encoding="utf-8", errors="replace", creationflags=_POPEN_FLAGS,
     )
     patch = subprocess.run(
         ["git", "diff", "HEAD"],
         cwd=path, capture_output=True, text=True,
-        encoding="utf-8", errors="replace",
+        encoding="utf-8", errors="replace", creationflags=_POPEN_FLAGS,
     )
 
     diff_by_path: dict[str, list] = {}
@@ -143,7 +145,7 @@ def get_working_dir_diff_files(path: str) -> list[dict]:
     untracked = subprocess.run(
         ["git", "ls-files", "--others", "--exclude-standard"],
         cwd=path, capture_output=True, text=True,
-        encoding="utf-8", errors="replace",
+        encoding="utf-8", errors="replace", creationflags=_POPEN_FLAGS,
     )
     for fpath in untracked.stdout.strip().splitlines():
         fpath = fpath.strip()

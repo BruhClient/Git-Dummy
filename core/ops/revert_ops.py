@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import subprocess
 
-from .base_ops import _run, has_uncommitted_changes
+from .base_ops import _run, has_uncommitted_changes, _POPEN_FLAGS
 
 
 def discard_all_changes(path: str) -> tuple[bool, str]:
@@ -17,7 +17,8 @@ def hard_revert_to(path: str, branch: str, target_sha: str, force_push: bool = T
     try:
         cur = subprocess.run(["git", "rev-parse", "--abbrev-ref", "HEAD"],
                              cwd=path, capture_output=True, text=True,
-                             encoding="utf-8", errors="replace", timeout=5)
+                             encoding="utf-8", errors="replace", timeout=5,
+                             creationflags=_POPEN_FLAGS)
         current = cur.stdout.strip()
         if current == "HEAD":
             current = ""
@@ -32,6 +33,7 @@ def hard_revert_to(path: str, branch: str, target_sha: str, force_push: bool = T
         ["git", "rev-parse", branch],
         cwd=path, capture_output=True, text=True,
         encoding="utf-8", errors="replace", timeout=5,
+        creationflags=_POPEN_FLAGS,
     )
     pre_reset_sha = pre_r.stdout.strip() if pre_r.returncode == 0 else ""
 
@@ -47,7 +49,7 @@ def hard_revert_to(path: str, branch: str, target_sha: str, force_push: bool = T
 
     has_remote = subprocess.run(
         ["git", "remote", "get-url", "origin"],
-        cwd=path, capture_output=True, timeout=5,
+        cwd=path, capture_output=True, timeout=5, creationflags=_POPEN_FLAGS,
     ).returncode == 0
     branch_on_remote = False
     if has_remote:
@@ -55,6 +57,7 @@ def hard_revert_to(path: str, branch: str, target_sha: str, force_push: bool = T
             ["git", "ls-remote", "--heads", "origin", branch],
             cwd=path, capture_output=True, text=True,
             encoding="utf-8", errors="replace", timeout=10,
+            creationflags=_POPEN_FLAGS,
         )
         branch_on_remote = ls.returncode == 0 and bool(ls.stdout.strip())
     if branch_on_remote and force_push:
@@ -62,6 +65,7 @@ def hard_revert_to(path: str, branch: str, target_sha: str, force_push: bool = T
             ["git", "push", "--force", "origin", branch],
             cwd=path, capture_output=True, text=True,
             encoding="utf-8", errors="replace", timeout=30,
+            creationflags=_POPEN_FLAGS,
         )
         if r.returncode != 0:
             combined = r.stderr.strip() or r.stdout.strip()
@@ -86,7 +90,8 @@ def soft_revert_to(path: str, branch: str, tip_sha: str, parent_sha: str = "") -
     try:
         cur = subprocess.run(["git", "rev-parse", "--abbrev-ref", "HEAD"],
                              cwd=path, capture_output=True, text=True,
-                             encoding="utf-8", errors="replace", timeout=5)
+                             encoding="utf-8", errors="replace", timeout=5,
+                             creationflags=_POPEN_FLAGS)
         current = cur.stdout.strip()
         if current == "HEAD":
             current = ""
@@ -106,17 +111,20 @@ def soft_revert_to(path: str, branch: str, tip_sha: str, parent_sha: str = "") -
     ok, err = _run(path, ["git", "read-tree", "--reset", "-u", target])
     if not ok:
         # Restore index to HEAD so the working tree is not left in a half-reset state.
-        subprocess.run(["git", "reset", "HEAD"], cwd=path, capture_output=True, timeout=10)
+        subprocess.run(["git", "reset", "HEAD"], cwd=path, capture_output=True,
+                       timeout=10, creationflags=_POPEN_FLAGS)
         return False, err
 
     ok, err = _run(path, ["git", "add", "-A"])
     if not ok:
-        subprocess.run(["git", "reset", "HEAD"], cwd=path, capture_output=True, timeout=10)
+        subprocess.run(["git", "reset", "HEAD"], cwd=path, capture_output=True,
+                       timeout=10, creationflags=_POPEN_FLAGS)
         return False, err
 
     ok, err = _run(path, ["git", "commit", "-m", msg])
     if not ok:
-        subprocess.run(["git", "reset", "HEAD"], cwd=path, capture_output=True, timeout=10)
+        subprocess.run(["git", "reset", "HEAD"], cwd=path, capture_output=True,
+                       timeout=10, creationflags=_POPEN_FLAGS)
         if "nothing to commit" in err.lower():
             return False, (
                 "Nothing to revert — the merged branch introduced no file changes, "

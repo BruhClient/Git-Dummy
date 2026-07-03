@@ -30,15 +30,14 @@ jobs:
       - name: Build executable
         run: pyinstaller git_dummy.spec --clean
 
-      - name: Rename artifact
-        run: |
-          Rename-Item -Path "dist\GitDummy.exe" -NewName "GitDummy-windows.exe"
+      - name: Build installer
+        run: makensis installer.nsi
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
           name: windows-build
-          path: dist/GitDummy-windows.exe
+          path: dist/GitDummy-Setup.exe
 
   build-macos:
     runs-on: macos-latest
@@ -108,12 +107,12 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            artifacts/windows/GitDummy-windows.exe
+            artifacts/windows/GitDummy-Setup.exe
             artifacts/macos/GitDummy-macos.zip
           body: |
             ## Installation
 
-            **Windows:** Download `GitDummy-windows.exe` and run it directly.
+            **Windows:** Download `GitDummy-Setup.exe` and run it. It will install Git Dummy to Program Files, create a Start Menu shortcut, and register an uninstaller.
 
             **macOS:** Download `GitDummy-macos.zip`, extract it, then right-click `GitDummy.app` and select **Open** (required for unsigned apps on first launch).
           generate_release_notes: true

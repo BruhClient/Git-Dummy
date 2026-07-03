@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import subprocess
 
-from .base_ops import _run
+from .base_ops import _run, _POPEN_FLAGS
 
 
 def get_default_branch(path: str) -> str:
@@ -18,7 +18,7 @@ def get_default_branch(path: str) -> str:
         r = subprocess.run(
             ["git", "symbolic-ref", "refs/remotes/origin/HEAD"],
             cwd=path, capture_output=True, text=True, timeout=5,
-            encoding="utf-8", errors="replace",
+            encoding="utf-8", errors="replace", creationflags=_POPEN_FLAGS,
         )
         if r.returncode == 0:
             ref = r.stdout.strip()
@@ -33,7 +33,7 @@ def get_default_branch(path: str) -> str:
             r = subprocess.run(
                 ["git", "rev-parse", "--verify", candidate],
                 cwd=path, capture_output=True, text=True, timeout=5,
-                encoding="utf-8", errors="replace",
+                encoding="utf-8", errors="replace", creationflags=_POPEN_FLAGS,
             )
             if r.returncode == 0:
                 return candidate
@@ -48,6 +48,7 @@ def branch_for_commit(path: str, sha: str) -> str:
     r = subprocess.run(
         ["git", "branch", "--contains", sha],
         cwd=path, capture_output=True, text=True, encoding="utf-8", errors="replace",
+        creationflags=_POPEN_FLAGS,
     )
     for line in r.stdout.splitlines():
         name = line.strip().lstrip("* ").strip()
@@ -62,7 +63,7 @@ def get_branch_unique_commits(path: str, tip_sha: str, base: str = "main") -> tu
     r = subprocess.run(
         ["git", "log", f"{base}..{tip_sha}", "--format=%H"],
         cwd=path, capture_output=True, text=True, timeout=30,
-        encoding="utf-8", errors="replace",
+        encoding="utf-8", errors="replace", creationflags=_POPEN_FLAGS,
     )
     if r.returncode != 0:
         return False, []
@@ -76,7 +77,7 @@ def branch_unique_count(path: str, branch: str, default_branch: str) -> int:
         r = subprocess.run(
             ["git", "rev-list", "--count", f"{default_branch}..{branch}"],
             cwd=path, capture_output=True, text=True, timeout=10,
-            encoding="utf-8", errors="replace",
+            encoding="utf-8", errors="replace", creationflags=_POPEN_FLAGS,
         )
         return int(r.stdout.strip()) if r.returncode == 0 else 0
     except Exception:
@@ -88,7 +89,7 @@ def delete_branch_full(path: str, branch: str, fallback_sha: str = "") -> tuple[
     cur = subprocess.run(
         ["git", "rev-parse", "--abbrev-ref", "HEAD"],
         cwd=path, capture_output=True, text=True, timeout=10,
-        encoding="utf-8", errors="replace",
+        encoding="utf-8", errors="replace", creationflags=_POPEN_FLAGS,
     )
     on_branch = cur.stdout.strip() == branch
 
@@ -101,7 +102,7 @@ def delete_branch_full(path: str, branch: str, fallback_sha: str = "") -> tuple[
             r = subprocess.run(
                 ["git", "branch", "--contains", target],
                 cwd=path, capture_output=True, text=True, timeout=5,
-                encoding="utf-8", errors="replace",
+                encoding="utf-8", errors="replace", creationflags=_POPEN_FLAGS,
             )
             for line in r.stdout.strip().splitlines():
                 name = line.strip().lstrip("* ")
@@ -119,7 +120,7 @@ def delete_branch_full(path: str, branch: str, fallback_sha: str = "") -> tuple[
                 r = subprocess.run(
                     ["git", "rev-parse", "--verify", default],
                     cwd=path, capture_output=True, text=True, timeout=5,
-                    encoding="utf-8", errors="replace",
+                    encoding="utf-8", errors="replace", creationflags=_POPEN_FLAGS,
                 )
                 if r.returncode == 0:
                     checkout_target = default
@@ -129,7 +130,7 @@ def delete_branch_full(path: str, branch: str, fallback_sha: str = "") -> tuple[
             has_parent = subprocess.run(
                 ["git", "rev-parse", "--verify", target],
                 cwd=path, capture_output=True, text=True, timeout=5,
-                encoding="utf-8", errors="replace",
+                encoding="utf-8", errors="replace", creationflags=_POPEN_FLAGS,
             ).returncode == 0
             if not has_parent:
                 return False, (
@@ -154,13 +155,13 @@ def delete_branch_full(path: str, branch: str, fallback_sha: str = "") -> tuple[
     ls = subprocess.run(
         ["git", "ls-remote", "--heads", "origin", branch],
         cwd=path, capture_output=True, text=True, timeout=10,
-        encoding="utf-8", errors="replace",
+        encoding="utf-8", errors="replace", creationflags=_POPEN_FLAGS,
     )
     if ls.returncode == 0 and ls.stdout.strip():
         r = subprocess.run(
             ["git", "push", "origin", "--delete", branch],
             cwd=path, capture_output=True, text=True, timeout=30,
-            encoding="utf-8", errors="replace",
+            encoding="utf-8", errors="replace", creationflags=_POPEN_FLAGS,
         )
         if r.returncode != 0:
             stderr = r.stderr.strip()
@@ -184,9 +185,9 @@ def create_branch_with_commit(path: str, branch_name: str, from_sha: str) -> tup
         # Branch was created but commit failed — delete the branch and go back.
         subprocess.run(["git", "checkout", from_sha],
                        cwd=path, capture_output=True, text=True, timeout=10,
-                       encoding="utf-8", errors="replace")
+                       encoding="utf-8", errors="replace", creationflags=_POPEN_FLAGS)
         subprocess.run(["git", "branch", "-D", branch_name],
                        cwd=path, capture_output=True, text=True, timeout=10,
-                       encoding="utf-8", errors="replace")
+                       encoding="utf-8", errors="replace", creationflags=_POPEN_FLAGS)
         return False, err2
     return True, ""
