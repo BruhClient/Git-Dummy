@@ -30,6 +30,9 @@ jobs:
       - name: Build executable
         run: pyinstaller git_dummy.spec --clean
 
+      - name: Install NSIS
+        run: choco install nsis --no-progress -y
+
       - name: Build installer
         run: makensis installer.nsi
 
