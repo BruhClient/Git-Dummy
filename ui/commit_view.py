@@ -24,6 +24,7 @@ from core.ops import (current_branch, branch_for_commit,
                       get_stash_files, get_stash_ref_for_commit,
                       get_branch_unique_commits)
 from core import settings_store
+from core.storage import collab_cache
 from ui.canvas import SpatialCanvas, MiniMap, ORIENT_LR
 from ui.panels import DetailPanel, ChangesPanel, PANEL_W as DETAIL_PANEL_W, CHANGES_W
 from ui.panels.position_panel import PositionPanel
@@ -308,6 +309,11 @@ class CommitViewPage(_PRMixin, QWidget):
         self._uncommitted_timer.setInterval(2_000)
         self._uncommitted_timer.timeout.connect(self._poll_uncommitted)
 
+        # Desired-active state for the polling timers, so show/hideEvent can pause
+        # them while the page isn't visible and restore exactly what should run.
+        self._poll_wanted        = False
+        self._uncommitted_wanted = False
+
         # Filesystem watcher — instant detection of any .git change
         self._fs_watcher = QFileSystemWatcher()
         self._fs_watcher.fileChanged.connect(self._on_git_file_changed)
@@ -342,6 +348,21 @@ class CommitViewPage(_PRMixin, QWidget):
 
     # ── Public ────────────────────────────────────────────────────────────
 
+    def hideEvent(self, event):
+        # Pause background polling while this page isn't visible so we don't run
+        # a git fetch (30s) and three git subprocesses (2s) behind other pages.
+        self._poll_timer.stop()
+        self._uncommitted_timer.stop()
+        super().hideEvent(event)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        # Restore only the timers that should be running for the loaded repo.
+        if self._uncommitted_wanted:
+            self._uncommitted_timer.start()
+        if self._poll_wanted:
+            self._poll_timer.start()
+
     def set_user(self, user: dict):
         self._user = user
         from core.ops.base_ops import set_commit_author
@@ -373,6 +394,8 @@ class CommitViewPage(_PRMixin, QWidget):
         self._last_unpushed = set()
         self._sha_to_branch: dict = {}
         self._user = {}
+        self._poll_wanted        = False
+        self._uncommitted_wanted = False
         self._poll_timer.stop()
         self._uncommitted_timer.stop()
         self._reload_debounce.stop()
@@ -508,11 +531,13 @@ class CommitViewPage(_PRMixin, QWidget):
         else:
             self._header.set_url("")
         self._poll_timer.stop()
+        self._poll_wanted = has_remote
         if has_remote:
             self._poll_timer.start()
             self._poll_remote()
         self._last_dirty    = False
         self._last_stash_id = ""
+        self._uncommitted_wanted = True
         self._uncommitted_timer.start()
         self._setup_fs_watcher(self._tracker._repo.git_dir)
 
@@ -942,6 +967,7 @@ class CommitViewPage(_PRMixin, QWidget):
             self._vis_worker.finished.connect(self._on_visibility_ready)
             self._vis_worker.finished.connect(self._vis_thread.quit)
             self._vis_thread.start()
+        self._poll_wanted = True
         self._poll_timer.start()
         self._start_load(initial=True)
         self._load_collaborators()
@@ -1218,6 +1244,16 @@ class CommitViewPage(_PRMixin, QWidget):
             self._on_collabs_loaded(self._collab_cache[cache_key])
             return
 
+        # On an in-memory miss, fall back to the on-disk TTL cache so the N+1
+        # GitHub API fetch doesn't re-run on every app restart. If the entry is
+        # fresh we're done; if stale, render it now and refresh in the background.
+        if cache_key:
+            disk_data, is_stale = collab_cache.get(cache_key)
+            if disk_data is not None:
+                self._on_collabs_loaded(disk_data)
+                if not is_stale:
+                    return
+
         if self._collab_thread and self._collab_thread.isRunning():
             return
 
@@ -1225,9 +1261,21 @@ class CommitViewPage(_PRMixin, QWidget):
         self._collab_worker  = _CollabLoader(self._tracker._path, token)
         self._collab_worker.moveToThread(self._collab_thread)
         self._collab_thread.started.connect(self._collab_worker.run)
-        self._collab_worker.finished.connect(self._on_collabs_loaded)
+        self._collab_worker.finished.connect(self._on_collabs_fetched)
         self._collab_worker.finished.connect(self._collab_thread.quit)
         self._collab_thread.start()
+
+    def _on_collabs_fetched(self, collabs: list[dict]):
+        # Persist the raw API result (user-agnostic) to the disk cache before the
+        # per-user enrichment in _on_collabs_loaded, so it can be reused next launch.
+        if self._tracker:
+            cache_key = self._tracker.remote_url()
+            if cache_key:
+                try:
+                    collab_cache.save(cache_key, collabs)
+                except Exception:
+                    pass
+        self._on_collabs_loaded(collabs)
 
     def _on_collabs_loaded(self, collabs: list[dict]):
         login = self._user.get("login", "")
@@ -1706,7 +1754,8 @@ class CommitViewPage(_PRMixin, QWidget):
         def _run():
             try:
                 from core.ops import push_branch
-                ok, err, conflict_files, conflict_content = push_branch(path, branch, username, token, remote_url)
+                ok, err = push_branch(path, branch, username, token, remote_url)
+                conflict_files, conflict_content = [], {}
             except Exception as exc:
                 ok, err, conflict_files, conflict_content = False, str(exc), [], {}
             self._push_done_sig.emit(ok, err, branch, conflict_files, conflict_content)
@@ -2153,7 +2202,6 @@ class CommitViewPage(_PRMixin, QWidget):
         all_branches = sorted(_all)
         is_merge_commit = len(commit.parents) > 1
         show_merge = is_head and bool(branch) and len(all_branches) > 0
-        print(f"[merge] sha={commit.sha[:8]} branch={branch} is_head={is_head} all_branches={all_branches} is_merge_commit={is_merge_commit} show_merge={show_merge}")
         _dflt = getattr(self._settings_panel, "_default_branch", "main")
         _branch_colors = getattr(self._canvas, "_branch_colors", {})
         self._panel.set_merge_state(show_merge, branch, all_branches,
@@ -2297,10 +2345,9 @@ class CommitViewPage(_PRMixin, QWidget):
         # Leave _uncommitted_worker — Python drops it naturally when the next
         # poll overwrites the reference (safe: the thread has already stopped).
 
-    def _on_uncommitted_done(self, dirty: bool, files: list, stash_id: str):
+    def _on_uncommitted_done(self, dirty: bool, files: list, stash_id: str, head_sha: str):
         if not self._tracker:
             return
-        head_sha = self._tracker.head_sha()
 
         stash_changed = stash_id != self._last_stash_id
         dirty_changed = dirty != self._last_dirty

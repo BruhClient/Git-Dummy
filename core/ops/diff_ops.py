@@ -6,24 +6,12 @@ import subprocess
 from .base_ops import _POPEN_FLAGS
 
 
-def get_stash_diff_files(path: str, stash_ref: str) -> list[dict]:
-    """Return per-file diff info for a stash, in the same format as commit_files."""
-    r = subprocess.run(
-        ["git", "show", "--format=", "--numstat", stash_ref],
-        cwd=path, capture_output=True, text=True,
-        encoding="utf-8", errors="replace", creationflags=_POPEN_FLAGS,
-    )
-    patch = subprocess.run(
-        ["git", "stash", "show", "-p", stash_ref],
-        cwd=path, capture_output=True, text=True,
-        encoding="utf-8", errors="replace", creationflags=_POPEN_FLAGS,
-    )
-
-    # Build a map of file path → diff lines from the patch
+def _parse_patch_to_diff_by_path(patch_stdout: str) -> dict[str, list]:
+    """Parse unified-diff patch text into {file path: [(kind, text), ...]}."""
     diff_by_path: dict[str, list] = {}
     current: list = []
     current_path = ""
-    for line in (patch.stdout or "").splitlines():
+    for line in (patch_stdout or "").splitlines():
         if line.startswith("diff --git "):
             if current_path:
                 diff_by_path[current_path] = current
@@ -44,6 +32,24 @@ def get_stash_diff_files(path: str, stash_ref: str) -> list[dict]:
                 current.append(("context", line[1:]))
     if current_path:
         diff_by_path[current_path] = current
+    return diff_by_path
+
+
+def get_stash_diff_files(path: str, stash_ref: str) -> list[dict]:
+    """Return per-file diff info for a stash, in the same format as commit_files."""
+    r = subprocess.run(
+        ["git", "show", "--format=", "--numstat", stash_ref],
+        cwd=path, capture_output=True, text=True,
+        encoding="utf-8", errors="replace", creationflags=_POPEN_FLAGS,
+    )
+    patch = subprocess.run(
+        ["git", "stash", "show", "-p", stash_ref],
+        cwd=path, capture_output=True, text=True,
+        encoding="utf-8", errors="replace", creationflags=_POPEN_FLAGS,
+    )
+
+    # Build a map of file path → diff lines from the patch
+    diff_by_path = _parse_patch_to_diff_by_path(patch.stdout)
 
     result = []
     for line in r.stdout.strip().splitlines():
@@ -85,30 +91,7 @@ def get_working_dir_diff_files(path: str) -> list[dict]:
         encoding="utf-8", errors="replace", creationflags=_POPEN_FLAGS,
     )
 
-    diff_by_path: dict[str, list] = {}
-    current: list = []
-    current_path = ""
-    for line in (patch.stdout or "").splitlines():
-        if line.startswith("diff --git "):
-            if current_path:
-                diff_by_path[current_path] = current
-            current = []
-            current_path = ""
-        elif line.startswith("+++ b/"):
-            current_path = line[6:]
-        elif line.startswith("--- a/") or line.startswith("+++ /dev/null"):
-            pass
-        elif current_path:
-            if line.startswith("+") and not line.startswith("+++"):
-                current.append(("added",   line[1:]))
-            elif line.startswith("-") and not line.startswith("---"):
-                current.append(("removed", line[1:]))
-            elif line.startswith("@@"):
-                current.append(("hunk",    line))
-            elif line.startswith(" "):
-                current.append(("context", line[1:]))
-    if current_path:
-        diff_by_path[current_path] = current
+    diff_by_path = _parse_patch_to_diff_by_path(patch.stdout)
 
     result = []
     seen_paths: set[str] = set()

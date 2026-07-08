@@ -564,8 +564,9 @@ class SpatialCanvas(QGraphicsView):
     def refresh_you_labels(self, you_shas: set):
         """Update author text labels to show 'You' for the given commit SHAs."""
         self._you_shas = you_shas
+        commit_by_sha = {c.sha: c for c in self._commits}
         for sha, item in self._author_items.items():
-            commit = next((c for c in self._commits if c.sha == sha), None)
+            commit = commit_by_sha.get(sha)
             if commit is None:
                 continue
             self._update_author_item(item, sha, commit)
@@ -575,8 +576,9 @@ class SpatialCanvas(QGraphicsView):
         self._known_authors = known
         muted = QColor(COLORS["text_muted"])
         primary = QColor(COLORS["text_primary"])
+        commit_by_sha = {c.sha: c for c in self._commits}
         for sha, item in self._author_items.items():
-            commit = next((c for c in self._commits if c.sha == sha), None)
+            commit = commit_by_sha.get(sha)
             if commit is None:
                 continue
             if sha in self._you_shas or not known or commit.author in known:
@@ -741,6 +743,13 @@ class SpatialCanvas(QGraphicsView):
 
     @staticmethod
     def _fetch_badge_avatar(badge: ContributorBadge, url: str):
+        from ui.components.avatar import _load_avatar, _save_avatar
+        # Reuse the shared memory+disk avatar cache so a graph reload doesn't
+        # re-download avatars that are already on disk.
+        cached = _load_avatar(url)
+        if cached is not None and not cached.isNull():
+            badge.set_pixmap(cached)
+            return
         try:
             import requests
             resp = requests.get(url, timeout=10)
@@ -748,6 +757,7 @@ class SpatialCanvas(QGraphicsView):
                 pm = QPixmap()
                 pm.loadFromData(resp.content)
                 if not pm.isNull():
+                    _save_avatar(url, pm)
                     badge.set_pixmap(pm)
         except Exception:
             pass

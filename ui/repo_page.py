@@ -74,6 +74,7 @@ class _RoleBadge(QLabel):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        self._active = True
         self._role_ready.connect(self._apply)
 
     def start(self, owner: str, repo: str, login: str, token: str):
@@ -114,7 +115,7 @@ class _RoleBadge(QLabel):
             pass
 
     def _apply(self, role: str):
-        if role not in self._LABELS:
+        if not self._active or role not in self._LABELS:
             return
         self.setText(self._LABELS[role])
         color = COLORS.get("warning", "#f59e0b") if role == "viewer" else COLORS["text_muted"]
@@ -211,6 +212,7 @@ class RepoCard(QWidget):
         super().__init__(parent)
         self._path = repo_path
         self._is_deleted = False
+        self._active = True
         self.setObjectName("repoCard")
         self.setAttribute(Qt.WA_StyledBackground, True)
         self.setCursor(Qt.PointingHandCursor)
@@ -335,6 +337,8 @@ class RepoCard(QWidget):
             pass
 
     def _on_stats(self, stars: int, watchers: int, forks: int, commits: int, vis: str):
+        if not self._active:
+            return
         if vis:
             self._vis_badge.setText(vis)
             self._vis_badge.show()
@@ -368,6 +372,8 @@ class RepoCard(QWidget):
             pos += 1
 
     def _on_remote_deleted(self):
+        if not self._active:
+            return
         self._is_deleted = True
         self._vis_badge.setText(" repo deleted ")
         self._vis_badge.setStyleSheet(
@@ -503,14 +509,15 @@ def _norm_path(p: str) -> str:
 
 class RepoPage(QWidget):
     repo_selected = pyqtSignal(str)
-    _validate_done = pyqtSignal(list, list)
-    _access_check_done = pyqtSignal(str, bool, str)  # path, accessible, owner
+    _validate_done = pyqtSignal(list, list, int)
+    _access_check_done = pyqtSignal(str, bool, str, int)  # path, accessible, owner, epoch
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self._repos: list[str] = []    # only valid (existing) paths
         self._missing: list[str] = []  # paths that no longer exist
         self._user: dict | None = None
+        self._data_epoch = 0  # bumped on every set_user() to discard stale async results from a prior account
         self.setAcceptDrops(True)
         self._validate_done.connect(self._on_validate_done)
         self._access_check_done.connect(self._on_access_check_done)
@@ -520,11 +527,13 @@ class RepoPage(QWidget):
         self._setup_ui()
 
     def set_user(self, user: dict):
+        self._data_epoch += 1
         self._user = user
         self._repos = []
         self._missing = []
+        self._validate_timer.stop()
         self._load_saved()
-        self._refresh_cards()
+        self._validate_timer.start()
 
     # ── UI ────────────────────────────────────────────────────────────────────
 
@@ -625,6 +634,7 @@ class RepoPage(QWidget):
     def _validate_paths(self):
         repos = list(self._repos)
         missing = list(self._missing)
+        epoch = self._data_epoch
         def _check():
             valid, gone = [], []
             seen = set()
@@ -637,10 +647,12 @@ class RepoPage(QWidget):
                     valid.append(path)
                 else:
                     gone.append(path)
-            self._validate_done.emit(valid, gone)
+            self._validate_done.emit(valid, gone, epoch)
         threading.Thread(target=_check, daemon=True).start()
 
-    def _on_validate_done(self, valid: list, gone: list):
+    def _on_validate_done(self, valid: list, gone: list, epoch: int):
+        if epoch != self._data_epoch:
+            return  # stale result from a previous account switch — discard
         changed = valid != self._repos or gone != self._missing
         if changed:
             self._repos = valid
@@ -697,7 +709,7 @@ class RepoPage(QWidget):
             self._pending_navigate = path if navigate else None
             threading.Thread(
                 target=self._check_repo_access,
-                args=(path, owner, repo, token),
+                args=(path, owner, repo, token, self._data_epoch),
                 daemon=True,
             ).start()
         else:
@@ -705,7 +717,7 @@ class RepoPage(QWidget):
             if navigate:
                 self.repo_selected.emit(path)
 
-    def _check_repo_access(self, path: str, owner: str, repo: str, token: str):
+    def _check_repo_access(self, path: str, owner: str, repo: str, token: str, epoch: int):
         try:
             import requests
             r = requests.get(
@@ -718,11 +730,14 @@ class RepoPage(QWidget):
         except Exception:
             accessible = True
         try:
-            self._access_check_done.emit(path, accessible, owner)
+            self._access_check_done.emit(path, accessible, owner, epoch)
         except RuntimeError:
             pass
 
-    def _on_access_check_done(self, path: str, accessible: bool, owner: str):
+    def _on_access_check_done(self, path: str, accessible: bool, owner: str, epoch: int):
+        if epoch != self._data_epoch:
+            self._pending_navigate = None
+            return  # stale result from a previous account switch — discard
         if accessible:
             self._do_add_repo(path)
             if getattr(self, "_pending_navigate", None) == path:
@@ -737,12 +752,14 @@ class RepoPage(QWidget):
     def _do_add_repo(self, path: str):
         norm = _norm_path(path)
         if norm not in {_norm_path(r) for r in self._repos}:
+            self._data_epoch += 1
             self._repos.append(path)
             self._missing = [m for m in self._missing if _norm_path(m) != norm]
             self._persist()
             self._refresh_cards()
 
     def remove_repo(self, path: str):
+        self._data_epoch += 1
         norm = _norm_path(path)
         self._repos = [r for r in self._repos if _norm_path(r) != norm]
         self._missing = [m for m in self._missing if _norm_path(m) != norm]
@@ -811,6 +828,7 @@ class RepoPage(QWidget):
                   f"This doesn't look like a tracked project folder:\n{folder}")
             return
         # Replace old path with new one and navigate immediately
+        self._data_epoch += 1
         self._missing = [m for m in self._missing if _norm_path(m) != _norm_path(old_path)]
         norm = _norm_path(folder)
         if norm not in {_norm_path(r) for r in self._repos}:
@@ -822,8 +840,11 @@ class RepoPage(QWidget):
     def _refresh_cards(self):
         while self._cards_layout.count():
             item = self._cards_layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
+            w = item.widget()
+            if w:
+                if hasattr(w, "_active"):
+                    w._active = False
+                w.deleteLater()
 
         total = len(self._repos) + len(self._missing)
         self._section_label.setVisible(total > 0)
@@ -849,6 +870,9 @@ class RepoPage(QWidget):
             card.remove_requested.connect(self.remove_repo)
             self._cards_layout.addWidget(card, idx // cols, idx % cols)
             idx += 1
+
+        self._cards_layout.activate()
+        self._cards_container.updateGeometry()
 
     def _show_empty_state(self):
         import os

@@ -1,12 +1,21 @@
 from __future__ import annotations
 
 import base64
+import re
 import subprocess
 from urllib.parse import urlparse
 
 import requests
 
 from .base_ops import _run, _POPEN_FLAGS
+
+
+def parse_github_owner_repo(url: str) -> "tuple[str, str] | None":
+    """Extract (owner, repo) from a GitHub remote URL, or None if it doesn't match."""
+    m = re.search(r"github\.com[:/]([^/]+)/([^/]+?)(?:\.git)?$", url or "")
+    if not m:
+        return None
+    return m.group(1), m.group(2)
 
 
 def create_github_repo(name: str, private: bool, token: str) -> tuple[bool, str, str]:
@@ -35,7 +44,7 @@ def push_branch(
     username: str = "",
     token: str = "",
     remote_url: str = "",
-) -> tuple[bool, str, list, dict]:
+) -> tuple[bool, str]:
     if username and token and remote_url:
         b64 = base64.b64encode(f"{username}:{token}".encode()).decode()
         subprocess.run(
@@ -49,15 +58,15 @@ def push_branch(
         encoding="utf-8", errors="replace", creationflags=_POPEN_FLAGS,
     )
     if r.returncode == 0:
-        return True, "", [], {}
+        return True, ""
 
     # git puts [rejected] / non-fast-forward in stdout; errors in stderr
     combined = (r.stdout + r.stderr).lower()
 
     if "non-fast-forward" in combined or "rejected" in combined:
-        return False, "behind_remote", [], {}
+        return False, "behind_remote"
 
-    return False, r.stderr.strip() or r.stdout.strip(), [], {}
+    return False, r.stderr.strip() or r.stdout.strip()
 
 
 def push_to_github(
@@ -122,7 +131,6 @@ def push_to_github(
 
 def fork_repo(path: str, token: str, login: str) -> tuple[bool, str]:
     """Fork the origin repo to the user's account and set push URL to the fork."""
-    import re
     try:
         r = subprocess.run(
             ["git", "remote", "get-url", "origin"],
@@ -130,10 +138,10 @@ def fork_repo(path: str, token: str, login: str) -> tuple[bool, str]:
             encoding="utf-8", errors="replace", creationflags=_POPEN_FLAGS,
         )
         url = r.stdout.strip()
-        m = re.search(r"github\.com[:/]([^/]+)/([^/]+?)(?:\.git)?$", url)
-        if not m:
+        parsed = parse_github_owner_repo(url)
+        if not parsed:
             return False, "Could not parse remote URL."
-        owner, repo = m.group(1), m.group(2)
+        owner, repo = parsed
 
         resp = requests.post(
             f"https://api.github.com/repos/{owner}/{repo}/forks",

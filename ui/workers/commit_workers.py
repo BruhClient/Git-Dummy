@@ -151,7 +151,7 @@ class _BranchCountWorker(QObject):
 
 class _UncommittedRefreshWorker(QObject):
     """Lightweight background poll: dirty-state check + live diff + stash fingerprint."""
-    finished = pyqtSignal(bool, list, str)   # dirty, files, stash_id
+    finished = pyqtSignal(bool, list, str, str)   # dirty, files, stash_id, head_sha
 
     def __init__(self, path: str):
         super().__init__()
@@ -163,8 +163,18 @@ class _UncommittedRefreshWorker(QObject):
         dirty = has_uncommitted_changes(self._path)
         files = get_working_dir_diff_files(self._path) if dirty else []
         stash_id = get_stash_list_id(self._path)
+        # Resolve HEAD here (background thread) so the main thread never shells
+        # out to `git rev-parse HEAD` on every 2s poll. Mirrors GitTracker.head_sha().
         try:
-            self.finished.emit(dirty, files, stash_id)
+            r = subprocess.run(
+                ["git", "rev-parse", "HEAD"],
+                cwd=self._path, capture_output=True, text=True,
+            )
+            head_sha = r.stdout.strip() if r.returncode == 0 else ""
+        except Exception:
+            head_sha = ""
+        try:
+            self.finished.emit(dirty, files, stash_id, head_sha)
         except RuntimeError:
             pass
 

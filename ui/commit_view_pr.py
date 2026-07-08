@@ -51,7 +51,7 @@ class _PRMixin:
         def _run():
             try:
                 from core.ops import push_branch
-                ok, err, _cf, _cc = push_branch(path, branch, username, token, remote_url)
+                ok, err = push_branch(path, branch, username, token, remote_url)
             except Exception as e:
                 ok, err = False, str(e)
             self._wizard_push_done_sig.emit(ok, err)
@@ -64,12 +64,12 @@ class _PRMixin:
             return
         token = self._user.get("access_token", "")
         url   = self._tracker.remote_url()
-        import re as _re
-        m = _re.search(r'github\.com[:/]([^/]+)/([^/]+?)(?:\.git)?$', url)
-        if not m or not token:
+        from core.ops import parse_github_owner_repo
+        parsed = parse_github_owner_repo(url)
+        if not parsed or not token:
             self._pr_wizard.notify_pr_created(False, "No GitHub remote or token.")
             return
-        owner, repo = m.group(1), m.group(2)
+        owner, repo = parsed
 
         def _run():
             try:

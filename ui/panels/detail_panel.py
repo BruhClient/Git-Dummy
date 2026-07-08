@@ -797,7 +797,6 @@ class DetailPanel(QWidget):
                 return
 
         show_delete = not is_main and bool(branch) and (is_head or is_remote_head) and not is_merge_commit and is_first_of_branch
-        print(f"[delete] show_delete={show_delete} is_main={is_main} branch={branch} is_head={is_head} is_remote_head={is_remote_head} is_merge_commit={is_merge_commit} is_first_of_branch={is_first_of_branch}")
         self._delete_branch_btn.setVisible(show_delete)
         self._delete_branch_btn.setEnabled(show_delete)
 
@@ -966,7 +965,6 @@ class DetailPanel(QWidget):
         self._save_stash_btn.hide()
         self._clear_stash_btn.hide()
         has_stash = commit.sha in getattr(self, "_stash_shas", set())
-        print(f"[show_commit] sha={commit.sha[:8]} has_stash={has_stash} stash_shas={getattr(self, '_stash_shas', set())} is_remote_head={getattr(self, '_is_remote_head', '?')} head_sha={getattr(self, '_head_sha', '?')[:8] if getattr(self, '_head_sha', '') else '?'}")
         self._stash_section.setVisible(has_stash)
         if has_stash:
             self._populate_stash_files()
@@ -1004,19 +1002,16 @@ class DetailPanel(QWidget):
         stash_ref = get_stash_ref_for_commit(repo_path, self._current_sha)
         is_head   = self._current_sha == getattr(self, "_head_sha", "")
         self._stash_ref = stash_ref
-        print(f"[_populate_stash_files] sha={self._current_sha[:8]} stash_ref={stash_ref} is_head={is_head} is_remote_head={getattr(self, '_is_remote_head', '?')}")
 
         if stash_ref:
             files = get_stash_diff_files(repo_path, stash_ref)
         elif is_head and has_uncommitted_changes(repo_path):
             files = get_working_dir_diff_files(repo_path)
         else:
-            print(f"[_populate_stash_files] no stash_ref and not head with changes, hiding")
             self._stash_section.hide()
             return
 
         n = len(files)
-        print(f"[_populate_stash_files] {n} files, showing buttons (is_remote_head={getattr(self, '_is_remote_head', '?')})")
         self._stash_label.setText(f"Unsaved  —  {n} file{'s' if n != 1 else ''}")
         self._view_stash_btn.setVisible(n > 0)
         if not getattr(self, "_is_remote_head", False):
