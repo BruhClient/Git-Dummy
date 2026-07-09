@@ -34,13 +34,13 @@ jobs:
         run: choco install nsis --no-progress -y
 
       - name: Build installer
-        run: makensis installer.nsi
+        run: '& "C:\Program Files (x86)\NSIS\makensis.exe" installer.nsi'
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
           name: windows-build
-          path: dist/GitDummy-Setup.exe
+          path: dist/GitDummy-windows.exe
 
   build-macos:
     runs-on: macos-latest
@@ -110,7 +110,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: |
-            artifacts/windows/GitDummy-Setup.exe
+            artifacts/windows/GitDummy-windows.exe
             artifacts/macos/GitDummy-macos.zip
           body: |
             ## Installation

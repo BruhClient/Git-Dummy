@@ -4,7 +4,7 @@
 !define UNINSTALLER "Uninstall.exe"
 
 Name "${APP_NAME}"
-OutFile "dist\GitDummy-Setup.exe"
+OutFile "dist\GitDummy-windows.exe"
 InstallDir "${INSTALL_DIR}"
 InstallDirRegKey HKLM "Software\GitDummy" "Install_Dir"
 RequestExecutionLevel admin
