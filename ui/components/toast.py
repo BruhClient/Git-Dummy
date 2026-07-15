@@ -22,8 +22,8 @@ class _Toast(QWidget):
         super().__init__(parent)
         self.setObjectName("toastWidget")
         self.setAttribute(Qt.WA_StyledBackground, True)
-        self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
         self.setMaximumWidth(340)
+        self.setCursor(Qt.PointingHandCursor)
         self.hide()
 
         from PyQt5.QtWidgets import QGraphicsOpacityEffect
@@ -89,7 +89,7 @@ class _Toast(QWidget):
             self._slide.start()
 
         self._timer.stop()
-        if duration_ms > 0:
+        if duration_ms > 0 and kind != "error":
             self._timer.start(duration_ms)
 
     def _target_pos(self) -> QPoint:
@@ -107,6 +107,11 @@ class _Toast(QWidget):
         self._fade.setStartValue(1.0)
         self._fade.setEndValue(0.0)
         self._fade.start()
+
+    def mousePressEvent(self, event):
+        self._timer.stop()
+        self._dismiss()
+        event.accept()
 
     def reposition(self):
         if self.isVisible():

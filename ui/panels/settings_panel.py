@@ -409,8 +409,8 @@ class SettingsPanel(QWidget):
         self._content_layout.addWidget(self._repo_card)
         self._content_layout.addSpacing(20)
 
-        # ── Collaborators (collapsible) ───────────────────────────────────────
-        self._content_layout.addWidget(_section_lbl("Collaborators"))
+        # ── People (collapsible) ────────────────────────────────────────────
+        self._content_layout.addWidget(_section_lbl("People"))
         self._content_layout.addSpacing(10)
 
         self._collab_expanded = True

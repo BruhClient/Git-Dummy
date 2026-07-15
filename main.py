@@ -40,6 +40,7 @@ from ui.auth_page import AuthPage
 from ui.main_window import MainWindow
 from ui.repo_page import RepoPage
 from ui.commit_view import CommitViewPage
+from ui.welcome_splash import WelcomeSplash
 from styles.theme import make_global_style
 
 
@@ -76,6 +77,8 @@ class App(QStackedWidget):
 
         self.setStyleSheet(make_global_style())
 
+        self._splash = WelcomeSplash()
+
         self._auth_page = AuthPage(self._auth)
         self._main_window = MainWindow(self._auth)
 
@@ -85,6 +88,7 @@ class App(QStackedWidget):
         self._main_window.add_page(MainWindow.PAGE_REPOS, self._repo_page)
         self._main_window.add_page(MainWindow.PAGE_COMMITS, self._commit_page)
 
+        self.addWidget(self._splash)
         self.addWidget(self._auth_page)
         self.addWidget(self._main_window)
 
@@ -100,23 +104,42 @@ class App(QStackedWidget):
         self._auth_page.account_selected.connect(self._on_switch_account)
 
         self._auth_page.show_sign_in()
-        self.setCurrentWidget(self._auth_page)
+
+        self._splash_active = True
+        self._pending_page = None
+        self._splash.finished.connect(self._on_splash_finished)
+        self.setCurrentWidget(self._splash)
+        QTimer.singleShot(0, self._splash.play)
+
         if self._auth.has_saved_token():
             # Restoring a saved session makes a network call (up to ~10s on a
             # slow connection). Show the sign-in screen first and defer the
             # check to the next event-loop tick, so the window appears right
-            # away instead of staying blank while we verify the session.
+            # away instead of staying blank while we verify the session. This
+            # runs concurrently underneath the splash, not gated by it.
             self._auth_page.show_checking_session()
             QTimer.singleShot(0, self._auth.load_saved_token)
+
+    def _on_splash_finished(self):
+        self._splash_active = False
+        self.setCurrentWidget(self._pending_page or self._auth_page)
+        self._pending_page = None
 
     def _on_auth_success(self, user: dict):
         self._main_window.set_user(user)
         self._repo_page.set_user(user)
         self._commit_page.set_user(user)
         self._main_window.show_page(MainWindow.PAGE_REPOS)
+        if self._splash_active:
+            self._pending_page = self._main_window
+            return
         self.setCurrentWidget(self._main_window)
 
     def _on_auth_failed(self, message: str):
+        if self._splash_active:
+            self._pending_page = self._auth_page
+            self._auth_page.show_error(message)
+            return
         self.setCurrentWidget(self._auth_page)
         self._auth_page.show_error(message)
 

@@ -228,7 +228,7 @@ class CollaboratorPanel(QWidget):
         """)
         hdr_layout = QHBoxLayout(hdr)
         hdr_layout.setContentsMargins(14, 0, 8, 0)
-        title = QLabel("Collaborators")
+        title = QLabel("Contributors")
         title.setStyleSheet(
             f"background: transparent; font-size: 12px; font-weight: 600; color: {COLORS['text_muted']};"
         )
@@ -305,7 +305,7 @@ class CollaboratorPanel(QWidget):
             self._count_lbl.hide()
 
         if not collaborators:
-            lbl = QLabel("No collaborators yet")
+            lbl = QLabel("No contributors yet")
             lbl.setAlignment(Qt.AlignCenter)
             lbl.setStyleSheet(
                 f"background: transparent; font-size: 12px; color: {COLORS['text_muted']}; padding: 12px 0;"

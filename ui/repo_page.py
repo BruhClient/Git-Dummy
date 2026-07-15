@@ -6,6 +6,8 @@ import re
 import subprocess
 import threading
 
+from core.ops.base_ops import _POPEN_FLAGS
+
 import qtawesome as qta
 
 from PyQt5.QtCore import Qt, QSize, QTimer, pyqtSignal
@@ -207,10 +209,12 @@ class RepoCard(QWidget):
     remove_requested = pyqtSignal(str)
     _stats_ready     = pyqtSignal(int, int, int, int, str)
     _remote_deleted  = pyqtSignal()
+    _remote_private  = pyqtSignal()
 
     def __init__(self, repo_path: str, user: dict = None, parent=None):
         super().__init__(parent)
         self._path = repo_path
+        self._login = (user or {}).get("login", "")
         self._is_deleted = False
         self._active = True
         self.setObjectName("repoCard")
@@ -295,6 +299,7 @@ class RepoCard(QWidget):
 
         self._stats_ready.connect(self._on_stats)
         self._remote_deleted.connect(self._on_remote_deleted)
+        self._remote_private.connect(self._on_remote_private)
         threading.Thread(target=self._fetch_stats,
                          args=(repo_path, owner, repo, (user or {}).get("access_token", "")),
                          daemon=True).start()
@@ -303,7 +308,8 @@ class RepoCard(QWidget):
         commits = 0
         try:
             r = subprocess.run(["git", "rev-list", "--count", "HEAD"],
-                               cwd=path, capture_output=True, text=True, timeout=5)
+                               cwd=path, capture_output=True, text=True, timeout=5,
+                               creationflags=_POPEN_FLAGS)
             if r.returncode == 0:
                 commits = int(r.stdout.strip())
         except Exception:
@@ -324,8 +330,15 @@ class RepoCard(QWidget):
                     forks = d.get("forks_count", 0)
                     vis = "Private" if d.get("private") else "Public"
                 elif r.status_code == 404:
+                    # GitHub returns 404 for both a deleted repo and a private
+                    # repo this account can't see. If we own it, it was really
+                    # deleted; otherwise it's private / no access.
+                    is_owner = bool(owner) and owner.lower() == self._login.lower()
                     try:
-                        self._remote_deleted.emit()
+                        if is_owner:
+                            self._remote_deleted.emit()
+                        else:
+                            self._remote_private.emit()
                     except RuntimeError:
                         pass
                     return
@@ -386,6 +399,20 @@ class RepoCard(QWidget):
             f"#repoCard {{ background: {COLORS['bg_card']}; border: 1px solid {COLORS['danger_border']}; border-radius: 12px; }}"
             f"#repoCard * {{ background: transparent; border: none; }}"
         )
+
+    def _on_remote_private(self):
+        # Repo is private and this account has no access (non-owner 404).
+        # Not the same as deleted — keep the card normal (no red border,
+        # hover still works), just flag it with an amber "Private" badge.
+        if not self._active:
+            return
+        self._vis_badge.setText(" Private ")
+        self._vis_badge.setStyleSheet(
+            f"font-size: 11px; font-weight: 600; color: {COLORS['warning']};"
+            f" background: {COLORS['warning_dim']}; border-radius: 4px; padding: 2px 8px;"
+        )
+        self._vis_badge.setFixedHeight(22)
+        self._vis_badge.show()
 
     def _apply_style(self, hovered: bool):
         if self._is_deleted:

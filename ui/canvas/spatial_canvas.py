@@ -108,8 +108,6 @@ class SpatialCanvas(QGraphicsView):
         head_sha: str = "",
         is_initial: bool = False,
         local_tip_shas: set = None,
-        remote_tip_shas: set = None,
-        action_head_shas: set = None,
     ):
         prev_centre = self.mapToScene(self.viewport().rect().center())
 
@@ -136,8 +134,6 @@ class SpatialCanvas(QGraphicsView):
         self._unpushed_shas       = unpushed_shas       or set()
         self._stash_shas        = stash_shas      or set()
         self._local_tip_shas_c  = local_tip_shas    or set()
-        self._remote_tip_shas_c = remote_tip_shas   or set()
-        self._action_head_shas  = action_head_shas  or set()
 
         if not commits:
             return
@@ -463,22 +459,11 @@ class SpatialCanvas(QGraphicsView):
             branch_key  = _branch_base(tip_names[0]) if tip_names else _branch_base(branch_name)
             color       = branch_name_color.get(branch_key, _lane_color(lane))
             self._node_colors[commit.sha] = color
-            # Only show remote-tip dot when the commit's lane matches one of its
-            # branch_tip_map names. Prevents stale merged remote refs (e.g.
-            # origin/zen after the PR was merged and local zen deleted) from
-            # showing a dot on commits absorbed into main's lane.
-            is_actual_remote_tip = (
-                commit.sha in self._remote_tip_shas_c
-                and branch_name in tip_names
-            )
             node = CommitNode(commit, color,
                               is_start=commit.sha in start_shas,
                               is_local_only=is_local,
                               is_head=commit.sha == head_sha,
-                              has_stash=commit.sha in self._stash_shas,
-                              is_local_tip=commit.sha in self._local_tip_shas_c,
-                              is_remote_tip=is_actual_remote_tip,
-                              is_action_head=commit.sha in self._action_head_shas)
+                              has_stash=commit.sha in self._stash_shas)
             node.setPos(cx, cy)
             node.clicked.connect(self._on_node_clicked)
             self._scene.addItem(node)

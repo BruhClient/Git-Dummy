@@ -123,7 +123,7 @@ class _FilterPanel(QWidget):
         div.setStyleSheet(f"background: {COLORS['border']}; max-height: 1px; margin: 4px 0;")
         body.addWidget(div)
 
-        al = QLabel("Collaborators")
+        al = QLabel("Authors")
         al.setStyleSheet(
             f"background: transparent; font-size: 10px; font-weight: 700;"
             f" color: {COLORS['text_muted']};"

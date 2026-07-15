@@ -7,6 +7,7 @@ import subprocess
 from PyQt5.QtCore import QObject, pyqtSlot, pyqtSignal
 
 from core.git_tracker import GitTracker
+from core.ops.base_ops import _POPEN_FLAGS
 
 
 class _CollabLoader(QObject):
@@ -169,6 +170,7 @@ class _UncommittedRefreshWorker(QObject):
             r = subprocess.run(
                 ["git", "rev-parse", "HEAD"],
                 cwd=self._path, capture_output=True, text=True,
+                creationflags=_POPEN_FLAGS,
             )
             head_sha = r.stdout.strip() if r.returncode == 0 else ""
         except Exception:
@@ -249,10 +251,12 @@ class _FirstCommitWorker(QObject):
 
     @pyqtSlot()
     def run(self):
-        subprocess.run(["git", "add", "."], cwd=self._path, capture_output=True)
+        subprocess.run(["git", "add", "."], cwd=self._path, capture_output=True,
+                        creationflags=_POPEN_FLAGS)
         r = subprocess.run(
             ["git", "commit", "--allow-empty", "-m", "Initial commit"],
             cwd=self._path, capture_output=True,
+            creationflags=_POPEN_FLAGS,
         )
         self.finished.emit(r.returncode == 0)
 

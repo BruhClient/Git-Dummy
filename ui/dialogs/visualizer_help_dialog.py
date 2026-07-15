@@ -15,8 +15,6 @@ from styles.theme import COLORS, card_shadow, scrollbar_style
 _ACCENT = QColor(COLORS["accent"])
 _DANGER = QColor(COLORS["danger"])
 _WARNING = QColor(COLORS["warning"])
-_BLUE = QColor("#3b82f6")
-_RED = QColor("#ef4444")
 _AMBER = QColor("#d69e2e")
 _INDIGO = QColor("#7c83db")
 _WHITE_EDGE = QColor(255, 255, 255, 140)
@@ -112,32 +110,6 @@ class _StashStrip(_Strip):
         p.drawEllipse(QPointF(30, 18 + NODE_R + 5), 3.5, 3.5)
 
 
-class _LocalTipStrip(_Strip):
-    def _draw(self, p):
-        self._node(p, 26, 22, _ACCENT)
-        p.setPen(Qt.NoPen)
-        p.setBrush(QBrush(_BLUE))
-        p.drawEllipse(QPointF(26 + NODE_R + 6, 22), 4, 4)
-
-
-class _RemoteTipStrip(_Strip):
-    def _draw(self, p):
-        self._node(p, 26, 22, _ACCENT)
-        p.setPen(Qt.NoPen)
-        p.setBrush(QBrush(_RED))
-        p.drawEllipse(QPointF(26 + NODE_R + 6, 22), 4, 4)
-
-
-class _BothTipsStrip(_Strip):
-    def _draw(self, p):
-        self._node(p, 22, 22, _ACCENT)
-        p.setPen(Qt.NoPen)
-        p.setBrush(QBrush(_BLUE))
-        p.drawEllipse(QPointF(22 + NODE_R + 4, 22), 4, 4)
-        p.setBrush(QBrush(_RED))
-        p.drawEllipse(QPointF(22 + NODE_R + 11, 22), 4, 4)
-
-
 class _SolidEdgeStrip(_Strip):
     def _draw(self, p):
         self._node(p, 14, 22, _ACCENT)
@@ -161,9 +133,6 @@ _GRAPH_ITEMS = [
     (_HeadStrip, "Current location", "Where you are right now"),
     (_FlagStrip, "Branch start", "The first snapshot on this branch"),
     (_StashStrip, "Unsaved changes", "This snapshot has unsaved work"),
-    (_LocalTipStrip, "Local tip", "The latest snapshot on your computer"),
-    (_RemoteTipStrip, "Remote tip", "The latest snapshot on GitHub"),
-    (_BothTipsStrip, "Both tips", "Your latest and GitHub's latest are here"),
     (_SolidEdgeStrip, "Connection", "These snapshots are connected in order"),
     (_DashedEdgeStrip, "Branch / merge link", "Where a branch was created or merged"),
 ]

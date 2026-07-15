@@ -56,7 +56,7 @@ def clone_repo(url: str, dest_parent: str) -> tuple[bool, str, str]:
         return False, str(e), ""
 
 
-def pull_ff(path: str, branch: str) -> tuple[bool, str]:
+def pull_ff(path: str, branch: str) -> tuple[bool, str, bool]:
     """Fast-forward a local branch to its remote without needing to check it out."""
     old_head = subprocess.run(
         ["git", "rev-parse", "HEAD"],
@@ -72,10 +72,12 @@ def pull_ff(path: str, branch: str) -> tuple[bool, str]:
         ok, err = _run(path, ["git", "pull", "--ff-only", "origin", branch], timeout=30)
     else:
         ok, err = _run(path, ["git", "fetch", "origin", f"{branch}:{branch}"], timeout=30)
+    stash_conflict = False
     if ok and old_head:
         from .stash_ops import migrate_stash_after_pull
-        migrate_stash_after_pull(path, old_head)
-    return ok, err
+        _, reason = migrate_stash_after_pull(path, old_head)
+        stash_conflict = reason == "conflict"
+    return ok, err, stash_conflict
 
 
 def pull_stash_apply(path: str, branch: str) -> tuple[bool, str]:
