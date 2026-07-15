@@ -17,6 +17,7 @@ python main.py
 **Print statements are the primary diagnostic tool in this project.** There is no debugger attached, no test suite, and no logging framework — `print()` to stdout is the fastest way to understand what's happening, especially across threads.
 
 Where to put them:
+
 - **Worker `run()` methods** (`ui/workers/commit_workers.py`) — print the inputs and the result tuple `(ok, err)` from every `core/ops` call so you can see exactly what git returned.
 - **Done-handlers in `commit_view.py`** — print the signal payload on arrival and the current value of `_panel_op_active` / `_navigating` to catch flag-reset bugs.
 - **`core/ops/` functions** — print the exact subprocess command list and the raw `stdout` / `stderr` before the function returns, so you know what git actually said vs. what the caller received.
@@ -41,6 +42,7 @@ No `.env` file is required. Authentication uses GitHub Personal Access Tokens (s
 ## Architecture
 
 ### Entry point
+
 `main.py` builds a `QStackedWidget` (`App`) holding `AuthPage` and `MainWindow`. `MainWindow` itself holds a `RepoPage` and `CommitViewPage` in its own `QStackedWidget`. `main.py` also applies a Windows-specific workaround: it resolves the Qt plugins path to an 8.3 short path via `GetShortPathNameW` before setting `QT_QPA_PLATFORM_PLUGIN_PATH`, because the project directory contains characters Qt can't encode through the ANSI codepage.
 
 ### Auth (`auth/github_auth.py`)
@@ -48,6 +50,7 @@ No `.env` file is required. Authentication uses GitHub Personal Access Tokens (s
 Authentication uses GitHub **Personal Access Tokens** (PATs) — no OAuth server, no browser redirect, no client_id/secret.
 
 **Sign-in flow:**
+
 1. User opens app → if saved token exists, validate it against `GET /api.github.com/user` → auto-login
 2. If no saved token → show sign-in page with token input field
 3. "Create a token on GitHub" link opens `https://github.com/settings/tokens/new?scopes=repo,read:user&description=Evo%20Git` with pre-selected scopes
@@ -64,15 +67,15 @@ Authentication uses GitHub **Personal Access Tokens** (PATs) — no OAuth server
 
 ### Layer separation
 
-| Layer | Location | Responsibility |
-|---|---|---|
-| Git data | `core/ops/` (8 domain files) | All `subprocess` git commands. Returns `(bool, str)` or `(bool, str, list, dict)`. Never touches Qt. |
-| Git state tracking | `core/git_tracker.py` | `GitTracker` wraps GitPython. `graph_commits()` returns `(commits, branch_tip_map, local_only)`. `CommitInfo` dataclass lives here. |
-| Auth | `auth/github_auth.py` | GitHub PAT-based auth with multi-account support. `auth_success`/`auth_failed`/`token_expired` signals. |
-| Persistence | `core/storage/repo_store.py`, `core/storage/settings_store.py` | JSON files under `~`. |
-| Collab cache | `core/storage/collab_cache.py` | TTL-based (1 h) cache for collaborator lists, `~/.evogit_collab_cache.json`. `get(url)` returns `(data | None, is_stale)`. |
-| Theme | `styles/theme.py` | Single `COLORS` dict + `make_global_style()`. All UI files import from here. |
-| UI pages | `ui/` | PyQt5 widgets. All heavy work runs on background threads. |
+| Layer              | Location                                                       | Responsibility                                                                                                                      |
+| ------------------ | -------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- | ----------------- |
+| Git data           | `core/ops/` (8 domain files)                                   | All `subprocess` git commands. Returns `(bool, str)` or `(bool, str, list, dict)`. Never touches Qt.                                |
+| Git state tracking | `core/git_tracker.py`                                          | `GitTracker` wraps GitPython. `graph_commits()` returns `(commits, branch_tip_map, local_only)`. `CommitInfo` dataclass lives here. |
+| Auth               | `auth/github_auth.py`                                          | GitHub PAT-based auth with multi-account support. `auth_success`/`auth_failed`/`token_expired` signals.                             |
+| Persistence        | `core/storage/repo_store.py`, `core/storage/settings_store.py` | JSON files under `~`.                                                                                                               |
+| Collab cache       | `core/storage/collab_cache.py`                                 | TTL-based (1 h) cache for collaborator lists, `~/.evogit_collab_cache.json`. `get(url)` returns `(data                              | None, is_stale)`. |
+| Theme              | `styles/theme.py`                                              | Single `COLORS` dict + `make_global_style()`. All UI files import from here.                                                        |
+| UI pages           | `ui/`                                                          | PyQt5 widgets. All heavy work runs on background threads.                                                                           |
 
 ### Package structure
 
@@ -107,6 +110,7 @@ styles/
 ```
 
 ### Persisted files (under `~`)
+
 - `.evogit_accounts.json` — saved PAT accounts (multi-account: `{"active": "login", "accounts": {...}}`)
 - `.evogit_repos.json` — saved repo list
 - `.evogit_settings.json` — per-repo settings (e.g. `repo_orientations`, `default_branch`)
@@ -139,12 +143,14 @@ thread.start()
 The main page — loads a repo, builds the commit graph, and wires up all actions (checkout, branch, merge, stash, revert, push/pull, PRs, settings).
 
 Key state:
+
 - `_panel_op_active: bool` — blocks concurrent detail-panel actions; set `True` on action start, `False` in the done-handler.
 - `_navigating: bool` — blocks the uncommitted-changes poll during checkout operations.
 - `_branch_head_shas` / `_local_tip_shas` / `_local_tip_branch` — computed in `_on_loaded` from local branch refs (`git for-each-ref refs/heads/`, via subprocess — not GitPython, which caches stale tip SHAs after back-to-back merges). **Local tip is authoritative for actions; remote tip is display-only.**
 - `_last_head_sha` — tracks git HEAD; cleared to `""` to force `load_graph` to re-read it fresh.
 
 Background polling & auto-pull:
+
 - `_poll_timer` (30 s) → `_poll_remote()` → `_FetchWorker` → `_on_fetch_done`. When remote refs changed, `_on_fetch_done` calls `_try_auto_pull()` which attempts to fast-forward the current branch if the working tree is clean. On success the graph reloads seamlessly. On failure (diverged, network error, dirty tree) an error toast is shown and the graph reloads with dimmed remote-only commits + Pull/Sync buttons available.
 - `_uncommitted_timer` (2 s) → `_poll_uncommitted()` → `_UncommittedRefreshWorker` → `_on_uncommitted_done`.
 - `load_repo()` also calls `_poll_remote()` immediately on entry so a behind-remote branch syncs without waiting for the first 30 s tick.
@@ -156,6 +162,7 @@ Signal convention: declare full type signatures, e.g. `pyqtSignal(bool, str)`, s
 `CommitNode`, `BranchLabel`, and `EdgeItem` are `QGraphicsItem` subclasses in `ui/canvas/graphics_items.py`. `boundingRect()` must fully contain everything painted, including the flag pole above start nodes (extends `START_R + 20` px above centre).
 
 Lane algorithm (`_compute_lanes` in `ui/canvas/lane_algorithm.py`): streaming topological-order assignment over commits in `--topo-order` (children before parents).
+
 - `branch_tip_map`: `{tip_sha: [display_names]}`. When two tips share a name (e.g. local `main` and `origin/main` point to different commits), `primary_tip` selection walks the newest candidate's first-parent chain — if the oldest candidate is reachable, the relationship is linear ("local ahead/behind") and the newest wins; otherwise the branches have diverged and the **remote tip** gets lane 0 (see diverged branch rules below).
 - Lane 0 is reserved for the primary branch (`main`/`master`). Non-main branch tips are pre-seeded into their own lanes before the streaming pass (remote tips seeded before local tips). A second pass walks 2nd-parent (merge) chains to attribute PR commits back to their source branch (`commit_owner`), with a final consolidation pass moving misattributed commits into their owning branch's lane.
 - **Sibling-depth normalization**: lanes sharing the same `_branch_base` name (e.g. local and remote tips of "feature-branch") are normalized to the same depth so they sort adjacent in the final remap. Remote-tip lanes sort before local-tip lanes at the same depth.
@@ -173,6 +180,7 @@ Diff rendering helpers (`_DiffLine`, `_Row`, `_MiniBar`, `_VScrollArea`, fade an
 When a branch's local and remote tips point to different commits and neither is an ancestor of the other, the branch is **diverged**. The app handles this with specific visual and action rules.
 
 **Visual rules:**
+
 - **Remote tip goes straight** — keeps the branch's existing lane (lane 0 for main, branch lane for others). Pre-divergence commits stay on this lane connected by the spine.
 - **Local tip branches off** — gets a new adjacent lane with a dashed creation edge back to the common ancestor. No flag on diverged tips (divergence ≠ new branch).
 - **No dimming** for diverged commits — both sides render at full opacity. Dimming is reserved for the "behind" case only (remote has commits local hasn't pulled).
@@ -180,18 +188,19 @@ When a branch's local and remote tips point to different commits and neither is 
 
 **Action button matrix — Upload / Pull / Sync are mutually exclusive:**
 
-| Scenario | Commit | Buttons |
-|---|---|---|
-| In sync | HEAD | Create branch, Hard/Soft Revert, Merge into |
-| Ahead | HEAD (unpushed) | **Upload**, Create branch, Hard/Soft Revert, Merge into |
-| Behind (auto-pull failed) | HEAD (stale) | **Pull latest**, Create branch, Hard/Soft Revert, Merge into |
-| Diverged | Local tip | **Sync with remote**, Create branch, Hard/Soft Revert, Merge into |
-| Diverged | Remote tip | *(read-only view, no special buttons)* |
-| Behind | Remote-only (dimmed) | **Pull latest** only |
-| Any | Historical commit | Go to snapshot, Create branch |
-| Any | Other branch tip | Go to snapshot, Create branch, Merge into, Delete branch |
+| Scenario                  | Commit               | Buttons                                                           |
+| ------------------------- | -------------------- | ----------------------------------------------------------------- |
+| In sync                   | HEAD                 | Create branch, Hard/Soft Revert, Merge into                       |
+| Ahead                     | HEAD (unpushed)      | **Upload**, Create branch, Hard/Soft Revert, Merge into           |
+| Behind (auto-pull failed) | HEAD (stale)         | **Pull latest**, Create branch, Hard/Soft Revert, Merge into      |
+| Diverged                  | Local tip            | **Sync with remote**, Create branch, Hard/Soft Revert, Merge into |
+| Diverged                  | Remote tip           | _(read-only view, no special buttons)_                            |
+| Behind                    | Remote-only (dimmed) | **Pull latest** only                                              |
+| Any                       | Historical commit    | Go to snapshot, Create branch                                     |
+| Any                       | Other branch tip     | Go to snapshot, Create branch, Merge into, Delete branch          |
 
 **Operation definitions:**
+
 - **Upload** (`git push`) — sends local commits to remote. Only when ahead.
 - **Pull latest** (`pull_ff` → `git fetch origin branch:branch`) — fast-forwards local to match remote. Only when behind. Undims remote commits, no merge commit.
 - **Sync with remote** (`merge_branch(path, f"origin/{branch}")`) — merges remote into local, creates a merge commit. Only when diverged. Only shown on the local tip, not the remote tip.
@@ -230,3 +239,14 @@ A dedicated repo for staging git scenarios used during development/testing.
 - **Local path:** `C:/Users/travi/Desktop/Dev/test`
 
 When the user requests a scenario (e.g. "set up a merge conflict", "show a diverged branch"), update this repo's git history/files to reflect that state, then push so the app can load it and demonstrate the scenario.
+
+## graphify
+
+This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
+
+Rules:
+
+- For codebase questions, first run `graphify query "<question>"` when graphify-out/graph.json exists. Use `graphify path "<A>" "<B>"` for relationships and `graphify explain "<concept>"` for focused concepts. These return a scoped subgraph, usually much smaller than GRAPH_REPORT.md or raw grep output.
+- If graphify-out/wiki/index.md exists, use it for broad navigation instead of raw source browsing.
+- Read graphify-out/GRAPH_REPORT.md only for broad architecture review or when query/path/explain do not surface enough context.
+- After modifying code, run `graphify update .` to keep the graph current (AST-only, no API cost).
