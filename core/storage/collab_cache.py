@@ -3,10 +3,12 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import tempfile
 import time
 
 _FILE = os.path.join(os.path.expanduser("~"), ".evogit_collab_cache.json")
 _TTL  = 3600  # seconds before a cache entry is considered stale
+_PRUNE_AGE = 30 * 24 * 3600  # drop entries stale beyond this on save()
 
 
 def _load_store() -> dict:
@@ -30,5 +32,21 @@ def get(remote_url: str) -> tuple[list | None, bool]:
 def save(remote_url: str, data: list):
     store = _load_store()
     store[remote_url] = {"data": data, "fetched_at": time.time()}
-    with open(_FILE, "w", encoding="utf-8") as f:
-        json.dump(store, f)
+    now = time.time()
+    store = {
+        url: entry
+        for url, entry in store.items()
+        if now - entry.get("fetched_at", 0) <= _PRUNE_AGE
+    }
+    _dir = os.path.dirname(_FILE)
+    fd, tmp = tempfile.mkstemp(dir=_dir, suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(store, f)
+        os.replace(tmp, _FILE)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
