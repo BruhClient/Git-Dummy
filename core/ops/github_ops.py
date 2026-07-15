@@ -52,11 +52,14 @@ def push_branch(
              f"Authorization: Basic {b64}"],
             cwd=path, capture_output=True, creationflags=_POPEN_FLAGS,
         )
-    r = subprocess.run(
-        ["git", "push", "-u", "origin", branch],
-        cwd=path, capture_output=True, text=True, timeout=60,
-        encoding="utf-8", errors="replace", creationflags=_POPEN_FLAGS,
-    )
+    try:
+        r = subprocess.run(
+            ["git", "push", "-u", "origin", "--", branch],
+            cwd=path, capture_output=True, text=True, timeout=60,
+            encoding="utf-8", errors="replace", creationflags=_POPEN_FLAGS,
+        )
+    except subprocess.TimeoutExpired:
+        return False, "timed_out"
     if r.returncode == 0:
         return True, ""
 

@@ -2,28 +2,34 @@ from __future__ import annotations
 
 import subprocess
 
-from .base_ops import _run, get_conflict_files, get_conflict_content, _POPEN_FLAGS
+from .base_ops import (
+    _run, get_conflict_files, get_conflict_content, has_uncommitted_changes, _POPEN_FLAGS,
+)
 
 
 def get_stash_files(path: str, stash_id: str = "") -> list[str]:
     ref = ""
-    if stash_id:
-        r = subprocess.run(
-            ["git", "stash", "list"],
-            cwd=path, capture_output=True, text=True, encoding="utf-8", errors="replace",
-            creationflags=_POPEN_FLAGS,
-        )
-        for line in r.stdout.strip().splitlines():
-            if stash_id in line:
-                ref = line.split(":")[0].strip()
-                break
-    args = ["git", "stash", "show", "--name-only"]
-    if ref:
-        args.append(ref)
-    r = subprocess.run(args, cwd=path, capture_output=True, text=True, creationflags=_POPEN_FLAGS)
-    if r.returncode != 0:
+    try:
+        if stash_id:
+            r = subprocess.run(
+                ["git", "stash", "list"],
+                cwd=path, capture_output=True, text=True, encoding="utf-8", errors="replace",
+                timeout=15, creationflags=_POPEN_FLAGS,
+            )
+            for line in r.stdout.strip().splitlines():
+                if stash_id in line:
+                    ref = line.split(":")[0].strip()
+                    break
+        args = ["git", "stash", "show", "--name-only"]
+        if ref:
+            args.append(ref)
+        r = subprocess.run(args, cwd=path, capture_output=True, text=True,
+                           timeout=15, creationflags=_POPEN_FLAGS)
+        if r.returncode != 0:
+            return []
+        return [f.strip() for f in r.stdout.strip().splitlines() if f.strip()]
+    except subprocess.TimeoutExpired:
         return []
-    return [f.strip() for f in r.stdout.strip().splitlines() if f.strip()]
 
 
 def create_auto_stash(path: str) -> tuple[list[str], str]:
@@ -32,70 +38,86 @@ def create_auto_stash(path: str) -> tuple[list[str], str]:
     stash_id = "evogit-autostash-" + uuid.uuid4().hex[:8]
 
     # Try with untracked files first, fall back to tracked-only if that fails.
-    for cmd in [
-        ["git", "stash", "push", "--include-untracked", "-m", stash_id],
-        ["git", "stash", "push", "-m", stash_id],
-    ]:
-        r = subprocess.run(cmd, cwd=path, capture_output=True, text=True, creationflags=_POPEN_FLAGS)
-        output = r.stdout + r.stderr
-        if r.returncode == 0 and "No local changes" not in output:
-            return get_stash_files(path), stash_id
+    try:
+        for cmd in [
+            ["git", "stash", "push", "--include-untracked", "-m", stash_id],
+            ["git", "stash", "push", "-m", stash_id],
+        ]:
+            r = subprocess.run(cmd, cwd=path, capture_output=True, text=True,
+                               timeout=30, creationflags=_POPEN_FLAGS)
+            output = r.stdout + r.stderr
+            if r.returncode == 0 and "No local changes" not in output:
+                return get_stash_files(path), stash_id
+    except subprocess.TimeoutExpired:
+        pass
 
     return [], ""
 
 
 def pop_auto_stash(path: str, stash_id: str = "") -> bool:
-    if stash_id:
+    try:
+        if stash_id:
+            r = subprocess.run(
+                ["git", "stash", "list"],
+                cwd=path, capture_output=True, text=True, encoding="utf-8", errors="replace",
+                timeout=15, creationflags=_POPEN_FLAGS,
+            )
+            for line in r.stdout.strip().splitlines():
+                if stash_id in line:
+                    ref = line.split(":")[0].strip()
+                    r2 = subprocess.run(
+                        ["git", "stash", "pop", ref],
+                        cwd=path, capture_output=True, text=True, encoding="utf-8", errors="replace",
+                        timeout=30, creationflags=_POPEN_FLAGS,
+                    )
+                    return r2.returncode == 0
+            return False
         r = subprocess.run(
-            ["git", "stash", "list"],
+            ["git", "stash", "pop"],
             cwd=path, capture_output=True, text=True, encoding="utf-8", errors="replace",
-            creationflags=_POPEN_FLAGS,
+            timeout=30, creationflags=_POPEN_FLAGS,
         )
-        for line in r.stdout.strip().splitlines():
-            if stash_id in line:
-                ref = line.split(":")[0].strip()
-                r2 = subprocess.run(
-                    ["git", "stash", "pop", ref],
-                    cwd=path, capture_output=True, text=True, encoding="utf-8", errors="replace",
-                    creationflags=_POPEN_FLAGS,
-                )
-                return r2.returncode == 0
+        return r.returncode == 0
+    except subprocess.TimeoutExpired:
         return False
-    r = subprocess.run(
-        ["git", "stash", "pop"],
-        cwd=path, capture_output=True, text=True, encoding="utf-8", errors="replace",
-        creationflags=_POPEN_FLAGS,
-    )
-    return r.returncode == 0
 
 
 def apply_stash(path: str, stash_ref: str) -> bool:
     """Apply a stash to the working directory without removing it from the stash list."""
-    r = subprocess.run(
-        ["git", "stash", "apply", stash_ref],
-        cwd=path, capture_output=True, text=True, encoding="utf-8", errors="replace",
-        creationflags=_POPEN_FLAGS,
-    )
-    return r.returncode == 0
+    try:
+        r = subprocess.run(
+            ["git", "stash", "apply", stash_ref],
+            cwd=path, capture_output=True, text=True, encoding="utf-8", errors="replace",
+            timeout=30, creationflags=_POPEN_FLAGS,
+        )
+        return r.returncode == 0
+    except subprocess.TimeoutExpired:
+        return False
 
 
 def drop_stash(path: str, stash_ref: str) -> bool:
     """Remove a stash entry from the stash list without applying it."""
-    r = subprocess.run(
-        ["git", "stash", "drop", stash_ref],
-        cwd=path, capture_output=True, text=True, encoding="utf-8", errors="replace",
-        creationflags=_POPEN_FLAGS,
-    )
-    return r.returncode == 0
+    try:
+        r = subprocess.run(
+            ["git", "stash", "drop", stash_ref],
+            cwd=path, capture_output=True, text=True, encoding="utf-8", errors="replace",
+            timeout=15, creationflags=_POPEN_FLAGS,
+        )
+        return r.returncode == 0
+    except subprocess.TimeoutExpired:
+        return False
 
 
 def get_stash_ref_for_commit(path: str, commit_sha: str) -> str:
     """Return the stash ref (e.g. 'stash@{0}') whose parent is commit_sha, or ''."""
-    r = subprocess.run(
-        ["git", "stash", "list", "--format=%gd %P"],
-        cwd=path, capture_output=True, text=True, encoding="utf-8", errors="replace",
-        creationflags=_POPEN_FLAGS,
-    )
+    try:
+        r = subprocess.run(
+            ["git", "stash", "list", "--format=%gd %P"],
+            cwd=path, capture_output=True, text=True, encoding="utf-8", errors="replace",
+            timeout=15, creationflags=_POPEN_FLAGS,
+        )
+    except subprocess.TimeoutExpired:
+        return ""
     for line in r.stdout.strip().splitlines():
         parts = line.strip().split()
         if len(parts) >= 2 and parts[1] == commit_sha:
@@ -105,11 +127,14 @@ def get_stash_ref_for_commit(path: str, commit_sha: str) -> str:
 
 def get_stash_commit_shas(path: str) -> set[str]:
     """Return the set of commit SHAs that have a stash sitting on top of them."""
-    r = subprocess.run(
-        ["git", "stash", "list", "--format=%P"],
-        cwd=path, capture_output=True, text=True, encoding="utf-8", errors="replace",
-        creationflags=_POPEN_FLAGS,
-    )
+    try:
+        r = subprocess.run(
+            ["git", "stash", "list", "--format=%P"],
+            cwd=path, capture_output=True, text=True, encoding="utf-8", errors="replace",
+            timeout=15, creationflags=_POPEN_FLAGS,
+        )
+    except subprocess.TimeoutExpired:
+        return set()
     shas = set()
     for line in r.stdout.strip().splitlines():
         parts = line.strip().split()
@@ -120,37 +145,58 @@ def get_stash_commit_shas(path: str) -> set[str]:
 
 def get_stash_list_id(path: str) -> str:
     """Return a cheap fingerprint of the current stash list for change detection."""
-    r = subprocess.run(
-        ["git", "stash", "list", "--format=%H"],
-        cwd=path, capture_output=True, text=True, encoding="utf-8", errors="replace",
-        creationflags=_POPEN_FLAGS,
-    )
-    return r.stdout.strip()
+    try:
+        r = subprocess.run(
+            ["git", "stash", "list", "--format=%H"],
+            cwd=path, capture_output=True, text=True, encoding="utf-8", errors="replace",
+            timeout=15, creationflags=_POPEN_FLAGS,
+        )
+        return r.stdout.strip()
+    except subprocess.TimeoutExpired:
+        return ""
 
 
-def migrate_stash_after_pull(path: str, old_head_sha: str) -> bool:
+def migrate_stash_after_pull(path: str, old_head_sha: str) -> tuple[bool, str]:
     """After a pull, apply and drop any stash whose parent was the old HEAD.
 
     This moves the stash's content into the working tree on the new HEAD so the
     stash indicator disappears from the old commit.  If the apply conflicts with
     the current working tree the stash is left untouched.
+
+    Returns (migrated, reason). reason is "" normally, or "conflict" when a
+    stash existed for old_head_sha but couldn't be cleanly applied onto the
+    new HEAD (caller can use this to surface a toast).
     """
     stash_ref = get_stash_ref_for_commit(path, old_head_sha)
     if not stash_ref:
-        return False
-    r = subprocess.run(
-        ["git", "stash", "apply", stash_ref],
-        cwd=path, capture_output=True, text=True, encoding="utf-8", errors="replace",
-        timeout=30, creationflags=_POPEN_FLAGS,
-    )
-    if r.returncode != 0:
-        return False
+        return False, ""
+    if has_uncommitted_changes(path):
+        # Working tree already has unrelated changes — too risky to touch;
+        # leave the stash where it is rather than risk discarding them.
+        return False, ""
+    try:
+        r = subprocess.run(
+            ["git", "stash", "apply", stash_ref],
+            cwd=path, capture_output=True, text=True, encoding="utf-8", errors="replace",
+            timeout=30, creationflags=_POPEN_FLAGS,
+        )
+    except subprocess.TimeoutExpired:
+        r = None
+    if r is None or r.returncode != 0:
+        # Conflict (or timeout): git stash apply leaves conflict markers/dirty
+        # state behind despite failing. Roll back completely so the working
+        # tree is genuinely clean and the stash stays solely on old_head_sha.
+        subprocess.run(["git", "reset", "--hard", "HEAD"], cwd=path, capture_output=True,
+                       timeout=10, creationflags=_POPEN_FLAGS)
+        subprocess.run(["git", "clean", "-fd"], cwd=path, capture_output=True,
+                       timeout=10, creationflags=_POPEN_FLAGS)
+        return False, "timed_out" if r is None else "conflict"
     subprocess.run(
         ["git", "stash", "drop", stash_ref],
         cwd=path, capture_output=True, text=True, encoding="utf-8", errors="replace",
         timeout=10, creationflags=_POPEN_FLAGS,
     )
-    return True
+    return True, ""
 
 
 def save_stash_as_commit(path: str, stash_ref: str = "", message: str = "",

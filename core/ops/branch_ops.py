@@ -45,11 +45,14 @@ def get_default_branch(path: str) -> str:
 
 def branch_for_commit(path: str, sha: str) -> str:
     """Return a branch name that contains sha — used when in detached HEAD."""
-    r = subprocess.run(
-        ["git", "branch", "--contains", sha],
-        cwd=path, capture_output=True, text=True, encoding="utf-8", errors="replace",
-        creationflags=_POPEN_FLAGS,
-    )
+    try:
+        r = subprocess.run(
+            ["git", "branch", "--contains", sha],
+            cwd=path, capture_output=True, text=True, encoding="utf-8", errors="replace",
+            timeout=15, creationflags=_POPEN_FLAGS,
+        )
+    except subprocess.TimeoutExpired:
+        return ""
     for line in r.stdout.splitlines():
         name = line.strip().lstrip("* ").strip()
         if name and not name.startswith("("):
@@ -142,19 +145,19 @@ def delete_branch_full(path: str, branch: str, fallback_sha: str = "") -> tuple[
         if not ok:
             return False, err
 
-    ok, err = _run(path, ["git", "branch", "-D", branch])
+    ok, err = _run(path, ["git", "branch", "-D", "--", branch])
     if not ok:
         return False, err
 
     # Only attempt remote delete when the branch actually exists on origin
     ls = subprocess.run(
-        ["git", "ls-remote", "--heads", "origin", branch],
+        ["git", "ls-remote", "--heads", "origin", "--", branch],
         cwd=path, capture_output=True, text=True, timeout=10,
         encoding="utf-8", errors="replace", creationflags=_POPEN_FLAGS,
     )
     if ls.returncode == 0 and ls.stdout.strip():
         r = subprocess.run(
-            ["git", "push", "origin", "--delete", branch],
+            ["git", "push", "origin", "--delete", "--", branch],
             cwd=path, capture_output=True, text=True, timeout=30,
             encoding="utf-8", errors="replace", creationflags=_POPEN_FLAGS,
         )

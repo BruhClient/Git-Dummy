@@ -40,51 +40,66 @@ def _run(path: str, cmd: list, timeout: int = 30) -> tuple[bool, str]:
 
 
 def has_uncommitted_changes(path: str) -> bool:
-    r = subprocess.run(
-        ["git", "status", "--porcelain"],
-        cwd=path, capture_output=True, text=True, encoding="utf-8", errors="replace",
-        creationflags=_POPEN_FLAGS,
-    )
-    return bool(r.stdout.strip())
+    try:
+        r = subprocess.run(
+            ["git", "status", "--porcelain"],
+            cwd=path, capture_output=True, text=True, encoding="utf-8", errors="replace",
+            timeout=15, creationflags=_POPEN_FLAGS,
+        )
+        return bool(r.stdout.strip())
+    except subprocess.TimeoutExpired:
+        return False
 
 
 def checkout_commit(path: str, sha: str) -> tuple[bool, str]:
-    r = subprocess.run(
-        ["git", "checkout", sha],
-        cwd=path, capture_output=True, text=True, encoding="utf-8", errors="replace",
-        creationflags=_POPEN_FLAGS,
-    )
-    return r.returncode == 0, r.stderr.strip()
+    try:
+        r = subprocess.run(
+            ["git", "checkout", sha],
+            cwd=path, capture_output=True, text=True, encoding="utf-8", errors="replace",
+            timeout=30, creationflags=_POPEN_FLAGS,
+        )
+        return r.returncode == 0, r.stderr.strip()
+    except subprocess.TimeoutExpired:
+        return False, "timed_out"
 
 
 def checkout_branch(path: str, branch: str) -> tuple[bool, str]:
-    r = subprocess.run(
-        ["git", "checkout", branch],
-        cwd=path, capture_output=True, text=True, encoding="utf-8", errors="replace",
-        creationflags=_POPEN_FLAGS,
-    )
-    return r.returncode == 0, r.stderr.strip()
+    try:
+        r = subprocess.run(
+            ["git", "checkout", branch],
+            cwd=path, capture_output=True, text=True, encoding="utf-8", errors="replace",
+            timeout=30, creationflags=_POPEN_FLAGS,
+        )
+        return r.returncode == 0, r.stderr.strip()
+    except subprocess.TimeoutExpired:
+        return False, "timed_out"
 
 
 def current_branch(path: str) -> str:
     """Return the current branch name, or '' if in detached HEAD state."""
-    r = subprocess.run(
-        ["git", "rev-parse", "--abbrev-ref", "HEAD"],
-        cwd=path, capture_output=True, text=True, encoding="utf-8", errors="replace",
-        creationflags=_POPEN_FLAGS,
-    )
-    result = r.stdout.strip()
-    return "" if result == "HEAD" else result
+    try:
+        r = subprocess.run(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            cwd=path, capture_output=True, text=True, encoding="utf-8", errors="replace",
+            timeout=10, creationflags=_POPEN_FLAGS,
+        )
+        result = r.stdout.strip()
+        return "" if result == "HEAD" else result
+    except subprocess.TimeoutExpired:
+        return ""
 
 
 def reset_hard(path: str) -> bool:
     """Reset index and working tree to HEAD, aborting any partial stash apply."""
-    r = subprocess.run(
-        ["git", "reset", "--hard", "HEAD"],
-        cwd=path, capture_output=True, text=True, encoding="utf-8", errors="replace",
-        creationflags=_POPEN_FLAGS,
-    )
-    return r.returncode == 0
+    try:
+        r = subprocess.run(
+            ["git", "reset", "--hard", "HEAD"],
+            cwd=path, capture_output=True, text=True, encoding="utf-8", errors="replace",
+            timeout=15, creationflags=_POPEN_FLAGS,
+        )
+        return r.returncode == 0
+    except subprocess.TimeoutExpired:
+        return False
 
 
 def get_conflict_files(path: str) -> list:

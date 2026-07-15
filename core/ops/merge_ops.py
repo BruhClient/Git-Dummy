@@ -10,12 +10,18 @@ from .base_ops import _run, get_conflict_files, get_conflict_content, parse_conf
 def merge_branch(path: str, source_branch: str) -> tuple[bool, str, list, dict]:
     """Merge source_branch into the currently checked-out branch.
     On conflict: reads content while markers are present, aborts, returns content for dialog."""
-    cmd = ["git", "merge", "--no-ff", source_branch]
-    r = subprocess.run(
-        cmd,
-        cwd=path, capture_output=True, text=True, timeout=60,
-        encoding="utf-8", errors="replace", creationflags=_POPEN_FLAGS,
-    )
+    cmd = ["git", "merge", "--no-ff", "--", source_branch]
+    try:
+        r = subprocess.run(
+            cmd,
+            cwd=path, capture_output=True, text=True, timeout=60,
+            encoding="utf-8", errors="replace", creationflags=_POPEN_FLAGS,
+        )
+    except subprocess.TimeoutExpired:
+        subprocess.run(["git", "merge", "--abort"],
+                       cwd=path, capture_output=True, text=True, timeout=10,
+                       encoding="utf-8", errors="replace", creationflags=_POPEN_FLAGS)
+        return False, "timed_out", [], {}
     if r.returncode == 0:
         combined = (r.stdout + r.stderr).lower()
         if "already up to date" in combined:

@@ -61,12 +61,17 @@ def hard_revert_to(path: str, branch: str, target_sha: str, force_push: bool = T
         )
         branch_on_remote = ls.returncode == 0 and bool(ls.stdout.strip())
     if branch_on_remote and force_push:
-        r = subprocess.run(
-            ["git", "push", "--force", "origin", branch],
-            cwd=path, capture_output=True, text=True,
-            encoding="utf-8", errors="replace", timeout=30,
-            creationflags=_POPEN_FLAGS,
-        )
+        try:
+            r = subprocess.run(
+                ["git", "push", "--force", "origin", "--", branch],
+                cwd=path, capture_output=True, text=True,
+                encoding="utf-8", errors="replace", timeout=30,
+                creationflags=_POPEN_FLAGS,
+            )
+        except subprocess.TimeoutExpired:
+            if pre_reset_sha:
+                _run(path, ["git", "reset", "--hard", pre_reset_sha])
+            return False, "Push timed out — local branch was rolled back."
         if r.returncode != 0:
             combined = r.stderr.strip() or r.stdout.strip()
             if pre_reset_sha:
