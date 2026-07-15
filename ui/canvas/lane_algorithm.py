@@ -2,12 +2,14 @@
 from __future__ import annotations
 
 import collections as _collections
+import functools as _functools
 import re as _re
 from typing import Optional
 
 from core.git_tracker import CommitInfo
 
 
+@_functools.lru_cache(maxsize=None)
 def _branch_base(name: str) -> str:
     """Strip remote-tracking prefixes to get the logical branch name.
 
@@ -155,8 +157,11 @@ def _compute_lanes(
             if len(_c.parents) >= 2:
                 _p2 = _c.parents[1]
                 while _p2 in commit_sha_set and _p2 not in main_fp_set:
-                    if _p2 not in commit_owner:
-                        commit_owner[_p2] = _bname
+                    if _p2 in commit_owner:
+                        # Already attributed — its own ancestor chain was
+                        # necessarily fully walked when it was first owned.
+                        break
+                    commit_owner[_p2] = _bname
                     _p2c = commit_by_sha.get(_p2)
                     if not _p2c or not _p2c.parents:
                         break
