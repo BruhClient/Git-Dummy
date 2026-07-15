@@ -21,9 +21,18 @@ class MiniMap(QWidget):
     def __init__(self, canvas, parent=None):
         super().__init__(parent)
         self._canvas = canvas
+        self._dot_color_cache: dict[str, QColor] = {}
         self.setFixedSize(self.MAP_W, self.MAP_H)
         self.setCursor(Qt.PointingHandCursor)
         canvas.viewport_changed.connect(self.update)
+
+    def _dot_color(self, hex_str: str) -> QColor:
+        color = self._dot_color_cache.get(hex_str)
+        if color is None:
+            color = QColor(hex_str)
+            color.setAlpha(200)
+            self._dot_color_cache[hex_str] = color
+        return color
 
     # ── coordinate helpers ────────────────────────────────────────────────
 
@@ -66,8 +75,7 @@ class MiniMap(QWidget):
             if sha in dimmed:
                 continue
             mx, my = self._to_map(sx, sy)
-            color = QColor(canvas._node_colors.get(sha, COLORS["accent"]))
-            color.setAlpha(200)
+            color = self._dot_color(canvas._node_colors.get(sha, COLORS["accent"]))
             p.setBrush(QBrush(color))
             p.drawEllipse(QPointF(mx, my), 2.5, 2.5)
 

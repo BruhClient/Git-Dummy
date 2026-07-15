@@ -40,9 +40,18 @@ class BranchLabel(QGraphicsItem):
         self._h  = fm.height() + py * 2
         self._px = px
 
+        bg = QColor(self._color)
+        bg.setAlpha(28)
+        self._bg_brush = QBrush(bg)
+        border = QColor(self._color)
+        border.setAlpha(160)
+        self._border_pen = QPen(border, 1)
+        self._text_pen = QPen(QColor(self._color))
+
         self.setToolTip(self._full)
         self.setAcceptedMouseButtons(Qt.NoButton)
         self.setZValue(3)
+        self.setCacheMode(QGraphicsItem.DeviceCoordinateCache)
 
     @property
     def pill_height(self) -> float:
@@ -55,18 +64,13 @@ class BranchLabel(QGraphicsItem):
         painter.setRenderHint(QPainter.Antialiasing)
         r = self._h / 2
 
-        bg = QColor(self._color)
-        bg.setAlpha(28)
-        border = QColor(self._color)
-        border.setAlpha(160)
-
-        painter.setBrush(QBrush(bg))
-        painter.setPen(QPen(border, 1))
+        painter.setBrush(self._bg_brush)
+        painter.setPen(self._border_pen)
         painter.drawRoundedRect(
             QRectF(0, -self._h / 2, self._w, self._h), r, r,
         )
 
-        painter.setPen(QPen(QColor(self._color)))
+        painter.setPen(self._text_pen)
         painter.setFont(self._font)
         painter.drawText(
             QRectF(self._px, -self._h / 2, self._tw, self._h),
@@ -82,9 +86,7 @@ class CommitNode(QGraphicsObject):
 
     def __init__(self, commit: CommitInfo, color: str, is_start: bool = False,
                  is_local_only: bool = False, is_head: bool = False,
-                 has_stash: bool = False,
-                 is_local_tip: bool = False, is_remote_tip: bool = False,
-                 is_action_head: bool = False):
+                 has_stash: bool = False):
         super().__init__()
         self._commit          = commit
         self._color           = QColor(color)
@@ -92,16 +94,28 @@ class CommitNode(QGraphicsObject):
         self._is_local_only   = is_local_only
         self._is_head         = is_head
         self._has_stash       = has_stash
-        self._is_local_tip    = is_local_tip
-        self._is_remote_tip   = is_remote_tip
-        self._is_action_head  = is_action_head
         self._r             = START_R if is_start else NODE_R
         self._hovered       = False
         self._selected      = False
 
+        ring = QColor(self._color)
+        ring.setAlpha(40)
+        self._hover_ring_pen = QPen(ring, 2.5)
+        self._local_only_pen = QPen(self._color, 2.5)
+        white_border = QColor("white")
+        white_border.setAlpha(120)
+        self._white_border_pen = QPen(white_border, 1.5)
+        self._fill_brush = QBrush(self._color)
+        self._selected_pen = QPen(QColor("white"), 2)
+        self._head_pen = QPen(QColor(COLORS["danger"]), 2.5)
+        self._flag_pen = QPen(self._color, 2)
+        self._flag_brush = QBrush(self._color)
+        self._stash_brush = QBrush(QColor("#d69e2e"))
+
         self.setAcceptHoverEvents(True)
         self.setCursor(Qt.PointingHandCursor)
         self.setZValue(2)
+        self.setCacheMode(QGraphicsItem.DeviceCoordinateCache)
 
     def boundingRect(self) -> QRectF:
         r = self._r + 10
@@ -113,39 +127,34 @@ class CommitNode(QGraphicsObject):
     def paint(self, painter: QPainter, _option, _widget):
         painter.setRenderHint(QPainter.Antialiasing)
         r = self._r
-        c = self._color
 
         if self._hovered or self._selected:
-            ring = QColor(c)
-            ring.setAlpha(40)
-            painter.setPen(QPen(ring, 2.5))
+            painter.setPen(self._hover_ring_pen)
             painter.setBrush(Qt.NoBrush)
             painter.drawEllipse(QPointF(0, 0), r + 5, r + 5)
 
         if self._is_local_only:
             painter.setBrush(Qt.NoBrush)
-            painter.setPen(QPen(c, 2.5))
+            painter.setPen(self._local_only_pen)
         else:
-            border = QColor("white")
-            border.setAlpha(120)
-            painter.setBrush(QBrush(c))
-            painter.setPen(QPen(border, 1.5))
+            painter.setBrush(self._fill_brush)
+            painter.setPen(self._white_border_pen)
         painter.drawEllipse(QPointF(0, 0), r, r)
 
         if self._selected:
             painter.setBrush(Qt.NoBrush)
-            painter.setPen(QPen(QColor("white"), 2))
+            painter.setPen(self._selected_pen)
             painter.drawEllipse(QPointF(0, 0), r + 4, r + 4)
 
         if self._is_head:
             painter.setBrush(Qt.NoBrush)
-            painter.setPen(QPen(QColor(COLORS["danger"]), 2.5))
+            painter.setPen(self._head_pen)
             painter.drawEllipse(QPointF(0, 0), r + 5, r + 5)
 
         if self._is_start:
             pole_top = QPointF(0, -r - 20)
             pole_bot = QPointF(0, -r - 2)
-            painter.setPen(QPen(c, 2))
+            painter.setPen(self._flag_pen)
             painter.drawLine(pole_bot, pole_top)
 
             flag = QPolygonF([
@@ -153,32 +162,14 @@ class CommitNode(QGraphicsObject):
                 QPointF(9, -r - 12),
                 QPointF(0, -r - 5),
             ])
-            painter.setBrush(QBrush(c))
+            painter.setBrush(self._flag_brush)
             painter.setPen(Qt.NoPen)
             painter.drawPolygon(flag)
 
         if self._has_stash:
-            amber = QColor("#d69e2e")
             painter.setPen(Qt.NoPen)
-            painter.setBrush(QBrush(amber))
+            painter.setBrush(self._stash_brush)
             painter.drawEllipse(QPointF(0, r + 5), 3.5, 3.5)
-
-        _show_local  = self._is_action_head or self._is_local_tip
-        _show_remote = self._is_remote_tip
-        if _show_local and _show_remote:
-            painter.setPen(Qt.NoPen)
-            painter.setBrush(QBrush(QColor("#3b82f6")))
-            painter.drawEllipse(QPointF(r + 4, 0), 4, 4)
-            painter.setBrush(QBrush(QColor("#ef4444")))
-            painter.drawEllipse(QPointF(r + 11, 0), 4, 4)
-        elif _show_local:
-            painter.setPen(Qt.NoPen)
-            painter.setBrush(QBrush(QColor("#3b82f6")))
-            painter.drawEllipse(QPointF(r + 6, 0), 4, 4)
-        elif _show_remote:
-            painter.setPen(Qt.NoPen)
-            painter.setBrush(QBrush(QColor("#ef4444")))
-            painter.drawEllipse(QPointF(r + 6, 0), 4, 4)
 
     def hoverEnterEvent(self, _e):
         self._hovered = True
@@ -253,10 +244,19 @@ class ContributorBadge(QGraphicsObject):
         self._pixmap: Optional[QPixmap] = None
         self._hovered = False
 
+        ring = QColor(self._color)
+        ring.setAlpha(50)
+        self._hover_ring_pen = QPen(ring, 2)
+        bg = QColor(self._color.red(), self._color.green(), self._color.blue(), 60)
+        self._placeholder_brush = QBrush(bg)
+        self._text_pen = QPen(self._color)
+        self._border_pen = QPen(self._color, 2)
+
         self.setAcceptHoverEvents(True)
         self.setCursor(Qt.PointingHandCursor)
         self.setZValue(5)
         self.setToolTip(login)
+        self.setCacheMode(QGraphicsItem.DeviceCoordinateCache)
 
     def set_pixmap(self, pm: QPixmap):
         self._pixmap = pm.scaled(
@@ -273,12 +273,9 @@ class ContributorBadge(QGraphicsObject):
     def paint(self, painter: QPainter, _option, _widget):
         painter.setRenderHint(QPainter.Antialiasing)
         r = BADGE_R
-        c = self._color
 
         if self._hovered:
-            ring = QColor(c)
-            ring.setAlpha(50)
-            painter.setPen(QPen(ring, 2))
+            painter.setPen(self._hover_ring_pen)
             painter.setBrush(Qt.NoBrush)
             painter.drawEllipse(QPointF(0, 0), r + 4, r + 4)
 
@@ -289,12 +286,11 @@ class ContributorBadge(QGraphicsObject):
         if self._pixmap:
             painter.drawPixmap(-r, -r, self._pixmap)
         else:
-            bg = QColor(c.red(), c.green(), c.blue(), 60)
-            painter.setBrush(QBrush(bg))
+            painter.setBrush(self._placeholder_brush)
             painter.setPen(Qt.NoPen)
             painter.drawEllipse(QPointF(0, 0), r, r)
             painter.setClipping(False)
-            painter.setPen(QPen(c))
+            painter.setPen(self._text_pen)
             font = QFont("Urbanist", max(6, r // 2), QFont.Bold)
             painter.setFont(font)
             painter.drawText(
@@ -304,7 +300,7 @@ class ContributorBadge(QGraphicsObject):
 
         painter.setClipping(False)
         painter.setBrush(Qt.NoBrush)
-        painter.setPen(QPen(c, 2))
+        painter.setPen(self._border_pen)
         painter.drawEllipse(QPointF(0, 0), r, r)
 
     def hoverEnterEvent(self, _e):
