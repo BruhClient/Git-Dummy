@@ -8,6 +8,8 @@ from typing import Optional
 
 import git  # gitpython
 
+from core.ops.base_ops import _POPEN_FLAGS
+
 
 @dataclass
 class CommitInfo:
@@ -42,6 +44,20 @@ class CommitInfo:
         if s < 86400 * 365:
             return f"{int(s // (86400 * 30))}mo ago"
         return f"{int(s // (86400 * 365))}y ago"
+
+
+def _commit_info_from_gitpython(c, tag_map: dict[str, list[str]], branch: str = "") -> "CommitInfo":
+    return CommitInfo(
+        sha=c.hexsha,
+        short_sha=c.hexsha[:7],
+        message=c.message.strip().splitlines()[0],
+        author=c.author.name or "",
+        author_email=c.author.email or "",
+        date=datetime.fromtimestamp(c.committed_date),
+        branch=branch,
+        tags=tag_map.get(c.hexsha, []),
+        parents=[p.hexsha for p in c.parents],
+    )
 
 
 class GitTracker:
@@ -83,6 +99,7 @@ class GitTracker:
             r = subprocess.run(
                 ["git", "rev-parse", "HEAD"],
                 cwd=self._path, capture_output=True, text=True,
+                creationflags=_POPEN_FLAGS,
             )
             return r.stdout.strip() if r.returncode == 0 else ""
         except Exception:
@@ -107,42 +124,32 @@ class GitTracker:
     def branches(self) -> list[str]:
         return [b.name for b in self._repo.branches]
 
+    def _build_tag_map(self) -> dict[str, list[str]]:
+        """Build sha -> [tag names] for the currently open repo."""
+        tag_map: dict[str, list[str]] = {}
+        for tag in self._repo.tags:
+            tag_map.setdefault(tag.commit.hexsha, []).append(tag.name)
+        return tag_map
+
     def commits(self, branch: str = "HEAD", max_count: int = 500) -> list[CommitInfo]:
         """Return up to max_count commits from the given branch/ref."""
         if not self._repo:
             return []
 
-        # Build tag map: sha -> [tag names]
-        tag_map: dict[str, list[str]] = {}
-        for tag in self._repo.tags:
-            sha = tag.commit.hexsha
-            tag_map.setdefault(sha, []).append(tag.name)
+        tag_map = self._build_tag_map()
 
         results: list[CommitInfo] = []
         try:
             for c in self._repo.iter_commits(branch, max_count=max_count):
-                dt = datetime.fromtimestamp(c.committed_date)
-                results.append(
-                    CommitInfo(
-                        sha=c.hexsha,
-                        short_sha=c.hexsha[:7],
-                        message=c.message.strip().splitlines()[0],
-                        author=c.author.name or "",
-                        author_email=c.author.email or "",
-                        date=dt,
-                        branch=branch,
-                        tags=tag_map.get(c.hexsha, []),
-                        parents=[p.hexsha for p in c.parents],
-                    )
-                )
+                results.append(_commit_info_from_gitpython(c, tag_map, branch))
         except git.GitCommandError:
             pass
 
         return results
 
-    def graph_commits(self, max_count: int = 600) -> tuple[list["CommitInfo"], dict[str, list[str]], set[str]]:
+    def graph_commits(self, max_count: int = 600) -> tuple[list["CommitInfo"], dict[str, list[str]], set[str], set[str]]:
         """
-        Returns (commits, branch_tip_map, local_only) for the spatial canvas.
+        Returns (commits, branch_tip_map, local_only, remote_origin_shas) for the spatial canvas.
 
         Remote (origin) is always the source of truth.  Falls back to local
         branches only if the repo has no remotes configured.
@@ -152,11 +159,9 @@ class GitTracker:
         lane algorithm in ui/canvas/lane_algorithm.py requires.
         """
         if not self._repo:
-            return [], {}, set()
+            return [], {}, set(), set()
 
-        tag_map: dict[str, list[str]] = {}
-        for tag in self._repo.tags:
-            tag_map.setdefault(tag.commit.hexsha, []).append(tag.name)
+        tag_map = self._build_tag_map()
 
         # ── Collect refs (iter_name, display_name, tip_sha) ──────────────
         ref_list: list[tuple[str, str, str]] = []
@@ -169,6 +174,7 @@ class GitTracker:
                  f"refs/remotes/{chosen.name}/",
                  "--format=%(refname:short) %(objectname)"],
                 cwd=self._path, capture_output=True, text=True, timeout=5,
+                creationflags=_POPEN_FLAGS,
             )
             _prefix = chosen.name + "/"
             for _line in (_ref_r.stdout or "").strip().splitlines():
@@ -193,6 +199,7 @@ class GitTracker:
                 ["git", "for-each-ref",
                  "--format=%(refname:short) %(objectname)", "refs/heads/"],
                 cwd=self._path, capture_output=True, text=True, timeout=5,
+                creationflags=_POPEN_FLAGS,
             )
             for _ln in (_local_r.stdout or "").strip().splitlines():
                 try:
@@ -256,19 +263,7 @@ class GitTracker:
         except Exception:
             raw = []
 
-        commits: list[CommitInfo] = []
-        for c in raw:
-            commits.append(CommitInfo(
-                sha=c.hexsha,
-                short_sha=c.hexsha[:7],
-                message=c.message.strip().splitlines()[0],
-                author=c.author.name or "",
-                author_email=c.author.email or "",
-                date=datetime.fromtimestamp(c.committed_date),
-                branch="",          # set later by the lane algorithm
-                tags=tag_map.get(c.hexsha, []),
-                parents=[p.hexsha for p in c.parents],
-            ))
+        commits: list[CommitInfo] = [_commit_info_from_gitpython(c, tag_map) for c in raw]
 
         return commits, branch_tip_map, local_only, remote_origin_shas
 
@@ -322,6 +317,7 @@ class GitTracker:
                 ["git", "rev-list", "--branches", "--not", "--remotes"],
                 cwd=self._path,
                 capture_output=True, text=True,
+                creationflags=_POPEN_FLAGS,
             )
             if r.returncode == 0:
                 return {s for s in r.stdout.strip().splitlines() if s}
@@ -390,9 +386,7 @@ class GitTracker:
         if not self._repo:
             return [], {}
 
-        tag_map: dict[str, list[str]] = {}
-        for tag in self._repo.tags:
-            tag_map.setdefault(tag.commit.hexsha, []).append(tag.name)
+        tag_map = self._build_tag_map()
 
         ref_list: list[tuple[str, str, str]] = []
         for b in self._repo.branches:
@@ -414,19 +408,7 @@ class GitTracker:
         except Exception:
             raw = []
 
-        commits: list[CommitInfo] = []
-        for c in raw:
-            commits.append(CommitInfo(
-                sha=c.hexsha,
-                short_sha=c.hexsha[:7],
-                message=c.message.strip().splitlines()[0],
-                author=c.author.name or "",
-                author_email=c.author.email or "",
-                date=datetime.fromtimestamp(c.committed_date),
-                branch="",
-                tags=tag_map.get(c.hexsha, []),
-                parents=[p.hexsha for p in c.parents],
-            ))
+        commits: list[CommitInfo] = [_commit_info_from_gitpython(c, tag_map) for c in raw]
 
         return commits, branch_tip_map
 
