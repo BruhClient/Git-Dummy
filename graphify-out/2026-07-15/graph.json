@@ -7,7 +7,7 @@
         "id": "hyperedge_evogit_dependency_stack",
         "label": "EvoGit Python dependency stack",
         "nodes": [
-          "claude_claude_claude_claude_claude_claude_claude_claude_md_evogit",
+          "claude_claude_claude_claude_claude_claude_claude_md_evogit",
           "requirements_txt_pyqt5",
           "requirements_txt_gitpython",
           "requirements_txt_requests",
@@ -926,7 +926,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "core_git_tracker",
-      "community": 15,
+      "community": 36,
       "norm_label": "git_tracker.py"
     },
     {
@@ -966,7 +966,7 @@
       "source_location": "L47",
       "_origin": "ast",
       "id": "core_git_tracker_gittracker",
-      "community": 38,
+      "community": 3,
       "norm_label": "gittracker"
     },
     {
@@ -976,7 +976,7 @@
       "source_location": "L55",
       "_origin": "ast",
       "id": "core_git_tracker_gittracker_init",
-      "community": 38,
+      "community": 3,
       "norm_label": ".__init__()"
     },
     {
@@ -986,7 +986,7 @@
       "source_location": "L59",
       "_origin": "ast",
       "id": "core_git_tracker_gittracker_open",
-      "community": 38,
+      "community": 3,
       "norm_label": ".open()"
     },
     {
@@ -996,7 +996,7 @@
       "source_location": "L62",
       "_origin": "ast",
       "id": "core_git_tracker_gittracker_close",
-      "community": 38,
+      "community": 3,
       "norm_label": ".close()"
     },
     {
@@ -1006,7 +1006,7 @@
       "source_location": "L68",
       "_origin": "ast",
       "id": "core_git_tracker_gittracker_repo_name",
-      "community": 38,
+      "community": 3,
       "norm_label": ".repo_name()"
     },
     {
@@ -1016,7 +1016,7 @@
       "source_location": "L72",
       "_origin": "ast",
       "id": "core_git_tracker_gittracker_active_branch",
-      "community": 38,
+      "community": 3,
       "norm_label": ".active_branch()"
     },
     {
@@ -1026,7 +1026,7 @@
       "source_location": "L78",
       "_origin": "ast",
       "id": "core_git_tracker_gittracker_head_sha",
-      "community": 38,
+      "community": 3,
       "norm_label": ".head_sha()"
     },
     {
@@ -1036,7 +1036,7 @@
       "source_location": "L91",
       "_origin": "ast",
       "id": "core_git_tracker_gittracker_operation_in_progress",
-      "community": 38,
+      "community": 3,
       "norm_label": ".operation_in_progress()"
     },
     {
@@ -1046,7 +1046,7 @@
       "source_location": "L107",
       "_origin": "ast",
       "id": "core_git_tracker_gittracker_branches",
-      "community": 38,
+      "community": 3,
       "norm_label": ".branches()"
     },
     {
@@ -1156,7 +1156,7 @@
       "source_location": "L433",
       "_origin": "ast",
       "id": "core_git_tracker_gittracker_get_collaborators",
-      "community": 38,
+      "community": 3,
       "norm_label": ".get_collaborators()"
     },
     {
@@ -1166,7 +1166,7 @@
       "source_location": "L521",
       "_origin": "ast",
       "id": "core_git_tracker_gittracker_commit_files",
-      "community": 38,
+      "community": 3,
       "norm_label": ".commit_files()"
     },
     {
@@ -1176,7 +1176,7 @@
       "source_location": "L579",
       "_origin": "ast",
       "id": "core_git_tracker_gittracker_commit_detail",
-      "community": 38,
+      "community": 3,
       "norm_label": ".commit_detail()"
     },
     {
@@ -1186,7 +1186,7 @@
       "source_location": "L48",
       "_origin": "ast",
       "id": "core_git_tracker_rationale_48",
-      "community": 38,
+      "community": 3,
       "norm_label": "thin wrapper around gitpython that reads commit history from a local repo."
     },
     {
@@ -1196,7 +1196,7 @@
       "source_location": "L92",
       "_origin": "ast",
       "id": "core_git_tracker_rationale_92",
-      "community": 38,
+      "community": 3,
       "norm_label": "return the name of any ongoing git operation, or '' if none."
     },
     {
@@ -1296,7 +1296,7 @@
       "source_location": "L434",
       "_origin": "ast",
       "id": "core_git_tracker_rationale_434",
-      "community": 38,
+      "community": 3,
       "norm_label": "fetch contributors for this repo from github's api.         returns a list of d"
     },
     {
@@ -1306,7 +1306,7 @@
       "source_location": "L522",
       "_origin": "ast",
       "id": "core_git_tracker_rationale_522",
-      "community": 38,
+      "community": 3,
       "norm_label": "return per-file diff info for a commit."
     },
     {
@@ -1316,7 +1316,7 @@
       "source_location": "L580",
       "_origin": "ast",
       "id": "core_git_tracker_rationale_580",
-      "community": 38,
+      "community": 3,
       "norm_label": "return extended info for a single commit (full message)."
     },
     {
@@ -1526,7 +1526,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "core_ops_branch_ops",
-      "community": 18,
+      "community": 4,
       "norm_label": "branch_ops.py"
     },
     {
@@ -1536,7 +1536,7 @@
       "source_location": "L8",
       "_origin": "ast",
       "id": "core_ops_branch_ops_get_default_branch",
-      "community": 18,
+      "community": 4,
       "norm_label": "get_default_branch()"
     },
     {
@@ -1556,7 +1556,7 @@
       "source_location": "L60",
       "_origin": "ast",
       "id": "core_ops_branch_ops_get_branch_unique_commits",
-      "community": 18,
+      "community": 4,
       "norm_label": "get_branch_unique_commits()"
     },
     {
@@ -1566,7 +1566,7 @@
       "source_location": "L74",
       "_origin": "ast",
       "id": "core_ops_branch_ops_branch_unique_count",
-      "community": 71,
+      "community": 4,
       "norm_label": "branch_unique_count()"
     },
     {
@@ -1576,7 +1576,7 @@
       "source_location": "L87",
       "_origin": "ast",
       "id": "core_ops_branch_ops_delete_branch_full",
-      "community": 18,
+      "community": 4,
       "norm_label": "delete_branch_full()"
     },
     {
@@ -1586,7 +1586,7 @@
       "source_location": "L173",
       "_origin": "ast",
       "id": "core_ops_branch_ops_create_branch_with_commit",
-      "community": 18,
+      "community": 4,
       "norm_label": "create_branch_with_commit()"
     },
     {
@@ -1596,7 +1596,7 @@
       "source_location": "L9",
       "_origin": "ast",
       "id": "core_ops_branch_ops_rationale_9",
-      "community": 18,
+      "community": 4,
       "norm_label": "detect the repo's default branch without hitting the network.      detection ord"
     },
     {
@@ -1616,7 +1616,7 @@
       "source_location": "L61",
       "_origin": "ast",
       "id": "core_ops_branch_ops_rationale_61",
-      "community": 18,
+      "community": 4,
       "norm_label": "return shas reachable from tip_sha but not from base.     returns empty list for"
     },
     {
@@ -1626,7 +1626,7 @@
       "source_location": "L75",
       "_origin": "ast",
       "id": "core_ops_branch_ops_rationale_75",
-      "community": 71,
+      "community": 4,
       "norm_label": "return the number of commits on `branch` not reachable from `default_branch`."
     },
     {
@@ -1966,7 +1966,7 @@
       "source_location": "L42",
       "_origin": "ast",
       "id": "core_ops_repo_ops_clone_repo",
-      "community": 3,
+      "community": 1,
       "norm_label": "clone_repo()"
     },
     {
@@ -2016,7 +2016,7 @@
       "source_location": "L43",
       "_origin": "ast",
       "id": "core_ops_repo_ops_rationale_43",
-      "community": 3,
+      "community": 1,
       "norm_label": "clone url into dest_parent/<repo-name>. returns (ok, error, cloned_path)."
     },
     {
@@ -2176,7 +2176,7 @@
       "source_location": "L108",
       "_origin": "ast",
       "id": "core_ops_stash_ops_get_stash_commit_shas",
-      "community": 38,
+      "community": 65,
       "norm_label": "get_stash_commit_shas()"
     },
     {
@@ -2266,7 +2266,7 @@
       "source_location": "L109",
       "_origin": "ast",
       "id": "core_ops_stash_ops_rationale_109",
-      "community": 38,
+      "community": 65,
       "norm_label": "return the set of commit shas that have a stash sitting on top of them."
     },
     {
@@ -2486,7 +2486,7 @@
       "source_location": "L58",
       "_origin": "ast",
       "id": "main_app",
-      "community": 46,
+      "community": 28,
       "norm_label": "app"
     },
     {
@@ -2496,7 +2496,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "qstackedwidget",
-      "community": 1,
+      "community": 0,
       "norm_label": "qstackedwidget"
     },
     {
@@ -2516,7 +2516,7 @@
       "source_location": "L112",
       "_origin": "ast",
       "id": "main_app_on_auth_success",
-      "community": 46,
+      "community": 28,
       "norm_label": "._on_auth_success()"
     },
     {
@@ -2526,7 +2526,7 @@
       "source_location": "L119",
       "_origin": "ast",
       "id": "main_app_on_auth_failed",
-      "community": 46,
+      "community": 28,
       "norm_label": "._on_auth_failed()"
     },
     {
@@ -2536,7 +2536,7 @@
       "source_location": "L123",
       "_origin": "ast",
       "id": "main_app_on_logout",
-      "community": 46,
+      "community": 28,
       "norm_label": "._on_logout()"
     },
     {
@@ -2546,7 +2546,7 @@
       "source_location": "L129",
       "_origin": "ast",
       "id": "main_app_on_add_account",
-      "community": 46,
+      "community": 28,
       "norm_label": "._on_add_account()"
     },
     {
@@ -2556,7 +2556,7 @@
       "source_location": "L135",
       "_origin": "ast",
       "id": "main_app_on_switch_account",
-      "community": 46,
+      "community": 28,
       "norm_label": "._on_switch_account()"
     },
     {
@@ -2566,7 +2566,7 @@
       "source_location": "L138",
       "_origin": "ast",
       "id": "main_app_on_change_token",
-      "community": 46,
+      "community": 28,
       "norm_label": "._on_change_token()"
     },
     {
@@ -2576,7 +2576,7 @@
       "source_location": "L143",
       "_origin": "ast",
       "id": "main_app_on_repo_selected",
-      "community": 46,
+      "community": 28,
       "norm_label": "._on_repo_selected()"
     },
     {
@@ -2586,7 +2586,7 @@
       "source_location": "L153",
       "_origin": "ast",
       "id": "main_app_on_access_denied",
-      "community": 46,
+      "community": 28,
       "norm_label": "._on_access_denied()"
     },
     {
@@ -2616,7 +2616,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "styles_theme",
-      "community": 11,
+      "community": 23,
       "norm_label": "theme.py"
     },
     {
@@ -2626,7 +2626,7 @@
       "source_location": "L33",
       "_origin": "ast",
       "id": "styles_theme_scrollbar_style",
-      "community": 11,
+      "community": 57,
       "norm_label": "scrollbar_style()"
     },
     {
@@ -2646,7 +2646,7 @@
       "source_location": "L287",
       "_origin": "ast",
       "id": "styles_theme_hash_color",
-      "community": 11,
+      "community": 19,
       "norm_label": "hash_color()"
     },
     {
@@ -2656,7 +2656,7 @@
       "source_location": "L293",
       "_origin": "ast",
       "id": "styles_theme_card_shadow",
-      "community": 32,
+      "community": 61,
       "norm_label": "card_shadow()"
     },
     {
@@ -2666,7 +2666,7 @@
       "source_location": "L34",
       "_origin": "ast",
       "id": "styles_theme_rationale_34",
-      "community": 11,
+      "community": 57,
       "norm_label": "unified scrollbar stylesheet fragment \u2014 apply to any qscrollarea."
     },
     {
@@ -2686,7 +2686,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "ui_auth_page",
-      "community": 23,
+      "community": 22,
       "norm_label": "auth_page.py"
     },
     {
@@ -2996,7 +2996,7 @@
       "source_location": "L27",
       "_origin": "ast",
       "id": "ui_canvas_graphics_items_branchlabel_init",
-      "community": 55,
+      "community": 21,
       "norm_label": ".__init__()"
     },
     {
@@ -3076,7 +3076,7 @@
       "source_location": "L83",
       "_origin": "ast",
       "id": "ui_canvas_graphics_items_commitnode_init",
-      "community": 55,
+      "community": 21,
       "norm_label": ".__init__()"
     },
     {
@@ -3176,7 +3176,7 @@
       "source_location": "L189",
       "_origin": "ast",
       "id": "ui_canvas_graphics_items_edgeitem_init",
-      "community": 55,
+      "community": 21,
       "norm_label": ".__init__()"
     },
     {
@@ -3196,7 +3196,7 @@
       "source_location": "L227",
       "_origin": "ast",
       "id": "ui_canvas_graphics_items_contributorbadge_init",
-      "community": 55,
+      "community": 21,
       "norm_label": ".__init__()"
     },
     {
@@ -3386,7 +3386,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "ui_canvas_minimap",
-      "community": 24,
+      "community": 27,
       "norm_label": "minimap.py"
     },
     {
@@ -3396,7 +3396,7 @@
       "source_location": "L11",
       "_origin": "ast",
       "id": "ui_canvas_minimap_minimap",
-      "community": 24,
+      "community": 27,
       "norm_label": "minimap"
     },
     {
@@ -3406,7 +3406,7 @@
       "source_location": "L21",
       "_origin": "ast",
       "id": "ui_canvas_minimap_minimap_init",
-      "community": 24,
+      "community": 27,
       "norm_label": ".__init__()"
     },
     {
@@ -3416,7 +3416,7 @@
       "source_location": "L30",
       "_origin": "ast",
       "id": "ui_canvas_minimap_minimap_to_map",
-      "community": 24,
+      "community": 27,
       "norm_label": "._to_map()"
     },
     {
@@ -3426,7 +3426,7 @@
       "source_location": "L38",
       "_origin": "ast",
       "id": "ui_canvas_minimap_minimap_from_map",
-      "community": 24,
+      "community": 27,
       "norm_label": "._from_map()"
     },
     {
@@ -3436,7 +3436,7 @@
       "source_location": "L48",
       "_origin": "ast",
       "id": "ui_canvas_minimap_minimap_paintevent",
-      "community": 24,
+      "community": 27,
       "norm_label": ".paintevent()"
     },
     {
@@ -3446,7 +3446,7 @@
       "source_location": "L90",
       "_origin": "ast",
       "id": "ui_canvas_minimap_minimap_mousepressevent",
-      "community": 24,
+      "community": 27,
       "norm_label": ".mousepressevent()"
     },
     {
@@ -3456,7 +3456,7 @@
       "source_location": "L94",
       "_origin": "ast",
       "id": "ui_canvas_minimap_minimap_mousemoveevent",
-      "community": 24,
+      "community": 27,
       "norm_label": ".mousemoveevent()"
     },
     {
@@ -3466,7 +3466,7 @@
       "source_location": "L98",
       "_origin": "ast",
       "id": "ui_canvas_minimap_minimap_navigate",
-      "community": 24,
+      "community": 27,
       "norm_label": "._navigate()"
     },
     {
@@ -3476,7 +3476,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "ui_canvas_minimap_rationale_1",
-      "community": 24,
+      "community": 27,
       "norm_label": "bird's-eye minimap widget for the commit graph canvas."
     },
     {
@@ -3486,7 +3486,7 @@
       "source_location": "L12",
       "_origin": "ast",
       "id": "ui_canvas_minimap_rationale_12",
-      "community": 24,
+      "community": 27,
       "norm_label": "bird's-eye view of the commit graph.     white box = current viewport. click/dra"
     },
     {
@@ -3616,7 +3616,7 @@
       "source_location": "L501",
       "_origin": "ast",
       "id": "ui_canvas_spatial_canvas_spatialcanvas_apply_commit_filter",
-      "community": 80,
+      "community": 10,
       "norm_label": ".apply_commit_filter()"
     },
     {
@@ -3636,7 +3636,7 @@
       "source_location": "L519",
       "_origin": "ast",
       "id": "ui_canvas_spatial_canvas_spatialcanvas_set_pr_highlight",
-      "community": 80,
+      "community": 10,
       "norm_label": ".set_pr_highlight()"
     },
     {
@@ -3846,7 +3846,7 @@
       "source_location": "L771",
       "_origin": "ast",
       "id": "ui_canvas_spatial_canvas_spatialcanvas_on_node_clicked",
-      "community": 51,
+      "community": 10,
       "norm_label": "._on_node_clicked()"
     },
     {
@@ -3896,7 +3896,7 @@
       "source_location": "L502",
       "_origin": "ast",
       "id": "ui_canvas_spatial_canvas_rationale_502",
-      "community": 80,
+      "community": 10,
       "norm_label": "dim the given shas to 15% opacity; restore all others."
     },
     {
@@ -3906,7 +3906,7 @@
       "source_location": "L520",
       "_origin": "ast",
       "id": "ui_canvas_spatial_canvas_rationale_520",
-      "community": 80,
+      "community": 10,
       "norm_label": "pr hover: keep active_shas bright, dim everything else. empty set restores filte"
     },
     {
@@ -3966,7 +3966,7 @@
       "source_location": "L57",
       "_origin": "ast",
       "id": "ui_commit_view_compute_branch_depths",
-      "community": 56,
+      "community": 66,
       "norm_label": "_compute_branch_depths()"
     },
     {
@@ -4046,7 +4046,7 @@
       "source_location": "L410",
       "_origin": "ast",
       "id": "ui_commit_view_commitviewpage_stop_all_threads",
-      "community": 59,
+      "community": 44,
       "norm_label": "._stop_all_threads()"
     },
     {
@@ -4076,7 +4076,7 @@
       "source_location": "L559",
       "_origin": "ast",
       "id": "ui_commit_view_commitviewpage_start_load",
-      "community": 9,
+      "community": 16,
       "norm_label": "._start_load()"
     },
     {
@@ -4156,7 +4156,7 @@
       "source_location": "L746",
       "_origin": "ast",
       "id": "ui_commit_view_commitviewpage_on_branch_count_done",
-      "community": 56,
+      "community": 66,
       "norm_label": "._on_branch_count_done()"
     },
     {
@@ -4166,7 +4166,7 @@
       "source_location": "L753",
       "_origin": "ast",
       "id": "ui_commit_view_commitviewpage_on_fetch_done",
-      "community": 9,
+      "community": 16,
       "norm_label": "._on_fetch_done()"
     },
     {
@@ -4176,7 +4176,7 @@
       "source_location": "L762",
       "_origin": "ast",
       "id": "ui_commit_view_commitviewpage_try_auto_pull",
-      "community": 9,
+      "community": 16,
       "norm_label": "._try_auto_pull()"
     },
     {
@@ -4186,7 +4186,7 @@
       "source_location": "L831",
       "_origin": "ast",
       "id": "ui_commit_view_commitviewpage_on_auto_pull_done",
-      "community": 9,
+      "community": 16,
       "norm_label": "._on_auto_pull_done()"
     },
     {
@@ -4256,7 +4256,7 @@
       "source_location": "L945",
       "_origin": "ast",
       "id": "ui_commit_view_commitviewpage_start_create_repo",
-      "community": 16,
+      "community": 44,
       "norm_label": "._start_create_repo()"
     },
     {
@@ -4286,7 +4286,7 @@
       "source_location": "L1005",
       "_origin": "ast",
       "id": "ui_commit_view_commitviewpage_on_create_remote_requested",
-      "community": 16,
+      "community": 44,
       "norm_label": "._on_create_remote_requested()"
     },
     {
@@ -4306,7 +4306,7 @@
       "source_location": "L1016",
       "_origin": "ast",
       "id": "ui_commit_view_commitviewpage_on_loaded",
-      "community": 56,
+      "community": 66,
       "norm_label": "._on_loaded()"
     },
     {
@@ -4326,7 +4326,7 @@
       "source_location": "L1242",
       "_origin": "ast",
       "id": "ui_commit_view_commitviewpage_make_first_commit",
-      "community": 44,
+      "community": 66,
       "norm_label": "._make_first_commit()"
     },
     {
@@ -4406,7 +4406,7 @@
       "source_location": "L1412",
       "_origin": "ast",
       "id": "ui_commit_view_commitviewpage_on_clear_stash_done",
-      "community": 9,
+      "community": 16,
       "norm_label": "._on_clear_stash_done()"
     },
     {
@@ -4476,7 +4476,7 @@
       "source_location": "L1508",
       "_origin": "ast",
       "id": "ui_commit_view_commitviewpage_on_merge_done",
-      "community": 9,
+      "community": 16,
       "norm_label": "._on_merge_done()"
     },
     {
@@ -4496,7 +4496,7 @@
       "source_location": "L1593",
       "_origin": "ast",
       "id": "ui_commit_view_commitviewpage_on_merge_resolve_done",
-      "community": 9,
+      "community": 16,
       "norm_label": "._on_merge_resolve_done()"
     },
     {
@@ -4566,7 +4566,7 @@
       "source_location": "L1733",
       "_origin": "ast",
       "id": "ui_commit_view_commitviewpage_on_pull_done",
-      "community": 9,
+      "community": 16,
       "norm_label": "._on_pull_done()"
     },
     {
@@ -4586,7 +4586,7 @@
       "source_location": "L1787",
       "_origin": "ast",
       "id": "ui_commit_view_commitviewpage_on_push_done",
-      "community": 9,
+      "community": 16,
       "norm_label": "._on_push_done()"
     },
     {
@@ -4596,7 +4596,7 @@
       "source_location": "L1823",
       "_origin": "ast",
       "id": "ui_commit_view_commitviewpage_on_conflict_choice",
-      "community": 9,
+      "community": 16,
       "norm_label": "._on_conflict_choice()"
     },
     {
@@ -4606,7 +4606,7 @@
       "source_location": "L1847",
       "_origin": "ast",
       "id": "ui_commit_view_commitviewpage_on_conflict_done",
-      "community": 9,
+      "community": 16,
       "norm_label": "._on_conflict_done()"
     },
     {
@@ -4616,7 +4616,7 @@
       "source_location": "L1858",
       "_origin": "ast",
       "id": "ui_commit_view_commitviewpage_on_hard_revert",
-      "community": 16,
+      "community": 58,
       "norm_label": "._on_hard_revert()"
     },
     {
@@ -4626,7 +4626,7 @@
       "source_location": "L1868",
       "_origin": "ast",
       "id": "ui_commit_view_commitviewpage_on_soft_revert",
-      "community": 16,
+      "community": 58,
       "norm_label": "._on_soft_revert()"
     },
     {
@@ -4636,7 +4636,7 @@
       "source_location": "L1876",
       "_origin": "ast",
       "id": "ui_commit_view_commitviewpage_on_delete_branch",
-      "community": 16,
+      "community": 58,
       "norm_label": "._on_delete_branch()"
     },
     {
@@ -4646,7 +4646,7 @@
       "source_location": "L1885",
       "_origin": "ast",
       "id": "ui_commit_view_commitviewpage_run_branch_op",
-      "community": 16,
+      "community": 58,
       "norm_label": "._run_branch_op()"
     },
     {
@@ -4656,7 +4656,7 @@
       "source_location": "L1904",
       "_origin": "ast",
       "id": "ui_commit_view_commitviewpage_on_branch_op_done",
-      "community": 9,
+      "community": 16,
       "norm_label": "._on_branch_op_done()"
     },
     {
@@ -4676,7 +4676,7 @@
       "source_location": "L1951",
       "_origin": "ast",
       "id": "ui_commit_view_commitviewpage_on_branch_create_done",
-      "community": 9,
+      "community": 16,
       "norm_label": "._on_branch_create_done()"
     },
     {
@@ -4746,7 +4746,7 @@
       "source_location": "L2126",
       "_origin": "ast",
       "id": "ui_commit_view_commitviewpage_on_commit_detail_ready",
-      "community": 56,
+      "community": 51,
       "norm_label": "._on_commit_detail_ready()"
     },
     {
@@ -4836,7 +4836,7 @@
       "source_location": "L2370",
       "_origin": "ast",
       "id": "ui_commit_view_commitviewpage_on_uncommitted_done",
-      "community": 9,
+      "community": 16,
       "norm_label": "._on_uncommitted_done()"
     },
     {
@@ -4926,7 +4926,7 @@
       "source_location": "L59",
       "_origin": "ast",
       "id": "ui_commit_view_rationale_59",
-      "community": 56,
+      "community": 66,
       "norm_label": "return branch_name \u2192 nesting depth (0 = default branch, 1 = off default, 2 = off"
     },
     {
@@ -5166,7 +5166,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "ui_commit_view_widgets",
-      "community": 11,
+      "community": 57,
       "norm_label": "commit_view_widgets.py"
     },
     {
@@ -5176,7 +5176,7 @@
       "source_location": "L25",
       "_origin": "ast",
       "id": "ui_commit_view_widgets_filterpanel",
-      "community": 63,
+      "community": 9,
       "norm_label": "_filterpanel"
     },
     {
@@ -5186,7 +5186,7 @@
       "source_location": "L44",
       "_origin": "ast",
       "id": "ui_commit_view_widgets_filterpanel_init",
-      "community": 11,
+      "community": 57,
       "norm_label": ".__init__()"
     },
     {
@@ -5196,7 +5196,7 @@
       "source_location": "L165",
       "_origin": "ast",
       "id": "ui_commit_view_widgets_filterpanel_make_cb",
-      "community": 63,
+      "community": 9,
       "norm_label": "._make_cb()"
     },
     {
@@ -5206,7 +5206,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ui_commit_view_widgets_py_qvboxlayout",
-      "community": 63,
+      "community": 9,
       "norm_label": "qvboxlayout"
     },
     {
@@ -5216,7 +5216,7 @@
       "source_location": "L173",
       "_origin": "ast",
       "id": "ui_commit_view_widgets_filterpanel_clear_layout",
-      "community": 63,
+      "community": 9,
       "norm_label": "._clear_layout()"
     },
     {
@@ -5226,7 +5226,7 @@
       "source_location": "L180",
       "_origin": "ast",
       "id": "ui_commit_view_widgets_filterpanel_set_branches",
-      "community": 63,
+      "community": 9,
       "norm_label": ".set_branches()"
     },
     {
@@ -5236,7 +5236,7 @@
       "source_location": "L185",
       "_origin": "ast",
       "id": "ui_commit_view_widgets_filterpanel_set_authors",
-      "community": 63,
+      "community": 9,
       "norm_label": ".set_authors()"
     },
     {
@@ -5246,7 +5246,7 @@
       "source_location": "L192",
       "_origin": "ast",
       "id": "ui_commit_view_widgets_filterpanel_show_collaborators_loading",
-      "community": 63,
+      "community": 9,
       "norm_label": ".show_collaborators_loading()"
     },
     {
@@ -5256,7 +5256,7 @@
       "source_location": "L197",
       "_origin": "ast",
       "id": "ui_commit_view_widgets_filterpanel_active_branches",
-      "community": 63,
+      "community": 9,
       "norm_label": ".active_branches()"
     },
     {
@@ -5266,7 +5266,7 @@
       "source_location": "L200",
       "_origin": "ast",
       "id": "ui_commit_view_widgets_filterpanel_active_authors",
-      "community": 63,
+      "community": 9,
       "norm_label": ".active_authors()"
     },
     {
@@ -5276,7 +5276,7 @@
       "source_location": "L203",
       "_origin": "ast",
       "id": "ui_commit_view_widgets_filterpanel_all_branches",
-      "community": 63,
+      "community": 9,
       "norm_label": "._all_branches()"
     },
     {
@@ -5286,7 +5286,7 @@
       "source_location": "L206",
       "_origin": "ast",
       "id": "ui_commit_view_widgets_filterpanel_all_authors",
-      "community": 63,
+      "community": 9,
       "norm_label": "._all_authors()"
     },
     {
@@ -5296,7 +5296,7 @@
       "source_location": "L209",
       "_origin": "ast",
       "id": "ui_commit_view_widgets_filterpanel_reset",
-      "community": 63,
+      "community": 9,
       "norm_label": "._reset()"
     },
     {
@@ -5346,7 +5346,7 @@
       "source_location": "L274",
       "_origin": "ast",
       "id": "ui_commit_view_widgets_tabbar",
-      "community": 63,
+      "community": 75,
       "norm_label": "_tabbar"
     },
     {
@@ -5356,7 +5356,7 @@
       "source_location": "L277",
       "_origin": "ast",
       "id": "ui_commit_view_widgets_tabbar_init",
-      "community": 63,
+      "community": 75,
       "norm_label": ".__init__()"
     },
     {
@@ -5366,7 +5366,7 @@
       "source_location": "L306",
       "_origin": "ast",
       "id": "ui_commit_view_widgets_tabbar_btn_style",
-      "community": 63,
+      "community": 75,
       "norm_label": "._btn_style()"
     },
     {
@@ -5376,7 +5376,7 @@
       "source_location": "L314",
       "_origin": "ast",
       "id": "ui_commit_view_widgets_tabbar_select",
-      "community": 63,
+      "community": 75,
       "norm_label": "._select()"
     },
     {
@@ -5386,7 +5386,7 @@
       "source_location": "L324",
       "_origin": "ast",
       "id": "ui_commit_view_widgets_tabbar_place_indicator",
-      "community": 63,
+      "community": 75,
       "norm_label": "._place_indicator()"
     },
     {
@@ -5396,7 +5396,7 @@
       "source_location": "L338",
       "_origin": "ast",
       "id": "ui_commit_view_widgets_tabbar_resizeevent",
-      "community": 63,
+      "community": 75,
       "norm_label": ".resizeevent()"
     },
     {
@@ -5406,7 +5406,7 @@
       "source_location": "L345",
       "_origin": "ast",
       "id": "ui_commit_view_widgets_tabbar_set_viewer_mode",
-      "community": 63,
+      "community": 75,
       "norm_label": ".set_viewer_mode()"
     },
     {
@@ -5516,7 +5516,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "ui_commit_view_widgets_rationale_1",
-      "community": 11,
+      "community": 57,
       "norm_label": "self-contained widget classes used by commitviewpage.  these are small, presenta"
     },
     {
@@ -5666,7 +5666,7 @@
       "source_location": "L59",
       "_origin": "ast",
       "id": "ui_components_collaborator_panel_avatardot",
-      "community": 57,
+      "community": 41,
       "norm_label": "_avatardot"
     },
     {
@@ -5676,7 +5676,7 @@
       "source_location": "L62",
       "_origin": "ast",
       "id": "ui_components_collaborator_panel_avatardot_init",
-      "community": 57,
+      "community": 41,
       "norm_label": ".__init__()"
     },
     {
@@ -5686,7 +5686,7 @@
       "source_location": "L70",
       "_origin": "ast",
       "id": "ui_components_collaborator_panel_avatardot_set_pixmap",
-      "community": 57,
+      "community": 41,
       "norm_label": ".set_pixmap()"
     },
     {
@@ -5696,7 +5696,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ui_components_collaborator_panel_py_qpixmap",
-      "community": 57,
+      "community": 41,
       "norm_label": "qpixmap"
     },
     {
@@ -5706,7 +5706,7 @@
       "source_location": "L78",
       "_origin": "ast",
       "id": "ui_components_collaborator_panel_avatardot_paintevent",
-      "community": 57,
+      "community": 0,
       "norm_label": ".paintevent()"
     },
     {
@@ -5716,7 +5716,7 @@
       "source_location": "L112",
       "_origin": "ast",
       "id": "ui_components_collaborator_panel_collabrow",
-      "community": 57,
+      "community": 41,
       "norm_label": "_collabrow"
     },
     {
@@ -5726,7 +5726,7 @@
       "source_location": "L115",
       "_origin": "ast",
       "id": "ui_components_collaborator_panel_collabrow_init",
-      "community": 57,
+      "community": 41,
       "norm_label": ".__init__()"
     },
     {
@@ -5736,7 +5736,7 @@
       "source_location": "L170",
       "_origin": "ast",
       "id": "ui_components_collaborator_panel_collabrow_mousepressevent",
-      "community": 57,
+      "community": 41,
       "norm_label": ".mousepressevent()"
     },
     {
@@ -5746,7 +5746,7 @@
       "source_location": "L175",
       "_origin": "ast",
       "id": "ui_components_collaborator_panel_collabrow_enterevent",
-      "community": 57,
+      "community": 41,
       "norm_label": ".enterevent()"
     },
     {
@@ -5756,7 +5756,7 @@
       "source_location": "L178",
       "_origin": "ast",
       "id": "ui_components_collaborator_panel_collabrow_leaveevent",
-      "community": 57,
+      "community": 41,
       "norm_label": ".leaveevent()"
     },
     {
@@ -5766,7 +5766,7 @@
       "source_location": "L181",
       "_origin": "ast",
       "id": "ui_components_collaborator_panel_collabrow_fetch",
-      "community": 57,
+      "community": 41,
       "norm_label": "._fetch()"
     },
     {
@@ -5856,7 +5856,7 @@
       "source_location": "L60",
       "_origin": "ast",
       "id": "ui_components_collaborator_panel_rationale_60",
-      "community": 57,
+      "community": 41,
       "norm_label": "circular avatar \u2014 starts with initials, upgrades to real photo."
     },
     {
@@ -5876,7 +5876,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "ui_components_explore_banner",
-      "community": 81,
+      "community": 23,
       "norm_label": "explore_banner.py"
     },
     {
@@ -5886,7 +5886,7 @@
       "source_location": "L12",
       "_origin": "ast",
       "id": "ui_components_explore_banner_explorebanner",
-      "community": 81,
+      "community": 23,
       "norm_label": "_explorebanner"
     },
     {
@@ -5896,7 +5896,7 @@
       "source_location": "L15",
       "_origin": "ast",
       "id": "ui_components_explore_banner_explorebanner_init",
-      "community": 81,
+      "community": 23,
       "norm_label": ".__init__()"
     },
     {
@@ -5906,7 +5906,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "ui_components_explore_banner_rationale_1",
-      "community": 81,
+      "community": 23,
       "norm_label": "banner shown when the user is exploring a past commit."
     },
     {
@@ -6316,7 +6316,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "ui_components_toast",
-      "community": 45,
+      "community": 37,
       "norm_label": "toast.py"
     },
     {
@@ -6326,7 +6326,7 @@
       "source_location": "L12",
       "_origin": "ast",
       "id": "ui_components_toast_toast",
-      "community": 45,
+      "community": 37,
       "norm_label": "_toast"
     },
     {
@@ -6336,7 +6336,7 @@
       "source_location": "L21",
       "_origin": "ast",
       "id": "ui_components_toast_toast_init",
-      "community": 45,
+      "community": 37,
       "norm_label": ".__init__()"
     },
     {
@@ -6346,7 +6346,7 @@
       "source_location": "L62",
       "_origin": "ast",
       "id": "ui_components_toast_toast_show_message",
-      "community": 45,
+      "community": 37,
       "norm_label": ".show_message()"
     },
     {
@@ -6356,7 +6356,7 @@
       "source_location": "L95",
       "_origin": "ast",
       "id": "ui_components_toast_toast_target_pos",
-      "community": 45,
+      "community": 37,
       "norm_label": "._target_pos()"
     },
     {
@@ -6376,7 +6376,7 @@
       "source_location": "L102",
       "_origin": "ast",
       "id": "ui_components_toast_toast_position_target",
-      "community": 45,
+      "community": 37,
       "norm_label": "._position_target()"
     },
     {
@@ -6386,27 +6386,17 @@
       "source_location": "L106",
       "_origin": "ast",
       "id": "ui_components_toast_toast_dismiss",
-      "community": 45,
+      "community": 37,
       "norm_label": "._dismiss()"
-    },
-    {
-      "label": ".mousePressEvent()",
-      "file_type": "code",
-      "source_file": "ui/components/toast.py",
-      "source_location": "L111",
-      "_origin": "ast",
-      "id": "ui_components_toast_toast_mousepressevent",
-      "community": 45,
-      "norm_label": ".mousepressevent()"
     },
     {
       "label": ".reposition()",
       "file_type": "code",
       "source_file": "ui/components/toast.py",
-      "source_location": "L116",
+      "source_location": "L111",
       "_origin": "ast",
       "id": "ui_components_toast_toast_reposition",
-      "community": 45,
+      "community": 37,
       "norm_label": ".reposition()"
     },
     {
@@ -6416,7 +6406,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "ui_components_toast_rationale_1",
-      "community": 45,
+      "community": 37,
       "norm_label": "transient toast notification widget."
     },
     {
@@ -6476,7 +6466,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "ui_dialogs_init",
-      "community": 27,
+      "community": 61,
       "norm_label": "__init__.py"
     },
     {
@@ -6486,7 +6476,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "ui_dialogs_init_rationale_1",
-      "community": 27,
+      "community": 61,
       "norm_label": "ui.dialogs \u2014 re-exports all dialog classes and helpers."
     },
     {
@@ -6516,7 +6506,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "qdialog",
-      "community": 32,
+      "community": 61,
       "norm_label": "qdialog"
     },
     {
@@ -6696,7 +6686,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "ui_dialogs_clone_dialog",
-      "community": 11,
+      "community": 23,
       "norm_label": "clone_dialog.py"
     },
     {
@@ -7026,7 +7016,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "ui_dialogs_clone_dialog_rationale_1",
-      "community": 11,
+      "community": 23,
       "norm_label": "clonedialog and reporow \u2014 dialog for cloning a remote repo."
     },
     {
@@ -7086,7 +7076,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "ui_dialogs_confirm_dialog",
-      "community": 32,
+      "community": 61,
       "norm_label": "confirm_dialog.py"
     },
     {
@@ -7226,7 +7216,7 @@
       "source_location": "L76",
       "_origin": "ast",
       "id": "ui_dialogs_confirm_dialog_confirmdialog",
-      "community": 32,
+      "community": 61,
       "norm_label": "confirmdialog"
     },
     {
@@ -7246,7 +7236,7 @@
       "source_location": "L87",
       "_origin": "ast",
       "id": "ui_dialogs_confirm_dialog_confirmdialog_setup_ui",
-      "community": 32,
+      "community": 61,
       "norm_label": "._setup_ui()"
     },
     {
@@ -7256,7 +7246,7 @@
       "source_location": "L152",
       "_origin": "ast",
       "id": "ui_dialogs_confirm_dialog_alertdialog",
-      "community": 32,
+      "community": 61,
       "norm_label": "alertdialog"
     },
     {
@@ -7276,7 +7266,7 @@
       "source_location": "L162",
       "_origin": "ast",
       "id": "ui_dialogs_confirm_dialog_alertdialog_setup_ui",
-      "community": 32,
+      "community": 61,
       "norm_label": "._setup_ui()"
     },
     {
@@ -7356,7 +7346,7 @@
       "source_location": "L354",
       "_origin": "ast",
       "id": "ui_dialogs_confirm_dialog_alert",
-      "community": 14,
+      "community": 61,
       "norm_label": "alert()"
     },
     {
@@ -7366,7 +7356,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "ui_dialogs_confirm_dialog_rationale_1",
-      "community": 32,
+      "community": 61,
       "norm_label": "styled confirmation and alert dialogs, plus convenience helpers."
     },
     {
@@ -7386,7 +7376,7 @@
       "source_location": "L77",
       "_origin": "ast",
       "id": "ui_dialogs_confirm_dialog_rationale_77",
-      "community": 32,
+      "community": 61,
       "norm_label": "styled confirmation dialog \u2014 title, body text, cancel + confirm button."
     },
     {
@@ -7396,7 +7386,7 @@
       "source_location": "L153",
       "_origin": "ast",
       "id": "ui_dialogs_confirm_dialog_rationale_153",
-      "community": 32,
+      "community": 61,
       "norm_label": "styled alert dialog \u2014 title, body text, single ok button."
     },
     {
@@ -7426,7 +7416,7 @@
       "source_location": "L355",
       "_origin": "ast",
       "id": "ui_dialogs_confirm_dialog_rationale_355",
-      "community": 14,
+      "community": 61,
       "norm_label": "show a styled alert dialog with a single ok button."
     },
     {
@@ -7906,7 +7896,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "ui_dialogs_github_connect",
-      "community": 27,
+      "community": 46,
       "norm_label": "github_connect.py"
     },
     {
@@ -7916,7 +7906,7 @@
       "source_location": "L17",
       "_origin": "ast",
       "id": "ui_dialogs_github_connect_githubconnectdialog",
-      "community": 27,
+      "community": 46,
       "norm_label": "_githubconnectdialog"
     },
     {
@@ -7926,7 +7916,7 @@
       "source_location": "L21",
       "_origin": "ast",
       "id": "ui_dialogs_github_connect_githubconnectdialog_init",
-      "community": 27,
+      "community": 46,
       "norm_label": ".__init__()"
     },
     {
@@ -7936,7 +7926,7 @@
       "source_location": "L137",
       "_origin": "ast",
       "id": "ui_dialogs_github_connect_githubconnectdialog_set_private",
-      "community": 27,
+      "community": 46,
       "norm_label": "._set_private()"
     },
     {
@@ -7946,7 +7936,7 @@
       "source_location": "L142",
       "_origin": "ast",
       "id": "ui_dialogs_github_connect_githubconnectdialog_show_near",
-      "community": 27,
+      "community": 46,
       "norm_label": ".show_near()"
     },
     {
@@ -7956,7 +7946,7 @@
       "source_location": "L161",
       "_origin": "ast",
       "id": "ui_dialogs_github_connect_githubconnectdialog_resizeevent",
-      "community": 27,
+      "community": 46,
       "norm_label": ".resizeevent()"
     },
     {
@@ -7966,7 +7956,7 @@
       "source_location": "L168",
       "_origin": "ast",
       "id": "ui_dialogs_github_connect_githubconnectdialog_hide",
-      "community": 27,
+      "community": 46,
       "norm_label": ".hide()"
     },
     {
@@ -7976,7 +7966,7 @@
       "source_location": "L173",
       "_origin": "ast",
       "id": "ui_dialogs_github_connect_githubconnectdialog_mousepressevent",
-      "community": 27,
+      "community": 46,
       "norm_label": ".mousepressevent()"
     },
     {
@@ -7986,7 +7976,7 @@
       "source_location": "L178",
       "_origin": "ast",
       "id": "ui_dialogs_github_connect_githubconnectdialog_submit",
-      "community": 27,
+      "community": 46,
       "norm_label": "._submit()"
     },
     {
@@ -7996,7 +7986,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "ui_dialogs_github_connect_rationale_1",
-      "community": 27,
+      "community": 46,
       "norm_label": "full-screen overlay dialog for connecting a local repo to github."
     },
     {
@@ -8006,7 +7996,7 @@
       "source_location": "L18",
       "_origin": "ast",
       "id": "ui_dialogs_github_connect_rationale_18",
-      "community": 27,
+      "community": 46,
       "norm_label": "full-screen overlay dialog for connecting a local repo to github."
     },
     {
@@ -8016,7 +8006,7 @@
       "source_location": "L143",
       "_origin": "ast",
       "id": "ui_dialogs_github_connect_rationale_143",
-      "community": 27,
+      "community": 46,
       "norm_label": "show the dialog centred over the parent."
     },
     {
@@ -8966,7 +8956,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "ui_dialogs_message_dialog",
-      "community": 11,
+      "community": 29,
       "norm_label": "message_dialog.py"
     },
     {
@@ -9026,7 +9016,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "ui_dialogs_message_dialog_rationale_1",
-      "community": 11,
+      "community": 29,
       "norm_label": "dark-themed single-line input dialog for commit messages, branch names, etc."
     },
     {
@@ -9046,7 +9036,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "ui_dialogs_pr_help_dialog",
-      "community": 11,
+      "community": 61,
       "norm_label": "pr_help_dialog.py"
     },
     {
@@ -9166,7 +9156,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "ui_dialogs_pr_help_dialog_rationale_1",
-      "community": 11,
+      "community": 61,
       "norm_label": "help dialog explaining pull request concepts and actions."
     },
     {
@@ -9176,7 +9166,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "ui_dialogs_pr_open_wizard",
-      "community": 73,
+      "community": 20,
       "norm_label": "pr_open_wizard.py"
     },
     {
@@ -9186,7 +9176,7 @@
       "source_location": "L14",
       "_origin": "ast",
       "id": "ui_dialogs_pr_open_wizard_branch_to_title",
-      "community": 73,
+      "community": 20,
       "norm_label": "_branch_to_title()"
     },
     {
@@ -9216,7 +9206,7 @@
       "source_location": "L46",
       "_origin": "ast",
       "id": "ui_dialogs_pr_open_wizard_divider",
-      "community": 73,
+      "community": 20,
       "norm_label": "_divider()"
     },
     {
@@ -9226,7 +9216,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ui_dialogs_pr_open_wizard_py_qframe",
-      "community": 73,
+      "community": 20,
       "norm_label": "qframe"
     },
     {
@@ -9356,7 +9346,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "ui_dialogs_pr_open_wizard_rationale_1",
-      "community": 73,
+      "community": 20,
       "norm_label": "pr open wizard \u2014 2-step modal overlay: push \u2192 open pr."
     },
     {
@@ -9366,7 +9356,7 @@
       "source_location": "L15",
       "_origin": "ast",
       "id": "ui_dialogs_pr_open_wizard_rationale_15",
-      "community": 73,
+      "community": 20,
       "norm_label": "convert 'feature/add-login' \u2192 'add login'."
     },
     {
@@ -9776,7 +9766,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "ui_main_window",
-      "community": 26,
+      "community": 23,
       "norm_label": "main_window.py"
     },
     {
@@ -9786,7 +9776,7 @@
       "source_location": "L16",
       "_origin": "ast",
       "id": "ui_main_window_logomark",
-      "community": 26,
+      "community": 23,
       "norm_label": "_logomark()"
     },
     {
@@ -9796,7 +9786,7 @@
       "source_location": "L27",
       "_origin": "ast",
       "id": "ui_main_window_avatarcircle",
-      "community": 26,
+      "community": 80,
       "norm_label": "_avatarcircle"
     },
     {
@@ -9816,7 +9806,7 @@
       "source_location": "L35",
       "_origin": "ast",
       "id": "ui_main_window_avatarcircle_set_initials",
-      "community": 26,
+      "community": 80,
       "norm_label": ".set_initials()"
     },
     {
@@ -9826,7 +9816,7 @@
       "source_location": "L40",
       "_origin": "ast",
       "id": "ui_main_window_avatarcircle_set_pixmap",
-      "community": 26,
+      "community": 80,
       "norm_label": ".set_pixmap()"
     },
     {
@@ -9836,7 +9826,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ui_main_window_py_qpixmap",
-      "community": 26,
+      "community": 80,
       "norm_label": "qpixmap"
     },
     {
@@ -9846,7 +9836,7 @@
       "source_location": "L48",
       "_origin": "ast",
       "id": "ui_main_window_avatarcircle_paintevent",
-      "community": 26,
+      "community": 80,
       "norm_label": ".paintevent()"
     },
     {
@@ -9976,7 +9966,7 @@
       "source_location": "L273",
       "_origin": "ast",
       "id": "ui_main_window_download_avatar_async",
-      "community": 26,
+      "community": 80,
       "norm_label": "_download_avatar_async()"
     },
     {
@@ -9996,7 +9986,7 @@
       "source_location": "L295",
       "_origin": "ast",
       "id": "ui_main_window_topnav_init",
-      "community": 26,
+      "community": 50,
       "norm_label": ".__init__()"
     },
     {
@@ -10006,7 +9996,7 @@
       "source_location": "L383",
       "_origin": "ast",
       "id": "ui_main_window_topnav_set_user",
-      "community": 26,
+      "community": 80,
       "norm_label": ".set_user()"
     },
     {
@@ -10046,7 +10036,7 @@
       "source_location": "L433",
       "_origin": "ast",
       "id": "ui_main_window_topnav_show_repos_state",
-      "community": 58,
+      "community": 26,
       "norm_label": ".show_repos_state()"
     },
     {
@@ -10056,7 +10046,7 @@
       "source_location": "L438",
       "_origin": "ast",
       "id": "ui_main_window_topnav_show_commits_state",
-      "community": 58,
+      "community": 26,
       "norm_label": ".show_commits_state()"
     },
     {
@@ -10066,7 +10056,7 @@
       "source_location": "L445",
       "_origin": "ast",
       "id": "ui_main_window_mainwindow",
-      "community": 58,
+      "community": 26,
       "norm_label": "mainwindow"
     },
     {
@@ -10076,7 +10066,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "qmainwindow",
-      "community": 58,
+      "community": 26,
       "norm_label": "qmainwindow"
     },
     {
@@ -10096,7 +10086,7 @@
       "source_location": "L484",
       "_origin": "ast",
       "id": "ui_main_window_mainwindow_add_page",
-      "community": 58,
+      "community": 26,
       "norm_label": ".add_page()"
     },
     {
@@ -10106,7 +10096,7 @@
       "source_location": "L488",
       "_origin": "ast",
       "id": "ui_main_window_mainwindow_show_page",
-      "community": 58,
+      "community": 26,
       "norm_label": ".show_page()"
     },
     {
@@ -10126,7 +10116,7 @@
       "source_location": "L501",
       "_origin": "ast",
       "id": "ui_main_window_mainwindow_set_repo_name",
-      "community": 58,
+      "community": 26,
       "norm_label": ".set_repo_name()"
     },
     {
@@ -10136,7 +10126,7 @@
       "source_location": "L504",
       "_origin": "ast",
       "id": "ui_main_window_mainwindow_on_back",
-      "community": 58,
+      "community": 26,
       "norm_label": "._on_back()"
     },
     {
@@ -10146,7 +10136,7 @@
       "source_location": "L510",
       "_origin": "ast",
       "id": "ui_main_window_mainwindow_on_logout",
-      "community": 58,
+      "community": 26,
       "norm_label": "._on_logout()"
     },
     {
@@ -10206,7 +10196,7 @@
       "source_location": "L20",
       "_origin": "ast",
       "id": "ui_panels_all_changes_popup_allchangespopup",
-      "community": 11,
+      "community": 45,
       "norm_label": "allchangespopup"
     },
     {
@@ -10216,7 +10206,7 @@
       "source_location": "L23",
       "_origin": "ast",
       "id": "ui_panels_all_changes_popup_allchangespopup_init",
-      "community": 11,
+      "community": 45,
       "norm_label": ".__init__()"
     },
     {
@@ -10226,7 +10216,7 @@
       "source_location": "L32",
       "_origin": "ast",
       "id": "ui_panels_all_changes_popup_allchangespopup_build",
-      "community": 11,
+      "community": 45,
       "norm_label": "._build()"
     },
     {
@@ -10256,7 +10246,7 @@
       "source_location": "L261",
       "_origin": "ast",
       "id": "ui_panels_all_changes_popup_allchangespopup_paintevent",
-      "community": 11,
+      "community": 45,
       "norm_label": ".paintevent()"
     },
     {
@@ -10266,7 +10256,7 @@
       "source_location": "L266",
       "_origin": "ast",
       "id": "ui_panels_all_changes_popup_allchangespopup_mousepressevent",
-      "community": 11,
+      "community": 45,
       "norm_label": ".mousepressevent()"
     },
     {
@@ -10276,7 +10266,7 @@
       "source_location": "L272",
       "_origin": "ast",
       "id": "ui_panels_all_changes_popup_allchangespopup_keypressevent",
-      "community": 11,
+      "community": 45,
       "norm_label": ".keypressevent()"
     },
     {
@@ -10296,7 +10286,7 @@
       "source_location": "L21",
       "_origin": "ast",
       "id": "ui_panels_all_changes_popup_rationale_21",
-      "community": 11,
+      "community": 45,
       "norm_label": "full-screen overlay showing every file's before/after changes."
     },
     {
@@ -10316,7 +10306,7 @@
       "source_location": "L21",
       "_origin": "ast",
       "id": "ui_panels_changes_panel_changespanel",
-      "community": 11,
+      "community": 24,
       "norm_label": "changespanel"
     },
     {
@@ -10326,7 +10316,7 @@
       "source_location": "L30",
       "_origin": "ast",
       "id": "ui_panels_changes_panel_changespanel_init",
-      "community": 11,
+      "community": 24,
       "norm_label": ".__init__()"
     },
     {
@@ -10336,7 +10326,7 @@
       "source_location": "L50",
       "_origin": "ast",
       "id": "ui_panels_changes_panel_changespanel_setup_ui",
-      "community": 11,
+      "community": 24,
       "norm_label": "._setup_ui()"
     },
     {
@@ -10346,7 +10336,7 @@
       "source_location": "L118",
       "_origin": "ast",
       "id": "ui_panels_changes_panel_changespanel_show_file",
-      "community": 11,
+      "community": 24,
       "norm_label": ".show_file()"
     },
     {
@@ -10356,7 +10346,7 @@
       "source_location": "L183",
       "_origin": "ast",
       "id": "ui_panels_changes_panel_changespanel_add_section",
-      "community": 11,
+      "community": 24,
       "norm_label": "._add_section()"
     },
     {
@@ -10366,7 +10356,7 @@
       "source_location": "L232",
       "_origin": "ast",
       "id": "ui_panels_changes_panel_changespanel_add_hunk",
-      "community": 11,
+      "community": 24,
       "norm_label": "._add_hunk()"
     },
     {
@@ -10376,7 +10366,7 @@
       "source_location": "L248",
       "_origin": "ast",
       "id": "ui_panels_changes_panel_changespanel_hide_panel",
-      "community": 11,
+      "community": 24,
       "norm_label": ".hide_panel()"
     },
     {
@@ -10386,7 +10376,7 @@
       "source_location": "L253",
       "_origin": "ast",
       "id": "ui_panels_changes_panel_changespanel_reposition",
-      "community": 11,
+      "community": 24,
       "norm_label": ".reposition()"
     },
     {
@@ -10396,7 +10386,7 @@
       "source_location": "L256",
       "_origin": "ast",
       "id": "ui_panels_changes_panel_changespanel_mousepressevent",
-      "community": 11,
+      "community": 24,
       "norm_label": ".mousepressevent()"
     },
     {
@@ -10406,7 +10396,7 @@
       "source_location": "L260",
       "_origin": "ast",
       "id": "ui_panels_changes_panel_changespanel_mousereleaseevent",
-      "community": 11,
+      "community": 24,
       "norm_label": ".mousereleaseevent()"
     },
     {
@@ -10416,7 +10406,7 @@
       "source_location": "L266",
       "_origin": "ast",
       "id": "ui_panels_changes_panel_changespanel_place",
-      "community": 11,
+      "community": 24,
       "norm_label": "._place()"
     },
     {
@@ -10436,7 +10426,7 @@
       "source_location": "L22",
       "_origin": "ast",
       "id": "ui_panels_changes_panel_rationale_22",
-      "community": 11,
+      "community": 24,
       "norm_label": "slides in from behind the detail panel to show a file's diff.     hidden positio"
     },
     {
@@ -10456,7 +10446,7 @@
       "source_location": "L26",
       "_origin": "ast",
       "id": "ui_panels_detail_panel_headeravatar",
-      "community": 35,
+      "community": 64,
       "norm_label": "_headeravatar"
     },
     {
@@ -10466,7 +10456,7 @@
       "source_location": "L31",
       "_origin": "ast",
       "id": "ui_panels_detail_panel_headeravatar_init",
-      "community": 35,
+      "community": 64,
       "norm_label": ".__init__()"
     },
     {
@@ -10486,7 +10476,7 @@
       "source_location": "L46",
       "_origin": "ast",
       "id": "ui_panels_detail_panel_headeravatar_fetch",
-      "community": 35,
+      "community": 64,
       "norm_label": "._fetch()"
     },
     {
@@ -10496,7 +10486,7 @@
       "source_location": "L60",
       "_origin": "ast",
       "id": "ui_panels_detail_panel_headeravatar_paintevent",
-      "community": 35,
+      "community": 64,
       "norm_label": ".paintevent()"
     },
     {
@@ -10526,7 +10516,7 @@
       "source_location": "L169",
       "_origin": "ast",
       "id": "ui_panels_detail_panel_filecard_set_selected",
-      "community": 47,
+      "community": 35,
       "norm_label": ".set_selected()"
     },
     {
@@ -10556,7 +10546,7 @@
       "source_location": "L191",
       "_origin": "ast",
       "id": "ui_panels_detail_panel_filecard_mousepressevent",
-      "community": 47,
+      "community": 17,
       "norm_label": ".mousepressevent()"
     },
     {
@@ -10596,7 +10586,7 @@
       "source_location": "L233",
       "_origin": "ast",
       "id": "ui_panels_detail_panel_detailpanel_init",
-      "community": 35,
+      "community": 64,
       "norm_label": ".__init__()"
     },
     {
@@ -10606,7 +10596,7 @@
       "source_location": "L258",
       "_origin": "ast",
       "id": "ui_panels_detail_panel_detailpanel_setup_ui",
-      "community": 11,
+      "community": 64,
       "norm_label": "._setup_ui()"
     },
     {
@@ -10626,7 +10616,7 @@
       "source_location": "L627",
       "_origin": "ast",
       "id": "ui_panels_detail_panel_detailpanel_open_all_changes",
-      "community": 11,
+      "community": 45,
       "norm_label": "._open_all_changes()"
     },
     {
@@ -10636,7 +10626,7 @@
       "source_location": "L635",
       "_origin": "ast",
       "id": "ui_panels_detail_panel_detailpanel_on_file_card_clicked",
-      "community": 47,
+      "community": 35,
       "norm_label": "._on_file_card_clicked()"
     },
     {
@@ -10646,7 +10636,7 @@
       "source_location": "L643",
       "_origin": "ast",
       "id": "ui_panels_detail_panel_detailpanel_on_stash_card_clicked",
-      "community": 47,
+      "community": 35,
       "norm_label": "._on_stash_card_clicked()"
     },
     {
@@ -10696,7 +10686,7 @@
       "source_location": "L684",
       "_origin": "ast",
       "id": "ui_panels_detail_panel_detailpanel_on_merge",
-      "community": 32,
+      "community": 17,
       "norm_label": "._on_merge()"
     },
     {
@@ -10746,7 +10736,7 @@
       "source_location": "L723",
       "_origin": "ast",
       "id": "ui_panels_detail_panel_detailpanel_on_save_stash",
-      "community": 29,
+      "community": 17,
       "norm_label": "._on_save_stash()"
     },
     {
@@ -10776,7 +10766,7 @@
       "source_location": "L822",
       "_origin": "ast",
       "id": "ui_panels_detail_panel_detailpanel_on_create_branch",
-      "community": 32,
+      "community": 17,
       "norm_label": "._on_create_branch()"
     },
     {
@@ -10946,7 +10936,7 @@
       "source_location": "L1086",
       "_origin": "ast",
       "id": "ui_panels_detail_panel_detailpanel_refresh_stash_section",
-      "community": 12,
+      "community": 11,
       "norm_label": ".refresh_stash_section()"
     },
     {
@@ -10956,7 +10946,7 @@
       "source_location": "L1137",
       "_origin": "ast",
       "id": "ui_panels_detail_panel_detailpanel_open_stash_view",
-      "community": 11,
+      "community": 45,
       "norm_label": "._open_stash_view()"
     },
     {
@@ -10986,7 +10976,7 @@
       "source_location": "L1152",
       "_origin": "ast",
       "id": "ui_panels_detail_panel_detailpanel_mousepressevent",
-      "community": 47,
+      "community": 17,
       "norm_label": ".mousepressevent()"
     },
     {
@@ -11026,7 +11016,7 @@
       "source_location": "L27",
       "_origin": "ast",
       "id": "ui_panels_detail_panel_rationale_27",
-      "community": 35,
+      "community": 64,
       "norm_label": "circular avatar in the detail panel header \u2014 initials first, photo on load."
     },
     {
@@ -11066,7 +11056,7 @@
       "source_location": "L42",
       "_origin": "ast",
       "id": "ui_panels_diff_renderer_vscrollarea",
-      "community": 11,
+      "community": 57,
       "norm_label": "_vscrollarea"
     },
     {
@@ -11086,7 +11076,7 @@
       "source_location": "L45",
       "_origin": "ast",
       "id": "ui_panels_diff_renderer_vscrollarea_resizeevent",
-      "community": 11,
+      "community": 57,
       "norm_label": ".resizeevent()"
     },
     {
@@ -11096,7 +11086,7 @@
       "source_location": "L51",
       "_origin": "ast",
       "id": "ui_panels_diff_renderer_vscrollarea_scrollcontentsby",
-      "community": 11,
+      "community": 57,
       "norm_label": ".scrollcontentsby()"
     },
     {
@@ -11106,7 +11096,7 @@
       "source_location": "L54",
       "_origin": "ast",
       "id": "ui_panels_diff_renderer_vscrollarea_wheelevent",
-      "community": 11,
+      "community": 57,
       "norm_label": ".wheelevent()"
     },
     {
@@ -11366,7 +11356,7 @@
       "source_location": "L43",
       "_origin": "ast",
       "id": "ui_panels_diff_renderer_rationale_43",
-      "community": 11,
+      "community": 57,
       "norm_label": "qscrollarea that clamps content to viewport width and blocks horizontal scrollin"
     },
     {
@@ -11426,7 +11416,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "ui_panels_position_panel",
-      "community": 11,
+      "community": 19,
       "norm_label": "position_panel.py"
     },
     {
@@ -12096,7 +12086,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "ui_panels_settings_panel",
-      "community": 11,
+      "community": 8,
       "norm_label": "settings_panel.py"
     },
     {
@@ -12106,7 +12096,7 @@
       "source_location": "L25",
       "_origin": "ast",
       "id": "ui_panels_settings_panel_toggle",
-      "community": 75,
+      "community": 8,
       "norm_label": "_toggle"
     },
     {
@@ -12116,7 +12106,7 @@
       "source_location": "L29",
       "_origin": "ast",
       "id": "ui_panels_settings_panel_toggle_init",
-      "community": 75,
+      "community": 8,
       "norm_label": ".__init__()"
     },
     {
@@ -12126,7 +12116,7 @@
       "source_location": "L40",
       "_origin": "ast",
       "id": "ui_panels_settings_panel_toggle_thumb_x",
-      "community": 75,
+      "community": 8,
       "norm_label": ".thumb_x()"
     },
     {
@@ -12136,7 +12126,7 @@
       "source_location": "L49",
       "_origin": "ast",
       "id": "ui_panels_settings_panel_toggle_is_on",
-      "community": 75,
+      "community": 8,
       "norm_label": ".is_on()"
     },
     {
@@ -12146,7 +12136,7 @@
       "source_location": "L52",
       "_origin": "ast",
       "id": "ui_panels_settings_panel_toggle_set_state",
-      "community": 75,
+      "community": 8,
       "norm_label": ".set_state()"
     },
     {
@@ -12156,7 +12146,7 @@
       "source_location": "L62",
       "_origin": "ast",
       "id": "ui_panels_settings_panel_toggle_mousepressevent",
-      "community": 75,
+      "community": 8,
       "norm_label": ".mousepressevent()"
     },
     {
@@ -12176,7 +12166,7 @@
       "source_location": "L81",
       "_origin": "ast",
       "id": "ui_panels_settings_panel_avatar",
-      "community": 65,
+      "community": 8,
       "norm_label": "_avatar"
     },
     {
@@ -12186,7 +12176,7 @@
       "source_location": "L82",
       "_origin": "ast",
       "id": "ui_panels_settings_panel_avatar_init",
-      "community": 65,
+      "community": 8,
       "norm_label": ".__init__()"
     },
     {
@@ -12196,7 +12186,7 @@
       "source_location": "L90",
       "_origin": "ast",
       "id": "ui_panels_settings_panel_avatar_set_pixmap",
-      "community": 65,
+      "community": 8,
       "norm_label": ".set_pixmap()"
     },
     {
@@ -12206,7 +12196,7 @@
       "source_location": "",
       "_origin": "ast",
       "id": "ui_panels_settings_panel_py_qpixmap",
-      "community": 65,
+      "community": 8,
       "norm_label": "qpixmap"
     },
     {
@@ -12216,7 +12206,7 @@
       "source_location": "L96",
       "_origin": "ast",
       "id": "ui_panels_settings_panel_avatar_paintevent",
-      "community": 65,
+      "community": 8,
       "norm_label": ".paintevent()"
     },
     {
@@ -12226,7 +12216,7 @@
       "source_location": "L127",
       "_origin": "ast",
       "id": "ui_panels_settings_panel_scollabrow",
-      "community": 65,
+      "community": 8,
       "norm_label": "_scollabrow"
     },
     {
@@ -12236,7 +12226,7 @@
       "source_location": "L137",
       "_origin": "ast",
       "id": "ui_panels_settings_panel_scollabrow_init",
-      "community": 65,
+      "community": 8,
       "norm_label": ".__init__()"
     },
     {
@@ -12246,7 +12236,7 @@
       "source_location": "L207",
       "_origin": "ast",
       "id": "ui_panels_settings_panel_scollabrow_fetch",
-      "community": 65,
+      "community": 8,
       "norm_label": "._fetch()"
     },
     {
@@ -12346,7 +12336,7 @@
       "source_location": "L292",
       "_origin": "ast",
       "id": "ui_panels_settings_panel_iconstat_set_count",
-      "community": 61,
+      "community": 8,
       "norm_label": ".set_count()"
     },
     {
@@ -12356,7 +12346,7 @@
       "source_location": "L298",
       "_origin": "ast",
       "id": "ui_panels_settings_panel_settingspanel",
-      "community": 61,
+      "community": 8,
       "norm_label": "settingspanel"
     },
     {
@@ -12386,7 +12376,7 @@
       "source_location": "L624",
       "_origin": "ast",
       "id": "ui_panels_settings_panel_settingspanel_set_role",
-      "community": 61,
+      "community": 8,
       "norm_label": ".set_role()"
     },
     {
@@ -12406,7 +12396,7 @@
       "source_location": "L649",
       "_origin": "ast",
       "id": "ui_panels_settings_panel_settingspanel_load_collaborators",
-      "community": 61,
+      "community": 8,
       "norm_label": ".load_collaborators()"
     },
     {
@@ -12416,7 +12406,7 @@
       "source_location": "L674",
       "_origin": "ast",
       "id": "ui_panels_settings_panel_settingspanel_drain_collab_queue",
-      "community": 61,
+      "community": 8,
       "norm_label": "._drain_collab_queue()"
     },
     {
@@ -12426,7 +12416,7 @@
       "source_location": "L698",
       "_origin": "ast",
       "id": "ui_panels_settings_panel_settingspanel_toggle_collabs",
-      "community": 61,
+      "community": 8,
       "norm_label": "._toggle_collabs()"
     },
     {
@@ -12436,7 +12426,7 @@
       "source_location": "L707",
       "_origin": "ast",
       "id": "ui_panels_settings_panel_settingspanel_fetch_repo_info",
-      "community": 61,
+      "community": 8,
       "norm_label": "._fetch_repo_info()"
     },
     {
@@ -12446,7 +12436,7 @@
       "source_location": "L749",
       "_origin": "ast",
       "id": "ui_panels_settings_panel_settingspanel_fetch_rulesets",
-      "community": 61,
+      "community": 8,
       "norm_label": "._fetch_rulesets()"
     },
     {
@@ -12456,7 +12446,7 @@
       "source_location": "L791",
       "_origin": "ast",
       "id": "ui_panels_settings_panel_settingspanel_apply_repo_info",
-      "community": 61,
+      "community": 8,
       "norm_label": "._apply_repo_info()"
     },
     {
@@ -12466,7 +12456,7 @@
       "source_location": "L813",
       "_origin": "ast",
       "id": "ui_panels_settings_panel_settingspanel_on_branch_protection",
-      "community": 61,
+      "community": 8,
       "norm_label": "._on_branch_protection()"
     },
     {
@@ -12486,7 +12476,7 @@
       "source_location": "L842",
       "_origin": "ast",
       "id": "ui_panels_settings_panel_settingspanel_toggle_rules",
-      "community": 61,
+      "community": 8,
       "norm_label": "._toggle_rules()"
     },
     {
@@ -12516,7 +12506,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "ui_panels_settings_panel_rationale_1",
-      "community": 11,
+      "community": 8,
       "norm_label": "settings panel \u2014 repo info and collaborators."
     },
     {
@@ -12526,7 +12516,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "ui_repo_page",
-      "community": 48,
+      "community": 23,
       "norm_label": "repo_page.py"
     },
     {
@@ -12546,7 +12536,7 @@
       "source_location": "L37",
       "_origin": "ast",
       "id": "ui_repo_page_remote_url",
-      "community": 48,
+      "community": 23,
       "norm_label": "_remote_url()"
     },
     {
@@ -12806,7 +12796,7 @@
       "source_location": "L553",
       "_origin": "ast",
       "id": "ui_repo_page_repopage_set_user",
-      "community": 14,
+      "community": 62,
       "norm_label": ".set_user()"
     },
     {
@@ -13076,7 +13066,7 @@
       "source_location": "L38",
       "_origin": "ast",
       "id": "ui_repo_page_rationale_38",
-      "community": 48,
+      "community": 23,
       "norm_label": "return the origin remote url for a local repo, or '' if not found."
     },
     {
@@ -13216,7 +13206,7 @@
       "source_location": "L45",
       "_origin": "ast",
       "id": "ui_workers_commit_workers_loader_run",
-      "community": 38,
+      "community": 65,
       "norm_label": ".run()"
     },
     {
@@ -13316,7 +13306,7 @@
       "source_location": "L134",
       "_origin": "ast",
       "id": "ui_workers_commit_workers_branchcountworker",
-      "community": 71,
+      "community": 3,
       "norm_label": "_branchcountworker"
     },
     {
@@ -13326,7 +13316,7 @@
       "source_location": "L138",
       "_origin": "ast",
       "id": "ui_workers_commit_workers_branchcountworker_init",
-      "community": 71,
+      "community": 3,
       "norm_label": ".__init__()"
     },
     {
@@ -13336,7 +13326,7 @@
       "source_location": "L145",
       "_origin": "ast",
       "id": "ui_workers_commit_workers_branchcountworker_run",
-      "community": 71,
+      "community": 3,
       "norm_label": ".run()"
     },
     {
@@ -13376,7 +13366,7 @@
       "source_location": "L182",
       "_origin": "ast",
       "id": "ui_workers_commit_workers_navigateworker",
-      "community": 36,
+      "community": 3,
       "norm_label": "_navigateworker"
     },
     {
@@ -13486,7 +13476,7 @@
       "source_location": "L135",
       "_origin": "ast",
       "id": "ui_workers_commit_workers_rationale_135",
-      "community": 71,
+      "community": 3,
       "norm_label": "counts unique commits per branch not reachable from the default branch."
     },
     {
@@ -13506,7 +13496,7 @@
       "source_location": "L183",
       "_origin": "ast",
       "id": "ui_workers_commit_workers_rationale_183",
-      "community": 36,
+      "community": 3,
       "norm_label": "runs stash-save / checkout / stash-restore on a background thread."
     },
     {
@@ -13516,7 +13506,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "ui_workers_repo_workers",
-      "community": 3,
+      "community": 1,
       "norm_label": "repo_workers.py"
     },
     {
@@ -13526,7 +13516,7 @@
       "source_location": "L7",
       "_origin": "ast",
       "id": "ui_workers_repo_workers_fetchreposworker",
-      "community": 3,
+      "community": 1,
       "norm_label": "_fetchreposworker"
     },
     {
@@ -13536,7 +13526,7 @@
       "source_location": "L10",
       "_origin": "ast",
       "id": "ui_workers_repo_workers_fetchreposworker_init",
-      "community": 3,
+      "community": 1,
       "norm_label": ".__init__()"
     },
     {
@@ -13546,7 +13536,7 @@
       "source_location": "L14",
       "_origin": "ast",
       "id": "ui_workers_repo_workers_fetchreposworker_run",
-      "community": 3,
+      "community": 1,
       "norm_label": ".run()"
     },
     {
@@ -13556,7 +13546,7 @@
       "source_location": "L33",
       "_origin": "ast",
       "id": "ui_workers_repo_workers_cloneworker",
-      "community": 3,
+      "community": 1,
       "norm_label": "_cloneworker"
     },
     {
@@ -13566,7 +13556,7 @@
       "source_location": "L36",
       "_origin": "ast",
       "id": "ui_workers_repo_workers_cloneworker_init",
-      "community": 3,
+      "community": 1,
       "norm_label": ".__init__()"
     },
     {
@@ -13576,7 +13566,7 @@
       "source_location": "L41",
       "_origin": "ast",
       "id": "ui_workers_repo_workers_cloneworker_run",
-      "community": 3,
+      "community": 1,
       "norm_label": ".run()"
     },
     {
@@ -13586,7 +13576,7 @@
       "source_location": "L1",
       "_origin": "ast",
       "id": "ui_workers_repo_workers_rationale_1",
-      "community": 3,
+      "community": 1,
       "norm_label": "background qthread workers for repo fetching and cloning."
     },
     {
@@ -14630,7 +14620,7 @@
       "contributor": null,
       "community": 7,
       "norm_label": "evogit / git dummy application",
-      "id": "claude_claude_claude_claude_claude_claude_claude_claude_md_evogit"
+      "id": "claude_claude_claude_claude_claude_claude_claude_md_evogit"
     },
     {
       "label": "main.py (Entry Point)",
@@ -14643,7 +14633,7 @@
       "contributor": null,
       "community": 103,
       "norm_label": "main.py (entry point)",
-      "id": "claude_claude_claude_claude_claude_claude_claude_claude_md_main_py"
+      "id": "claude_claude_claude_claude_claude_claude_claude_md_main_py"
     },
     {
       "label": "AuthPage",
@@ -14656,7 +14646,7 @@
       "contributor": null,
       "community": 93,
       "norm_label": "authpage",
-      "id": "claude_claude_claude_claude_claude_claude_claude_claude_md_authpage"
+      "id": "claude_claude_claude_claude_claude_claude_claude_md_authpage"
     },
     {
       "label": "MainWindow",
@@ -14669,7 +14659,7 @@
       "contributor": null,
       "community": 104,
       "norm_label": "mainwindow",
-      "id": "claude_claude_claude_claude_claude_claude_claude_claude_md_mainwindow"
+      "id": "claude_claude_claude_claude_claude_claude_claude_md_mainwindow"
     },
     {
       "label": "RepoPage",
@@ -14682,7 +14672,7 @@
       "contributor": null,
       "community": 107,
       "norm_label": "repopage",
-      "id": "claude_claude_claude_claude_claude_claude_claude_claude_md_repopage"
+      "id": "claude_claude_claude_claude_claude_claude_claude_md_repopage"
     },
     {
       "label": "CommitViewPage",
@@ -14695,7 +14685,7 @@
       "contributor": null,
       "community": 79,
       "norm_label": "commitviewpage",
-      "id": "claude_claude_claude_claude_claude_claude_claude_claude_md_commitviewpage"
+      "id": "claude_claude_claude_claude_claude_claude_claude_md_commitviewpage"
     },
     {
       "label": "github_auth.py (PAT-based Auth)",
@@ -14708,7 +14698,7 @@
       "contributor": null,
       "community": 102,
       "norm_label": "github_auth.py (pat-based auth)",
-      "id": "claude_claude_claude_claude_claude_claude_claude_claude_md_github_auth"
+      "id": "claude_claude_claude_claude_claude_claude_claude_md_github_auth"
     },
     {
       "label": "GitTracker",
@@ -14721,7 +14711,7 @@
       "contributor": null,
       "community": 79,
       "norm_label": "gittracker",
-      "id": "claude_claude_claude_claude_claude_claude_claude_claude_md_gittracker"
+      "id": "claude_claude_claude_claude_claude_claude_claude_md_gittracker"
     },
     {
       "label": "CommitInfo (dataclass)",
@@ -14734,7 +14724,7 @@
       "contributor": null,
       "community": 96,
       "norm_label": "commitinfo (dataclass)",
-      "id": "claude_claude_claude_claude_claude_claude_claude_claude_md_commitinfo"
+      "id": "claude_claude_claude_claude_claude_claude_claude_md_commitinfo"
     },
     {
       "label": "core/ops/ (Git Operations Layer)",
@@ -14747,7 +14737,7 @@
       "contributor": null,
       "community": 79,
       "norm_label": "core/ops/ (git operations layer)",
-      "id": "claude_claude_claude_claude_claude_claude_claude_claude_md_core_ops"
+      "id": "claude_claude_claude_claude_claude_claude_claude_md_core_ops"
     },
     {
       "label": "core/storage/ (Persistence Layer)",
@@ -14760,7 +14750,7 @@
       "contributor": null,
       "community": 98,
       "norm_label": "core/storage/ (persistence layer)",
-      "id": "claude_claude_claude_claude_claude_claude_claude_claude_md_core_storage"
+      "id": "claude_claude_claude_claude_claude_claude_claude_md_core_storage"
     },
     {
       "label": "styles/theme.py (COLORS + make_global_style)",
@@ -14773,7 +14763,7 @@
       "contributor": null,
       "community": 84,
       "norm_label": "styles/theme.py (colors + make_global_style)",
-      "id": "claude_claude_claude_claude_claude_claude_claude_claude_md_styles_theme"
+      "id": "claude_claude_claude_claude_claude_claude_claude_md_styles_theme"
     },
     {
       "label": "SpatialCanvas",
@@ -14786,7 +14776,7 @@
       "contributor": null,
       "community": 83,
       "norm_label": "spatialcanvas",
-      "id": "claude_claude_claude_claude_claude_claude_claude_claude_md_spatialcanvas"
+      "id": "claude_claude_claude_claude_claude_claude_claude_md_spatialcanvas"
     },
     {
       "label": "MiniMap",
@@ -14799,7 +14789,7 @@
       "contributor": null,
       "community": 105,
       "norm_label": "minimap",
-      "id": "claude_claude_claude_claude_claude_claude_claude_claude_md_minimap"
+      "id": "claude_claude_claude_claude_claude_claude_claude_md_minimap"
     },
     {
       "label": "CommitNode (QGraphicsItem)",
@@ -14812,7 +14802,7 @@
       "contributor": null,
       "community": 97,
       "norm_label": "commitnode (qgraphicsitem)",
-      "id": "claude_claude_claude_claude_claude_claude_claude_claude_md_commitnode"
+      "id": "claude_claude_claude_claude_claude_claude_claude_md_commitnode"
     },
     {
       "label": "BranchLabel (QGraphicsItem)",
@@ -14825,7 +14815,7 @@
       "contributor": null,
       "community": 94,
       "norm_label": "branchlabel (qgraphicsitem)",
-      "id": "claude_claude_claude_claude_claude_claude_claude_claude_md_branchlabel"
+      "id": "claude_claude_claude_claude_claude_claude_claude_md_branchlabel"
     },
     {
       "label": "EdgeItem (QGraphicsItem)",
@@ -14838,7 +14828,7 @@
       "contributor": null,
       "community": 101,
       "norm_label": "edgeitem (qgraphicsitem)",
-      "id": "claude_claude_claude_claude_claude_claude_claude_claude_md_edgeitem"
+      "id": "claude_claude_claude_claude_claude_claude_claude_md_edgeitem"
     },
     {
       "label": "Lane Algorithm (_compute_lanes)",
@@ -14851,7 +14841,7 @@
       "contributor": null,
       "community": 83,
       "norm_label": "lane algorithm (_compute_lanes)",
-      "id": "claude_claude_claude_claude_claude_claude_claude_claude_md_lane_algorithm"
+      "id": "claude_claude_claude_claude_claude_claude_claude_md_lane_algorithm"
     },
     {
       "label": "DetailPanel",
@@ -14864,7 +14854,7 @@
       "contributor": null,
       "community": 84,
       "norm_label": "detailpanel",
-      "id": "claude_claude_claude_claude_claude_claude_claude_claude_md_detailpanel"
+      "id": "claude_claude_claude_claude_claude_claude_claude_md_detailpanel"
     },
     {
       "label": "ChangesPanel (Slide-in Diff)",
@@ -14877,7 +14867,7 @@
       "contributor": null,
       "community": 95,
       "norm_label": "changespanel (slide-in diff)",
-      "id": "claude_claude_claude_claude_claude_claude_claude_claude_md_changespanel"
+      "id": "claude_claude_claude_claude_claude_claude_claude_md_changespanel"
     },
     {
       "label": "AllChangesPopup (Full-screen Overlay)",
@@ -14890,7 +14880,7 @@
       "contributor": null,
       "community": 92,
       "norm_label": "allchangespopup (full-screen overlay)",
-      "id": "claude_claude_claude_claude_claude_claude_claude_claude_md_allchangespopup"
+      "id": "claude_claude_claude_claude_claude_claude_claude_md_allchangespopup"
     },
     {
       "label": "diff_renderer.py",
@@ -14903,7 +14893,7 @@
       "contributor": null,
       "community": 99,
       "norm_label": "diff_renderer.py",
-      "id": "claude_claude_claude_claude_claude_claude_claude_claude_md_diff_renderer"
+      "id": "claude_claude_claude_claude_claude_claude_claude_md_diff_renderer"
     },
     {
       "label": "QThread Worker Pattern",
@@ -14916,7 +14906,7 @@
       "contributor": null,
       "community": 106,
       "norm_label": "qthread worker pattern",
-      "id": "claude_claude_claude_claude_claude_claude_claude_claude_md_qthread_worker_pattern"
+      "id": "claude_claude_claude_claude_claude_claude_claude_md_qthread_worker_pattern"
     },
     {
       "label": "Diverged Branch Handling",
@@ -14929,7 +14919,7 @@
       "contributor": null,
       "community": 100,
       "norm_label": "diverged branch handling",
-      "id": "claude_claude_claude_claude_claude_claude_claude_claude_md_diverged_branch_handling"
+      "id": "claude_claude_claude_claude_claude_claude_claude_md_diverged_branch_handling"
     },
     {
       "label": "evo-git-polish Development Initiative",
@@ -14942,7 +14932,7 @@
       "contributor": null,
       "community": 86,
       "norm_label": "evo-git-polish development initiative",
-      "id": "claude_claude_claude_claude_claude_claude_claude_claude_md_evo_git_polish_initiative"
+      "id": "claude_claude_claude_claude_claude_claude_claude_md_evo_git_polish_initiative"
     },
     {
       "label": "find-skills Skill (agents dir)",
@@ -15202,7 +15192,7 @@
       "contributor": null,
       "community": 7,
       "norm_label": "gitdummy logo (terracotta crash-test-dummy mascot icon)",
-      "id": "logo_logo_logo_logo_logo_logo_logo_logo_png_gitdummy_logo"
+      "id": "logo_logo_logo_logo_logo_logo_logo_png_gitdummy_logo"
     }
   ],
   "links": [
@@ -31851,16 +31841,6 @@
       "relation": "method",
       "confidence": "EXTRACTED",
       "source_file": "ui/components/toast.py",
-      "source_location": "L111",
-      "weight": 1.0,
-      "source": "ui_components_toast_toast",
-      "target": "ui_components_toast_toast_mousepressevent",
-      "confidence_score": 1.0
-    },
-    {
-      "relation": "method",
-      "confidence": "EXTRACTED",
-      "source_file": "ui/components/toast.py",
       "source_location": "L102",
       "weight": 1.0,
       "source": "ui_components_toast_toast",
@@ -31871,7 +31851,7 @@
       "relation": "method",
       "confidence": "EXTRACTED",
       "source_file": "ui/components/toast.py",
-      "source_location": "L116",
+      "source_location": "L111",
       "weight": 1.0,
       "source": "ui_components_toast_toast",
       "target": "ui_components_toast_toast_reposition",
@@ -31935,7 +31915,7 @@
       "context": "call",
       "confidence": "EXTRACTED",
       "source_file": "ui/components/toast.py",
-      "source_location": "L118",
+      "source_location": "L113",
       "weight": 1.0,
       "source": "ui_components_toast_toast_reposition",
       "target": "ui_components_toast_toast_target_pos",
@@ -31973,17 +31953,6 @@
       "weight": 1.0,
       "source": "ui_main_window_topnav_toggle_popup",
       "target": "qpoint"
-    },
-    {
-      "relation": "calls",
-      "context": "call",
-      "confidence": "EXTRACTED",
-      "source_file": "ui/components/toast.py",
-      "source_location": "L113",
-      "weight": 1.0,
-      "source": "ui_components_toast_toast_mousepressevent",
-      "target": "ui_components_toast_toast_dismiss",
-      "confidence_score": 1.0
     },
     {
       "relation": "contains",
@@ -47427,7 +47396,7 @@
       "source_file": "requirements.txt",
       "source_location": null,
       "weight": 1.0,
-      "source": "claude_claude_claude_claude_claude_claude_claude_claude_md_evogit",
+      "source": "claude_claude_claude_claude_claude_claude_claude_md_evogit",
       "target": "requirements_txt_gitpython"
     },
     {
@@ -47437,7 +47406,7 @@
       "source_file": "requirements.txt",
       "source_location": null,
       "weight": 1.0,
-      "source": "claude_claude_claude_claude_claude_claude_claude_claude_md_evogit",
+      "source": "claude_claude_claude_claude_claude_claude_claude_md_evogit",
       "target": "requirements_txt_pyqt5"
     },
     {
@@ -47447,7 +47416,7 @@
       "source_file": "requirements.txt",
       "source_location": null,
       "weight": 1.0,
-      "source": "claude_claude_claude_claude_claude_claude_claude_claude_md_evogit",
+      "source": "claude_claude_claude_claude_claude_claude_claude_md_evogit",
       "target": "requirements_txt_qtawesome"
     },
     {
@@ -47457,7 +47426,7 @@
       "source_file": "requirements.txt",
       "source_location": null,
       "weight": 1.0,
-      "source": "claude_claude_claude_claude_claude_claude_claude_claude_md_evogit",
+      "source": "claude_claude_claude_claude_claude_claude_claude_md_evogit",
       "target": "requirements_txt_requests"
     },
     {
@@ -47467,8 +47436,8 @@
       "source_file": "logo/logo.png",
       "source_location": null,
       "weight": 1.0,
-      "source": "logo_logo_logo_logo_logo_logo_logo_logo_png_gitdummy_logo",
-      "target": "claude_claude_claude_claude_claude_claude_claude_claude_md_evogit"
+      "source": "logo_logo_logo_logo_logo_logo_logo_png_gitdummy_logo",
+      "target": "claude_claude_claude_claude_claude_claude_claude_md_evogit"
     },
     {
       "relation": "references",
@@ -47478,7 +47447,7 @@
       "source_location": null,
       "weight": 1.0,
       "source": "agent_team_txt_code_quality_refactor",
-      "target": "claude_claude_claude_claude_claude_claude_claude_claude_md_commitviewpage"
+      "target": "claude_claude_claude_claude_claude_claude_claude_md_commitviewpage"
     },
     {
       "relation": "references",
@@ -47488,7 +47457,7 @@
       "source_location": null,
       "weight": 1.0,
       "source": "agent_team_txt_git_actions_debugger",
-      "target": "claude_claude_claude_claude_claude_claude_claude_claude_md_commitviewpage"
+      "target": "claude_claude_claude_claude_claude_claude_claude_md_commitviewpage"
     },
     {
       "relation": "references",
@@ -47498,7 +47467,7 @@
       "source_location": null,
       "weight": 1.0,
       "source": "agent_team_txt_git_actions_debugger",
-      "target": "claude_claude_claude_claude_claude_claude_claude_claude_md_gittracker"
+      "target": "claude_claude_claude_claude_claude_claude_claude_md_gittracker"
     },
     {
       "relation": "references",
@@ -47508,7 +47477,7 @@
       "source_location": null,
       "weight": 1.0,
       "source": "agent_team_txt_git_actions_debugger",
-      "target": "claude_claude_claude_claude_claude_claude_claude_claude_md_core_ops"
+      "target": "claude_claude_claude_claude_claude_claude_claude_md_core_ops"
     },
     {
       "relation": "references",
@@ -47518,7 +47487,7 @@
       "source_location": null,
       "weight": 1.0,
       "source": "agent_team_txt_ui_ux_polish",
-      "target": "claude_claude_claude_claude_claude_claude_claude_claude_md_styles_theme"
+      "target": "claude_claude_claude_claude_claude_claude_claude_md_styles_theme"
     },
     {
       "relation": "references",
@@ -47528,7 +47497,7 @@
       "source_location": null,
       "weight": 1.0,
       "source": "agent_team_txt_canvas_visualizer_debugger",
-      "target": "claude_claude_claude_claude_claude_claude_claude_claude_md_spatialcanvas"
+      "target": "claude_claude_claude_claude_claude_claude_claude_md_spatialcanvas"
     },
     {
       "relation": "references",
@@ -47538,7 +47507,7 @@
       "source_location": null,
       "weight": 1.0,
       "source": "agent_team_txt_canvas_visualizer_debugger",
-      "target": "claude_claude_claude_claude_claude_claude_claude_claude_md_lane_algorithm"
+      "target": "claude_claude_claude_claude_claude_claude_claude_md_lane_algorithm"
     },
     {
       "relation": "references",
@@ -47548,7 +47517,7 @@
       "source_location": null,
       "weight": 1.0,
       "source": "agent_team_txt_ui_ux_polish",
-      "target": "claude_claude_claude_claude_claude_claude_claude_claude_md_detailpanel"
+      "target": "claude_claude_claude_claude_claude_claude_claude_md_detailpanel"
     },
     {
       "relation": "implements",
@@ -47558,7 +47527,7 @@
       "source_location": null,
       "weight": 1.0,
       "source": "agent_team_txt_evo_git_polish_agent",
-      "target": "claude_claude_claude_claude_claude_claude_claude_claude_md_evo_git_polish_initiative"
+      "target": "claude_claude_claude_claude_claude_claude_claude_md_evo_git_polish_initiative"
     },
     {
       "relation": "references",
@@ -47618,7 +47587,7 @@
       "source_location": null,
       "weight": 1.0,
       "source": "_github_workflows_release_yml_build_macos",
-      "target": "logo_logo_logo_logo_logo_logo_logo_logo_png_gitdummy_logo"
+      "target": "logo_logo_logo_logo_logo_logo_logo_png_gitdummy_logo"
     },
     {
       "relation": "references",
@@ -47636,7 +47605,7 @@
       "id": "hyperedge_evogit_dependency_stack",
       "label": "EvoGit Python dependency stack",
       "nodes": [
-        "claude_claude_claude_claude_claude_claude_claude_claude_md_evogit",
+        "claude_claude_claude_claude_claude_claude_claude_md_evogit",
         "requirements_txt_pyqt5",
         "requirements_txt_gitpython",
         "requirements_txt_requests",
