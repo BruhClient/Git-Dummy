@@ -4,6 +4,7 @@ from typing import Optional
 
 import os
 import re
+import subprocess
 import threading
 
 import qtawesome as qta
@@ -17,6 +18,7 @@ from PyQt5.QtWidgets import (
 )
 from styles.theme import COLORS
 from core.git_tracker import GitTracker, CommitInfo
+from core.ops.base_ops import _POPEN_FLAGS
 from core.ops import (current_branch, branch_for_commit,
                       has_uncommitted_changes, create_auto_stash,
                       pop_auto_stash, apply_stash, drop_stash,
@@ -97,8 +99,8 @@ class CommitViewPage(_PRMixin, QWidget):
     _conflict_done_sig      = pyqtSignal(bool, str, str)         # ok, err, branch
     _merge_done_sig         = pyqtSignal(bool, str, list, str, str, object)  # ok, err, files, source, target, content
     _merge_resolve_done_sig = pyqtSignal(bool, str, str)             # ok, err, success_msg
-    _pull_done_sig      = pyqtSignal(bool, str, str, list)  # ok, err, success_msg, conflict_files
-    _auto_pull_done_sig = pyqtSignal(bool, str, str, str)    # ok, err, pulled, failed
+    _pull_done_sig      = pyqtSignal(bool, str, str, list, bool)  # ok, err, success_msg, conflict_files, stash_conflict
+    _auto_pull_done_sig = pyqtSignal(bool, str, str, str, str)    # ok, err, pulled, failed, stash_conflicts
     _create_done_sig= pyqtSignal(bool, str, str)             # ok, err, branch_name
     _stash_done_sig = pyqtSignal(bool, str, list, object)   # ok, msg, conflict_files, conflict_content
     # PR wizard signals (thread → main)
@@ -265,6 +267,8 @@ class CommitViewPage(_PRMixin, QWidget):
         self._detail_thread:    Optional[QThread] = None
         self._detail_gen: int   = 0
         self._vis_thread:       Optional[QThread] = None
+        self._create_thread:    Optional[QThread] = None
+        self._first_commit_thread: Optional[QThread] = None
         self._navigate_thread:  Optional[QThread] = None
         self._navigate_worker   = None
         self._nav_gen:          int  = 0
@@ -455,6 +459,7 @@ class CommitViewPage(_PRMixin, QWidget):
         # graph is never visible when this page becomes visible after the switch.
         self._canvas.load_graph([], {})
         self._pending_create_remote = False
+        self._access_denied_shown = False
         if self._create_remote_dlg:
             self._create_remote_dlg.hide()
             self._create_remote_dlg = None
@@ -521,13 +526,7 @@ class CommitViewPage(_PRMixin, QWidget):
         if has_remote:
             self._header.set_url(self._tracker.remote_url())   # show URL immediately, badge loads async
             if token:
-                self._vis_thread  = QThread()
-                self._vis_worker  = _VisibilityWorker(self._tracker._path, token)
-                self._vis_worker.moveToThread(self._vis_thread)
-                self._vis_thread.started.connect(self._vis_worker.run)
-                self._vis_worker.finished.connect(self._on_visibility_ready)
-                self._vis_worker.finished.connect(self._vis_thread.quit)
-                self._vis_thread.start()
+                self._start_visibility_check(token)
         else:
             self._header.set_url("")
         self._poll_timer.stop()
@@ -554,6 +553,17 @@ class CommitViewPage(_PRMixin, QWidget):
         self._load_collaborators()
 
     # ── Internal ──────────────────────────────────────────────────────────
+
+    def _start_visibility_check(self, token: str):
+        if self._vis_thread and self._vis_thread.isRunning():
+            return
+        self._vis_thread  = QThread()
+        self._vis_worker  = _VisibilityWorker(self._tracker._path, token)
+        self._vis_worker.moveToThread(self._vis_thread)
+        self._vis_thread.started.connect(self._vis_worker.run)
+        self._vis_worker.finished.connect(self._on_visibility_ready)
+        self._vis_worker.finished.connect(self._vis_thread.quit)
+        self._vis_thread.start()
 
     def _start_load(self, initial: bool = False):
         if not self._tracker:
@@ -594,6 +604,23 @@ class CommitViewPage(_PRMixin, QWidget):
                 f'The GitHub repository for "{self._tracker.repo_name}" no longer exists. Recreate it to restore your backup.',
                 self._tracker.repo_name,
             )
+            return
+        if visibility == "not_found" and self._tracker and not is_owner:
+            # GitHub hides private repos we can't see behind a 404. Since this
+            # account doesn't own the repo, treat it as private / no access
+            # rather than deleted: tell the user, then bounce back to projects
+            # (main._on_access_denied removes the card).
+            if not getattr(self, "_access_denied_shown", False):
+                self._access_denied_shown = True
+                from ui.dialogs import alert
+                owner_txt = owner or "another account"
+                alert(
+                    self, "No access",
+                    f'This repository is private and owned by {owner_txt}. '
+                    f"Your current account doesn't have access to it, so it's "
+                    f"being removed from your projects.",
+                )
+                self.access_denied.emit(self._tracker._path)
             return
         if can_push:
             role = "Owner" if is_owner else "Collaborator"
@@ -749,7 +776,7 @@ class CommitViewPage(_PRMixin, QWidget):
                 from core.ops import has_uncommitted_changes, pull_ff, current_branch
                 cur = current_branch(path)
                 if cur == "HEAD":
-                    self._auto_pull_done_sig.emit(True, "", "", "")
+                    self._auto_pull_done_sig.emit(True, "", "", "", "")
                     return
                 dirty = has_uncommitted_changes(path)
                 # Collect local branches that are behind their remote
@@ -757,6 +784,7 @@ class CommitViewPage(_PRMixin, QWidget):
                     ["git", "for-each-ref", "refs/heads/", "--format=%(refname:short) %(upstream:short) %(upstream:trackshort)"],
                     cwd=path, capture_output=True, text=True, timeout=5,
                     encoding="utf-8", errors="replace",
+                    creationflags=_POPEN_FLAGS,
                 )
                 behind_branches = []
                 all_local = []
@@ -775,47 +803,50 @@ class CommitViewPage(_PRMixin, QWidget):
                         ["git", "rev-list", "--count", f"{branch}..origin/{branch}"],
                         cwd=path, capture_output=True, text=True, timeout=5,
                         encoding="utf-8", errors="replace",
+                        creationflags=_POPEN_FLAGS,
                     )
                     if cnt.returncode == 0 and cnt.stdout.strip() not in ("", "0"):
                         cnt2 = _sp.run(
                             ["git", "rev-list", "--count", f"origin/{branch}..{branch}"],
                             cwd=path, capture_output=True, text=True, timeout=5,
                             encoding="utf-8", errors="replace",
+                            creationflags=_POPEN_FLAGS,
                         )
                         if cnt2.returncode != 0 or cnt2.stdout.strip() in ("", "0"):
                             behind_branches.append(branch)
                 if not behind_branches:
-                    self._auto_pull_done_sig.emit(True, "", "", "")
+                    self._auto_pull_done_sig.emit(True, "", "", "", "")
                     return
                 pulled = []
                 failed = []
+                stash_conflicts = []
                 for branch in behind_branches:
                     if branch == cur and dirty:
                         continue
-                    old_tip = _sp.run(
-                        ["git", "rev-parse", branch],
-                        cwd=path, capture_output=True, text=True, timeout=5,
-                        encoding="utf-8", errors="replace",
-                    ).stdout.strip()
-                    ok, err = pull_ff(path, branch)
+                    ok, err, stash_conflict = pull_ff(path, branch)
                     if ok:
                         pulled.append(branch)
-                        if old_tip:
-                            from core.ops import migrate_stash_after_pull
-                            migrate_stash_after_pull(path, old_tip)
+                        if stash_conflict:
+                            stash_conflicts.append(branch)
                     else:
                         failed.append((branch, err))
                 first_err = failed[0][1] if failed else ""
                 self._auto_pull_done_sig.emit(not failed, first_err,
                     ", ".join(pulled) if pulled else "",
-                    ", ".join(b for b, _ in failed) if failed else "")
+                    ", ".join(b for b, _ in failed) if failed else "",
+                    ", ".join(stash_conflicts) if stash_conflicts else "")
             except Exception:
-                self._auto_pull_done_sig.emit(False, "", "", "")
+                self._auto_pull_done_sig.emit(False, "", "", "", "")
         import threading as _threading
         _threading.Thread(target=_run, daemon=True).start()
 
-    def _on_auto_pull_done(self, ok: bool, err: str, pulled: str = "", failed: str = ""):
-        if pulled:
+    def _on_auto_pull_done(self, ok: bool, err: str, pulled: str = "", failed: str = "",
+                           stash_conflicts: str = ""):
+        if pulled and stash_conflicts:
+            self._toast.show_message(
+                f"Synced: {pulled} — your stash conflicts with the new commits and wasn't re-applied.",
+                kind="error", duration_ms=6000)
+        elif pulled:
             self._toast.show_message(f"Synced: {pulled}", kind="success", duration_ms=4000)
         if not ok and err:
             if "non-fast-forward" in err or "rejected" in err or "diverge" in err.lower():
@@ -932,6 +963,8 @@ class CommitViewPage(_PRMixin, QWidget):
         user_email = self._user.get("email", "")
         if not token or not username:
             return
+        if self._create_thread and self._create_thread.isRunning():
+            return
         if self._create_remote_dlg:
             self._create_remote_dlg.set_creating(True)
         self._create_thread  = QThread()
@@ -960,13 +993,7 @@ class CommitViewPage(_PRMixin, QWidget):
         self._header.set_url(self._tracker.remote_url())
         self._header.set_connection_state(True)
         if token:
-            self._vis_thread  = QThread()
-            self._vis_worker  = _VisibilityWorker(self._tracker._path, token)
-            self._vis_worker.moveToThread(self._vis_thread)
-            self._vis_thread.started.connect(self._vis_worker.run)
-            self._vis_worker.finished.connect(self._on_visibility_ready)
-            self._vis_worker.finished.connect(self._vis_thread.quit)
-            self._vis_thread.start()
+            self._start_visibility_check(token)
         self._poll_wanted = True
         self._poll_timer.start()
         self._start_load(initial=True)
@@ -1050,6 +1077,7 @@ class CommitViewPage(_PRMixin, QWidget):
                  "--format=%(objectname) %(refname:short)", "refs/heads/"],
                 cwd=self._tracker._path, capture_output=True, text=True,
                 encoding="utf-8", errors="replace", timeout=5,
+                creationflags=_POPEN_FLAGS,
             )
             for _line in (_r.stdout or "").strip().splitlines():
                 _parts = _line.strip().split(None, 1)
@@ -1125,8 +1153,7 @@ class CommitViewPage(_PRMixin, QWidget):
         self._remote_tip_shas: set[str] = remote_tip_shas or set()
 
         # Local tip is always the authoritative head — show the hollow ring on it
-        # regardless of whether remote is ahead or behind.
-        # Remote filled-dot is shown separately for awareness, but actions and
+        # regardless of whether remote is ahead or behind. Actions and
         # head-tracking always follow the local tip.
         local_tip_visible: set[str] = set(self._local_tip_branch.keys())
 
@@ -1140,9 +1167,7 @@ class CommitViewPage(_PRMixin, QWidget):
                                 orientation=self._orientation,
                                 head_sha=self._last_head_sha or (self._tracker.head_sha() if self._tracker else ""),
                                 is_initial=is_initial,
-                                local_tip_shas=local_tip_visible,
-                                remote_tip_shas=self._remote_tip_shas,
-                                action_head_shas=self._branch_head_shas)
+                                local_tip_shas=local_tip_visible)
         # commit.branch is now set for all commits by load_graph.
         self._sha_to_branch = {c.sha: c.branch for c in commits}
         self._update_position_panel(commits)
@@ -1224,6 +1249,8 @@ class CommitViewPage(_PRMixin, QWidget):
         self._last_head_sha = head_sha
 
     def _make_first_commit(self):
+        if self._first_commit_thread and self._first_commit_thread.isRunning():
+            return
         self._first_commit_thread  = QThread()
         self._first_commit_worker  = _FirstCommitWorker(self._tracker._path)
         self._first_commit_worker.moveToThread(self._first_commit_thread)
@@ -1630,6 +1657,7 @@ class CommitViewPage(_PRMixin, QWidget):
                     ["git", "rev-parse", "HEAD"],
                     cwd=path, capture_output=True, text=True,
                     encoding="utf-8", errors="replace", timeout=5,
+                    creationflags=_POPEN_FLAGS,
                 ).stdout.strip()
                 fetch_ok, fetch_err = git_run(path, ["git", "fetch", "origin"], timeout=30)
                 ok, err, files, content = merge_branch(path, f"origin/{branch}")
@@ -1667,10 +1695,10 @@ class CommitViewPage(_PRMixin, QWidget):
         def _run():
             try:
                 from core.ops import pull_ff
-                ok, err = pull_ff(path, branch)
+                ok, err, stash_conflict = pull_ff(path, branch)
             except Exception as exc:
-                ok, err = False, str(exc)
-            self._pull_done_sig.emit(ok, err, f"Pulled latest '{branch}'.", [])
+                ok, err, stash_conflict = False, str(exc), False
+            self._pull_done_sig.emit(ok, err, f"Pulled latest '{branch}'.", [], stash_conflict)
         import threading as _threading
         _threading.Thread(target=_run, daemon=True).start()
 
@@ -1692,7 +1720,7 @@ class CommitViewPage(_PRMixin, QWidget):
                     ok, err = pull_stash_apply(path, branch)
                 except Exception as exc:
                     ok, err = False, str(exc)
-                self._pull_done_sig.emit(ok, err, success_msg, [])
+                self._pull_done_sig.emit(ok, err, success_msg, [], False)
         elif choice == "save_merge":
             success_msg = f"Saved changes merged with '{branch}'."
             def _run():
@@ -1701,7 +1729,7 @@ class CommitViewPage(_PRMixin, QWidget):
                     ok, err, cfiles = pull_save_merge(path, branch)
                 except Exception as exc:
                     ok, err, cfiles = False, str(exc), []
-                self._pull_done_sig.emit(ok, err, success_msg, cfiles)
+                self._pull_done_sig.emit(ok, err, success_msg, cfiles, False)
         else:  # discard_pull
             success_msg = f"Pulled '{branch}' — local changes discarded."
             def _run():
@@ -1710,15 +1738,21 @@ class CommitViewPage(_PRMixin, QWidget):
                     ok, err = pull_discard(path, branch)
                 except Exception as exc:
                     ok, err = False, str(exc)
-                self._pull_done_sig.emit(ok, err, success_msg, [])
+                self._pull_done_sig.emit(ok, err, success_msg, [], False)
         import threading as _threading
         _threading.Thread(target=_run, daemon=True).start()
 
-    def _on_pull_done(self, ok: bool, err: str, success_msg: str, conflict_files: list):
+    def _on_pull_done(self, ok: bool, err: str, success_msg: str, conflict_files: list,
+                      stash_conflict: bool = False):
         self._panel_op_active = False
         self._navigating = False
         if ok:
-            self._toast.show_message(success_msg, kind="success", duration_ms=5000)
+            if stash_conflict:
+                self._toast.show_message(
+                    f"{success_msg} Your stash conflicts with the new commits and wasn't re-applied.",
+                    kind="error", duration_ms=6000)
+            else:
+                self._toast.show_message(success_msg, kind="success", duration_ms=5000)
             self._start_load()
             self._panel.unlock_actions()
         elif err == "stash_conflict":
@@ -2176,7 +2210,7 @@ class CommitViewPage(_PRMixin, QWidget):
             self._panel.set_pull_state(False, commit.branch)
             self._panel.set_sync_state(False, commit.branch)
 
-        # Commit actions — follow same source of truth as the red dot.
+        # Commit actions — follow same source of truth as branch-head detection.
         # Suppress all actions while another operation is in progress.
         is_head = commit.sha in self._branch_head_shas and not self._panel_op_active
         # Remote tip: a branch tip that exists on the remote but not locally checked out.
