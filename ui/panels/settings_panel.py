@@ -301,6 +301,7 @@ class SettingsPanel(QWidget):
     _branch_protection_sig = pyqtSignal(str, bool)  # thread → main: (branch_name, is_protected)
     protected_branches_ready = pyqtSignal(set)       # emitted with set of protected branch names
     approval_count_ready     = pyqtSignal(int)       # min required approvals for PRs
+    check_updates_requested  = pyqtSignal()          # "Check for Updates" button clicked
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -559,6 +560,54 @@ class SettingsPanel(QWidget):
 
         self._content_layout.addWidget(rules_card)
         self._rules_card = rules_card
+
+        self._content_layout.addSpacing(20)
+
+        # ── About ────────────────────────────────────────────────────────────
+        self._content_layout.addWidget(_section_lbl("About"))
+        self._content_layout.addSpacing(10)
+
+        about_card = QWidget()
+        about_card.setObjectName("aboutCard")
+        about_card.setAttribute(Qt.WA_StyledBackground, True)
+        about_card.setStyleSheet(f"""
+            #aboutCard {{
+                background: {COLORS['bg_card']};
+                border: 1px solid {COLORS['border']};
+                border-radius: 8px;
+            }}
+        """)
+        about_h = QHBoxLayout(about_card)
+        about_h.setContentsMargins(14, 12, 14, 12)
+        about_h.setSpacing(10)
+
+        from version import __version__ as _app_version
+        version_lbl = QLabel(f"Git Dummy v{_app_version}")
+        version_lbl.setStyleSheet(
+            f"background: transparent; font-size: 12px; color: {COLORS['text_secondary']};"
+        )
+        about_h.addWidget(version_lbl)
+        about_h.addStretch()
+
+        check_updates_btn = QPushButton("Check for Updates")
+        check_updates_btn.setCursor(Qt.PointingHandCursor)
+        check_updates_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: transparent;
+                border: 1px solid {COLORS['border']};
+                border-radius: 6px;
+                color: {COLORS['text_primary']};
+                font-size: 12px;
+                padding: 6px 12px;
+            }}
+            QPushButton:hover {{
+                background: {COLORS['bg_hover']};
+            }}
+        """)
+        check_updates_btn.clicked.connect(self.check_updates_requested.emit)
+        about_h.addWidget(check_updates_btn)
+
+        self._content_layout.addWidget(about_card)
 
         self._content_layout.addStretch()
 

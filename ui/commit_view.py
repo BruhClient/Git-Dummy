@@ -150,6 +150,7 @@ class CommitViewPage(_PRMixin, QWidget):
         self._panel.raise_()
         self._settings_panel._branch_protection_sig.connect(self._on_branch_protection_state)
         self._settings_panel.protected_branches_ready.connect(self._on_protected_branches)
+        self._settings_panel.check_updates_requested.connect(self._on_check_updates_requested)
 
         self._changes_panel = ChangesPanel(self)
         self._changes_panel.raise_()
@@ -278,6 +279,8 @@ class CommitViewPage(_PRMixin, QWidget):
         self._last_stash_id:    str  = ""
         self._uncommitted_thread: Optional[QThread] = None
         self._uncommitted_worker  = None
+        self._update_thread: Optional[QThread] = None
+        self._update_worker       = None
         self._commits: list = []
         self._collaborators: list = []
         self._collab_cache: dict[str, list[dict]] = {}
@@ -749,6 +752,44 @@ class CommitViewPage(_PRMixin, QWidget):
         self._fetch_worker.finished.connect(self._on_fetch_done)
         self._fetch_worker.finished.connect(self._fetch_thread.quit)
         self._fetch_thread.start()
+
+    # ── Update check worker ─────────────────────────────────────────────────────
+
+    def _on_check_updates_requested(self):
+        if self._update_thread and self._update_thread.isRunning():
+            return
+        from ui.workers.update_worker import _CheckUpdateWorker
+        from version import __version__
+
+        self._update_thread = QThread()
+        self._update_worker = _CheckUpdateWorker(__version__)
+        self._update_worker.moveToThread(self._update_thread)
+        self._update_thread.started.connect(self._update_worker.run)
+        self._update_worker.finished.connect(self._on_update_check_result)
+        self._update_worker.finished.connect(self._update_thread.quit)
+        self._update_thread.finished.connect(self._on_update_thread_done)
+        self._update_thread.start()
+
+    def _on_update_check_result(self, available: bool, version: str, url: str):
+        from version import __version__
+        if available:
+            self._toast.show_message(
+                f"Update available: v{version} — click Settings to download",
+                kind="info", duration_ms=6000,
+            )
+        elif version:
+            self._toast.show_message(
+                f"You're up to date (v{__version__})", kind="success", duration_ms=4000,
+            )
+        else:
+            self._toast.show_message(
+                "Couldn't check for updates — check your connection.",
+                kind="error", duration_ms=6000,
+            )
+
+    def _on_update_thread_done(self):
+        self._update_thread = None
+        self._update_worker = None
 
     # ── Branch count worker ────────────────────────────────────────────────────
 

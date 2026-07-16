@@ -1,5 +1,6 @@
 import os
 import threading
+import webbrowser
 from datetime import datetime
 
 import qtawesome as qta
@@ -347,6 +348,29 @@ class TopNav(QWidget):
 
         layout.addStretch()
 
+        # Update-available badge (hidden until a background check finds a newer release)
+        self._update_btn = QPushButton("Update available")
+        self._update_btn.setIcon(qta.icon("fa5s.arrow-circle-up", color=COLORS["accent"]))
+        self._update_btn.setCursor(Qt.PointingHandCursor)
+        self._update_btn.setStyleSheet(f"""
+            QPushButton {{
+                background: {COLORS['accent_dim']};
+                border: 1px solid {COLORS['accent']};
+                border-radius: 14px;
+                color: {COLORS['accent']};
+                font-size: 12px;
+                font-weight: 600;
+                padding: 4px 12px;
+            }}
+            QPushButton:hover {{
+                background: {COLORS['bg_hover']};
+            }}
+        """)
+        self._update_btn.hide()
+        self._update_url = ""
+        self._update_btn.clicked.connect(self._on_update_badge_clicked)
+        layout.addWidget(self._update_btn, 0, Qt.AlignVCenter)
+
         # Right: clickable account area (avatar) opens the account popup
         self._account_btn = QPushButton()
         self._account_btn.setFlat(True)
@@ -430,6 +454,15 @@ class TopNav(QWidget):
             self._popup.hide()
         self.add_account_clicked.emit()
 
+    def show_update_badge(self, version: str, url: str):
+        self._update_btn.setToolTip(f"Git Dummy v{version} is available — click to download")
+        self._update_url = url
+        self._update_btn.show()
+
+    def _on_update_badge_clicked(self):
+        if self._update_url:
+            webbrowser.open(self._update_url)
+
     def show_repos_state(self):
         self._back_btn.hide()
         self._sep.hide()
@@ -480,6 +513,9 @@ class MainWindow(QMainWindow):
 
         self._pages: dict[str, QWidget] = {}
         self._current_repo_name = ""
+        self._update_checked = False
+        self._update_thread = None
+        self._update_worker = None
 
     def add_page(self, key: str, widget: QWidget):
         self._stack.addWidget(widget)
@@ -497,6 +533,33 @@ class MainWindow(QMainWindow):
 
     def set_user(self, user: dict):
         self.topnav.set_user(user)
+        if not self._update_checked:
+            self._update_checked = True
+            self._start_update_check()
+
+    def _start_update_check(self):
+        from PyQt5.QtCore import QThread
+        from ui.workers.update_worker import _CheckUpdateWorker
+        from version import __version__
+
+        thread = QThread()
+        worker = _CheckUpdateWorker(__version__)
+        worker.moveToThread(thread)
+        thread.started.connect(worker.run)
+        worker.finished.connect(self._on_update_check_done)
+        worker.finished.connect(thread.quit)
+        thread.finished.connect(self._on_update_thread_done)
+        self._update_thread = thread
+        self._update_worker = worker
+        thread.start()
+
+    def _on_update_check_done(self, available: bool, version: str, url: str):
+        if available:
+            self.topnav.show_update_badge(version, url)
+
+    def _on_update_thread_done(self):
+        self._update_thread = None
+        self._update_worker = None
 
     def set_repo_name(self, name: str):
         self._current_repo_name = name

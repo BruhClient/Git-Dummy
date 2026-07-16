@@ -2,6 +2,8 @@
 import os
 import qtawesome
 
+from version import __version__
+
 block_cipher = None
 
 qta_dir = os.path.dirname(qtawesome.__file__)
@@ -87,7 +89,7 @@ app = BUNDLE(
     bundle_identifier='com.gitdummy.app',
     info_plist={
         'CFBundleDisplayName': 'Git Dummy',
-        'CFBundleShortVersionString': '1.0.0',
+        'CFBundleShortVersionString': __version__,
         'NSHighResolutionCapable': True,
         'NSRequiresAquaSystemAppearance': False,
     },
