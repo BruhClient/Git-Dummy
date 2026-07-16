@@ -770,11 +770,11 @@ class CommitViewPage(_PRMixin, QWidget):
         self._update_thread.finished.connect(self._on_update_thread_done)
         self._update_thread.start()
 
-    def _on_update_check_result(self, available: bool, version: str, url: str):
+    def _on_update_check_result(self, available: bool, version: str, url: str, download_url: str):
         from version import __version__
         if available:
             self._toast.show_message(
-                f"Update available: v{version} — click Settings to download",
+                f"Update available: v{version} — click the badge at the top to install",
                 kind="info", duration_ms=6000,
             )
         elif version:

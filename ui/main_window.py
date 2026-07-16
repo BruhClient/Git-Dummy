@@ -1,4 +1,5 @@
 import os
+import sys
 import threading
 import webbrowser
 from datetime import datetime
@@ -368,6 +369,10 @@ class TopNav(QWidget):
         """)
         self._update_btn.hide()
         self._update_url = ""
+        self._update_version = ""
+        self._update_download_url = ""
+        self._install_thread = None
+        self._install_worker = None
         self._update_btn.clicked.connect(self._on_update_badge_clicked)
         layout.addWidget(self._update_btn, 0, Qt.AlignVCenter)
 
@@ -454,14 +459,58 @@ class TopNav(QWidget):
             self._popup.hide()
         self.add_account_clicked.emit()
 
-    def show_update_badge(self, version: str, url: str):
-        self._update_btn.setToolTip(f"Git Dummy v{version} is available — click to download")
+    def show_update_badge(self, version: str, url: str, download_url: str = ""):
+        self._update_btn.setToolTip(f"Git Dummy v{version} is available — click to install")
         self._update_url = url
+        self._update_version = version
+        self._update_download_url = download_url
+        self._update_btn.setEnabled(True)
+        self._update_btn.setText("Update available")
         self._update_btn.show()
 
     def _on_update_badge_clicked(self):
-        if self._update_url:
+        if sys.platform == "win32" and self._update_download_url:
+            self._start_update_install()
+        elif self._update_url:
             webbrowser.open(self._update_url)
+
+    def _start_update_install(self):
+        if self._install_thread and self._install_thread.isRunning():
+            return
+        from PyQt5.QtCore import QThread
+        from ui.workers.update_worker import _DownloadInstallWorker
+
+        self._update_btn.setEnabled(False)
+        self._update_btn.setText("Downloading… 0%")
+
+        thread = QThread()
+        worker = _DownloadInstallWorker(self._update_download_url, self._update_version)
+        worker.moveToThread(thread)
+        thread.started.connect(worker.run)
+        worker.progress.connect(self._on_install_progress)
+        worker.finished.connect(self._on_install_done)
+        worker.finished.connect(thread.quit)
+        thread.finished.connect(self._on_install_thread_done)
+        self._install_thread = thread
+        self._install_worker = worker
+        thread.start()
+
+    def _on_install_progress(self, pct: int):
+        self._update_btn.setText(f"Downloading… {pct}%")
+
+    def _on_install_done(self, ok: bool, result: str):
+        if ok:
+            from PyQt5.QtCore import QTimer
+            from PyQt5.QtWidgets import QApplication
+            self._update_btn.setText("Installing…")
+            QTimer.singleShot(500, QApplication.instance().quit)
+        else:
+            self._update_btn.setEnabled(True)
+            self._update_btn.setText("Update available")
+
+    def _on_install_thread_done(self):
+        self._install_thread = None
+        self._install_worker = None
 
     def show_repos_state(self):
         self._back_btn.hide()
@@ -553,9 +602,9 @@ class MainWindow(QMainWindow):
         self._update_worker = worker
         thread.start()
 
-    def _on_update_check_done(self, available: bool, version: str, url: str):
+    def _on_update_check_done(self, available: bool, version: str, url: str, download_url: str):
         if available:
-            self.topnav.show_update_badge(version, url)
+            self.topnav.show_update_badge(version, url, download_url)
 
     def _on_update_thread_done(self):
         self._update_thread = None

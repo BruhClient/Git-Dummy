@@ -38,6 +38,11 @@ Section "Install"
     WriteRegDWORD HKLM "Software\Microsoft\Windows\CurrentVersion\Uninstall\GitDummy" "NoRepair" 1
 
     WriteUninstaller "$INSTDIR\${UNINSTALLER}"
+
+    ; Launch the app after install (manual or silent /S). Route through
+    ; explorer.exe so the launched app inherits its un-elevated token instead
+    ; of running with this (admin) installer's privileges.
+    Exec '"$WINDIR\explorer.exe" "$INSTDIR\${APP_EXE}"'
 SectionEnd
 
 Section "Uninstall"
