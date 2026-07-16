@@ -59,6 +59,7 @@ from .github_ops import (   # noqa: F401
 )
 from .repo_ops import (   # noqa: F401
     init_repo,
+    make_first_commit,
     clone_repo,
     pull_ff,
     pull_stash_apply,

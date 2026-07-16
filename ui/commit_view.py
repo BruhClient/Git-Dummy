@@ -1020,6 +1020,7 @@ class CommitViewPage(_PRMixin, QWidget):
 
     def _on_create_done(self, success: bool, error: str, clone_url: str):
         if not success:
+            self._loading.hide()
             if self._create_remote_dlg:
                 self._create_remote_dlg.set_error(error or "Something went wrong.")
             return

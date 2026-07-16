@@ -85,34 +85,29 @@ def push_to_github(
     Returns (success, error).
     """
     try:
-        def run(*args, **kw):
-            r = subprocess.run(
-                list(args), cwd=path,
-                capture_output=True, text=True,
-                encoding="utf-8", errors="replace",
-                creationflags=_POPEN_FLAGS, **kw,
-            )
-            if r.returncode != 0:
-                raise RuntimeError(r.stderr.strip() or r.stdout.strip())
-            return r
+        def run(*args, timeout=30):
+            ok, err = _run(path, list(args), timeout=timeout)
+            if not ok:
+                raise RuntimeError(err)
 
-        subprocess.run(["git", "config", "user.name",  user_name  or username or "User"],
-                       cwd=path, creationflags=_POPEN_FLAGS)
-        subprocess.run(["git", "config", "user.email", user_email or "user@evogit.local"],
-                       cwd=path, creationflags=_POPEN_FLAGS)
+        _run(path, ["git", "config", "user.name",  user_name  or username or "User"], timeout=15)
+        _run(path, ["git", "config", "user.email", user_email or "user@evogit.local"], timeout=15)
 
         # Stage and commit if no commits yet
-        log = subprocess.run(
-            ["git", "log", "--oneline", "-1"],
-            cwd=path, capture_output=True, creationflags=_POPEN_FLAGS,
-        )
-        if log.returncode != 0 or not log.stdout.strip():
+        try:
+            log = subprocess.run(
+                ["git", "log", "--oneline", "-1"],
+                cwd=path, capture_output=True, timeout=15, creationflags=_POPEN_FLAGS,
+            )
+            has_commit = log.returncode == 0 and bool(log.stdout.strip())
+        except subprocess.TimeoutExpired:
+            has_commit = False
+        if not has_commit:
             run("git", "add", ".")
             run("git", "commit", "--allow-empty", "-m", "Initial commit")
 
         # Add remote with the clean URL (no token embedded — stored as http header below).
-        subprocess.run(["git", "remote", "remove", "origin"], cwd=path,
-                       capture_output=True, creationflags=_POPEN_FLAGS)
+        _run(path, ["git", "remote", "remove", "origin"], timeout=15)
         run("git", "remote", "add", "origin", clone_url)
 
         # Authenticate via HTTP Basic header so the token never appears in the remote URL
@@ -123,7 +118,7 @@ def push_to_github(
         run("git", "config", "--local",
             f"http.{clone_url}.extraHeader", f"Authorization: Basic {b64}")
 
-        run("git", "push", "-u", "origin", "HEAD")
+        run("git", "push", "-u", "origin", "HEAD", timeout=60)
 
         return True, ""
     except RuntimeError as e:

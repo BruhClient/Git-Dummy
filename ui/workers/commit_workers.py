@@ -251,14 +251,9 @@ class _FirstCommitWorker(QObject):
 
     @pyqtSlot()
     def run(self):
-        subprocess.run(["git", "add", "."], cwd=self._path, capture_output=True,
-                        creationflags=_POPEN_FLAGS)
-        r = subprocess.run(
-            ["git", "commit", "--allow-empty", "-m", "Initial commit"],
-            cwd=self._path, capture_output=True,
-            creationflags=_POPEN_FLAGS,
-        )
-        self.finished.emit(r.returncode == 0)
+        from core.ops import make_first_commit
+        ok, _err = make_first_commit(self._path)
+        self.finished.emit(ok)
 
 
 class _CreateRepoWorker(QObject):

@@ -8,35 +8,27 @@ from .base_ops import _run, get_conflict_files, _POPEN_FLAGS
 
 def init_repo(path: str, user_name: str = "", user_email: str = "") -> tuple[bool, str]:
     try:
-        r = subprocess.run(["git", "init", "-b", "main"], cwd=path, capture_output=True, text=True,
-                           encoding="utf-8", errors="replace", creationflags=_POPEN_FLAGS)
-        if r.returncode != 0:
+        ok, err = _run(path, ["git", "init", "-b", "main"])
+        if not ok:
             # git < 2.28 does not support -b; init then manually point HEAD at main.
-            r = subprocess.run(["git", "init"], cwd=path, capture_output=True, text=True,
-                               encoding="utf-8", errors="replace", creationflags=_POPEN_FLAGS)
-            if r.returncode != 0:
-                return False, r.stderr.strip()
-            subprocess.run(
-                ["git", "symbolic-ref", "HEAD", "refs/heads/main"],
-                cwd=path, capture_output=True, text=True,
-                encoding="utf-8", errors="replace", creationflags=_POPEN_FLAGS,
-            )
+            ok, err = _run(path, ["git", "init"])
+            if not ok:
+                return False, err
+            _run(path, ["git", "symbolic-ref", "HEAD", "refs/heads/main"])
 
         # Set identity from the logged-in user; fall back only if nothing provided
-        subprocess.run(["git", "config", "user.name",  user_name  or "User"],
-                       cwd=path, creationflags=_POPEN_FLAGS)
-        subprocess.run(["git", "config", "user.email", user_email or "user@evogit.local"],
-                       cwd=path, creationflags=_POPEN_FLAGS)
+        _run(path, ["git", "config", "user.name",  user_name  or "User"])
+        _run(path, ["git", "config", "user.email", user_email or "user@evogit.local"])
 
-        subprocess.run(["git", "add", "."], cwd=path, capture_output=True, creationflags=_POPEN_FLAGS)
-        c = subprocess.run(
-            ["git", "commit", "--allow-empty", "-m", "Initial commit"],
-            cwd=path, capture_output=True, text=True, encoding="utf-8", errors="replace",
-            creationflags=_POPEN_FLAGS,
-        )
-        return c.returncode == 0, c.stderr.strip()
+        _run(path, ["git", "add", "."])
+        return _run(path, ["git", "commit", "--allow-empty", "-m", "Initial commit"])
     except Exception as e:
         return False, str(e)
+
+
+def make_first_commit(path: str) -> tuple[bool, str]:
+    _run(path, ["git", "add", "."])
+    return _run(path, ["git", "commit", "--allow-empty", "-m", "Initial commit"])
 
 
 def clone_repo(url: str, dest_parent: str) -> tuple[bool, str, str]:
