@@ -2,7 +2,12 @@
 import os
 import qtawesome
 
-from version import __version__
+# PyInstaller exec()s this spec without the repo root on sys.path, so a plain
+# `import version` fails in CI — read it directly relative to the spec file.
+_version_ns = {}
+with open(os.path.join(SPECPATH, 'version.py')) as _f:
+    exec(_f.read(), _version_ns)
+__version__ = _version_ns['__version__']
 
 block_cipher = None
 
